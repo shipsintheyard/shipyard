@@ -54,42 +54,36 @@ export default function VolumeRadar() {
 
   const fetchVolumeData = async () => {
     try {
-      // Fetch trending Solana tokens from DexScreener
-      const trendingRes = await fetch('https://api.dexscreener.com/token-boosts/top/v1');
+      // Fetch real trending Solana pools from GeckoTerminal (organic, not paid)
+      const trendingRes = await fetch('https://api.geckoterminal.com/api/v2/networks/solana/trending_pools');
       const trendingData = await trendingRes.json();
 
-      // Filter for Solana tokens and get top 5
-      const solanaTokens = trendingData
-        .filter((t: any) => t.chainId === 'solana')
-        .slice(0, 5);
-
-      // Fetch detailed pair data for each token
       const tokenDetails: TrendingToken[] = [];
       let totalVolume = 0;
 
-      for (const token of solanaTokens) {
-        try {
-          const pairRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${token.tokenAddress}`);
-          const pairData = await pairRes.json();
+      if (trendingData.data) {
+        // Get top 5 trending pools
+        const topPools = trendingData.data.slice(0, 5);
 
-          if (pairData.pairs && pairData.pairs.length > 0) {
-            const topPair = pairData.pairs[0];
-            const vol24h = topPair.volume?.h24 || 0;
-            totalVolume += vol24h;
+        for (const pool of topPools) {
+          const attrs = pool.attributes;
+          const vol24h = parseFloat(attrs.volume_usd?.h24 || 0);
+          totalVolume += vol24h;
 
-            tokenDetails.push({
-              symbol: topPair.baseToken?.symbol || 'UNKNOWN',
-              name: topPair.baseToken?.name || 'Unknown Token',
-              address: token.tokenAddress,
-              price: parseFloat(topPair.priceUsd || 0),
-              priceChange24h: topPair.priceChange?.h24 || 0,
-              volume24h: vol24h,
-              txns24h: (topPair.txns?.h24?.buys || 0) + (topPair.txns?.h24?.sells || 0),
-              chainId: 'solana',
-            });
-          }
-        } catch (e) {
-          console.warn('Failed to fetch token details:', e);
+          // Extract token name from pool name (e.g., "WhaleGuru / SOL" -> "WhaleGuru")
+          const poolName = attrs.name || '';
+          const tokenName = poolName.split(' / ')[0] || 'Unknown';
+
+          tokenDetails.push({
+            symbol: tokenName,
+            name: tokenName,
+            address: pool.relationships?.base_token?.data?.id?.replace('solana_', '') || '',
+            price: parseFloat(attrs.base_token_price_usd || 0),
+            priceChange24h: parseFloat(attrs.price_change_percentage?.h24 || 0),
+            volume24h: vol24h,
+            txns24h: (attrs.transactions?.h24?.buys || 0) + (attrs.transactions?.h24?.sells || 0),
+            chainId: 'solana',
+          });
         }
       }
 
@@ -118,21 +112,26 @@ export default function VolumeRadar() {
         });
       }
 
-      // Determine activity level based on volume and time
-      const currentPattern = VOLUME_PATTERNS[utcHour];
+      // Determine activity level based on real volume data
+      // Top 5 trending pools volume thresholds (24h):
+      // < $5M = dead, $5-15M = slow, $15-40M = normal, $40-100M = active, >$100M = heated
       let activityLevel: VolumeData['activityLevel'] = 'normal';
 
-      if (currentPattern <= 0.5) activityLevel = 'dead';
-      else if (currentPattern <= 0.7) activityLevel = 'slow';
-      else if (currentPattern <= 0.9) activityLevel = 'normal';
-      else if (currentPattern <= 1.1) activityLevel = 'active';
+      if (totalVolume < 5000000) activityLevel = 'dead';
+      else if (totalVolume < 15000000) activityLevel = 'slow';
+      else if (totalVolume < 40000000) activityLevel = 'normal';
+      else if (totalVolume < 100000000) activityLevel = 'active';
       else activityLevel = 'heated';
 
-      // Boost activity level if we see high trending token volume
-      if (totalVolume > 50000000 && activityLevel !== 'heated') {
-        const levels: VolumeData['activityLevel'][] = ['dead', 'slow', 'normal', 'active', 'heated'];
-        const idx = levels.indexOf(activityLevel);
-        if (idx < levels.length - 1) activityLevel = levels[idx + 1];
+      // Also factor in time-based patterns (boost or reduce by one level)
+      const currentPattern = VOLUME_PATTERNS[utcHour];
+      const levels: VolumeData['activityLevel'][] = ['dead', 'slow', 'normal', 'active', 'heated'];
+      const idx = levels.indexOf(activityLevel);
+
+      if (currentPattern >= 1.1 && idx < levels.length - 1) {
+        activityLevel = levels[idx + 1]; // Boost during peak hours
+      } else if (currentPattern <= 0.5 && idx > 0) {
+        activityLevel = levels[idx - 1]; // Reduce during dead hours
       }
 
       setData({
