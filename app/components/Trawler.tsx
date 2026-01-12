@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
+import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
 import FishCatchModal from './FishCatchModal';
 
@@ -26,8 +27,9 @@ interface TokenMetadata {
 }
 
 export default function Trawler() {
-  const { publicKey, connected, signTransaction, signAllTransactions } = useWallet();
+  const { publicKey, connected, disconnect, signTransaction, signAllTransactions } = useWallet();
   const { connection } = useConnection();
+  const { setVisible } = useWalletModal();
 
   const [walletInput, setWalletInput] = useState('');
   const [emptyAccounts, setEmptyAccounts] = useState<EmptyAccount[]>([]);
@@ -937,9 +939,28 @@ export default function Trawler() {
           <div className="main-card">
             <div className="card-header">
               <span className="card-title">WALLET SCANNER</span>
-              <div className="status-indicator">
-                <div className="status-dot"></div>
-                <span>{connected ? 'CONNECTED' : 'NOT CONNECTED'}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div className="status-indicator">
+                  <div className="status-dot"></div>
+                  <span>{connected ? 'CONNECTED' : 'NOT CONNECTED'}</span>
+                </div>
+                <button
+                  onClick={() => connected ? disconnect() : setVisible(true)}
+                  style={{
+                    background: connected ? '#1E2A3A' : '#5EAED8',
+                    color: connected ? '#6B7B8F' : '#0B1120',
+                    border: 'none',
+                    borderRadius: '4px',
+                    padding: '8px 16px',
+                    fontSize: '11px',
+                    fontFamily: "'IBM Plex Mono', monospace",
+                    fontWeight: 600,
+                    letterSpacing: '0.1em',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {connected ? 'DISCONNECT' : 'CONNECT'}
+                </button>
               </div>
             </div>
 
