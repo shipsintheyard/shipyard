@@ -163,7 +163,21 @@ export default function Trawler() {
 
       const empty = allAccounts.filter(acc => {
         const amount = acc.account.data.parsed.info.tokenAmount.uiAmount;
-        return amount === 0;
+        if (amount !== 0) return false;
+
+        // Filter out Token-2022 accounts with withheld fees (can't be closed)
+        const isToken2022 = acc.account.owner.toString() === TOKEN_2022_PROGRAM_ID;
+        if (isToken2022) {
+          // Check for transfer fee extension with withheld fees
+          const extensions = acc.account.data.parsed.info.extensions;
+          if (extensions) {
+            const transferFeeAmount = extensions.find((ext: any) => ext.extension === 'transferFeeAmount');
+            if (transferFeeAmount && parseFloat(transferFeeAmount.state?.withheldAmount || 0) > 0) {
+              return false; // Skip accounts with withheld fees
+            }
+          }
+        }
+        return true;
       }).map(acc => ({
         pubkey: acc.pubkey.toString(),
         mint: acc.account.data.parsed.info.mint,
