@@ -1,12 +1,19 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Redirect root to /trawler (remove this block to show full site)
+  // Access full site with ?dev=1
   async redirects() {
     return [
       {
         source: '/',
         destination: '/trawler',
         permanent: false,
+        missing: [
+          {
+            type: 'query',
+            key: 'dev',
+          },
+        ],
       },
     ]
   },
