@@ -1127,6 +1127,54 @@ export default function Trawler() {
               </div>
             </div>
           </div>
+
+          {/* Early Access CTA */}
+          <div style={{
+            marginTop: '24px',
+            background: 'linear-gradient(135deg, rgba(94, 174, 216, 0.1), rgba(74, 222, 128, 0.1))',
+            border: '1px solid rgba(94, 174, 216, 0.3)',
+            borderRadius: '8px',
+            padding: '24px',
+            textAlign: 'center',
+          }}>
+            <div style={{
+              fontSize: '12px',
+              letterSpacing: '0.15em',
+              color: '#5EAED8',
+              marginBottom: '8px',
+              fontWeight: 600,
+            }}>
+              MORE WIDGETS INCOMING
+            </div>
+            <div style={{
+              fontSize: '16px',
+              color: '#E2E8F0',
+              marginBottom: '16px',
+              fontFamily: "'IBM Plex Mono', monospace",
+            }}>
+              Sonar (Quality Alerts) & Raft (Auto-Compounding Launch Tool)
+            </div>
+            <a
+              href="https://twitter.com/ShipsInTheYard"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'inline-block',
+                background: '#5EAED8',
+                color: '#0B1120',
+                padding: '12px 24px',
+                borderRadius: '4px',
+                fontSize: '12px',
+                fontWeight: 700,
+                letterSpacing: '0.1em',
+                textDecoration: 'none',
+                fontFamily: "'IBM Plex Mono', monospace",
+                transition: 'all 0.2s',
+              }}
+            >
+              FOLLOW FOR EARLY ACCESS →
+            </a>
+          </div>
         </div>
 
         {toast && <div className="toast">{toast}</div>}
