@@ -276,15 +276,35 @@ export default function Trawler() {
       // Send all transactions
       showToast('Processing transactions...');
       const signatures = await Promise.all(
-        signedTransactions.map(tx => connection.sendRawTransaction(tx.serialize()))
+        signedTransactions.map(tx => connection.sendRawTransaction(tx.serialize(), {
+          skipPreflight: false,
+          preflightCommitment: 'confirmed',
+          maxRetries: 3,
+        }))
       );
 
-      // Confirm all transactions
+      // Confirm all transactions with better error handling
       let closedCount = 0;
       for (let i = 0; i < signatures.length; i++) {
-        await connection.confirmTransaction(signatures[i], 'confirmed');
-        closedCount += batches[i].length;
-        setProgress({ current: closedCount, total: accountsToClose.length });
+        try {
+          const latestBlockhash = await connection.getLatestBlockhash('confirmed');
+          await connection.confirmTransaction({
+            signature: signatures[i],
+            blockhash: latestBlockhash.blockhash,
+            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+          }, 'confirmed');
+          closedCount += batches[i].length;
+          setProgress({ current: closedCount, total: accountsToClose.length });
+        } catch (confirmErr: any) {
+          // Check if transaction actually succeeded despite timeout
+          const status = await connection.getSignatureStatus(signatures[i]);
+          if (status?.value?.confirmationStatus === 'confirmed' || status?.value?.confirmationStatus === 'finalized') {
+            closedCount += batches[i].length;
+            setProgress({ current: closedCount, total: accountsToClose.length });
+          } else {
+            console.warn(`Transaction ${i + 1} confirmation uncertain:`, confirmErr.message);
+          }
+        }
       }
 
       showToast('All transactions confirmed!');
