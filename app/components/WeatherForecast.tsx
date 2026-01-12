@@ -92,10 +92,15 @@ export default function WeatherForecast() {
 
   const fetchWeatherData = async () => {
     try {
-      // Fetch 7 days of Fear & Greed Index
-      const fgResponse = await fetch('https://api.alternative.me/fng/?limit=7');
-      const fgData = await fgResponse.json();
+      // Fetch all data from our API proxy (avoids CORS issues)
+      const response = await fetch('/api/market-weather');
+      const data = await response.json();
 
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      const fgData = data.fearGreed;
       const fearGreedIndex = parseInt(fgData.data[0].value);
       const fearGreedLabel = fgData.data[0].value_classification;
 
@@ -111,42 +116,12 @@ export default function WeatherForecast() {
         };
       });
 
-      // Fetch BTC price and funding rates
-      let btcFundingRate = 0;
-      let ethFundingRate = 0;
-      let btcPrice = 0;
-      let btcChange24h = 0;
-      let ethChange24h = 0;
-
-      try {
-        // Use CoinGecko for prices (no geo-restrictions)
-        const priceRes = await fetch(
-          'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true'
-        );
-        const priceData = await priceRes.json();
-        btcPrice = priceData.bitcoin?.usd || 0;
-        btcChange24h = priceData.bitcoin?.usd_24h_change || 0;
-        ethChange24h = priceData.ethereum?.usd_24h_change || 0;
-      } catch (e) {
-        console.warn('Could not fetch price data:', e);
-      }
-
-      try {
-        // Use OKX for funding rates (more accessible than Binance)
-        const [btcFundingRes, ethFundingRes] = await Promise.all([
-          fetch('https://www.okx.com/api/v5/public/funding-rate?instId=BTC-USDT-SWAP'),
-          fetch('https://www.okx.com/api/v5/public/funding-rate?instId=ETH-USDT-SWAP')
-        ]);
-
-        const btcFundingData = await btcFundingRes.json();
-        const ethFundingData = await ethFundingRes.json();
-
-        // fundingRate is already in decimal form (e.g., 0.0001 = 0.01%)
-        btcFundingRate = parseFloat(btcFundingData.data?.[0]?.fundingRate || 0) * 100;
-        ethFundingRate = parseFloat(ethFundingData.data?.[0]?.fundingRate || 0) * 100;
-      } catch (e) {
-        console.warn('Could not fetch funding rates:', e);
-      }
+      // Get prices and funding rates from API response
+      const btcFundingRate = data.funding.btcFundingRate;
+      const ethFundingRate = data.funding.ethFundingRate;
+      const btcPrice = data.prices.btcPrice;
+      const btcChange24h = data.prices.btcChange24h;
+      const ethChange24h = data.prices.ethChange24h;
 
       // Calculate market condition
       let marketCondition = getConditionFromFearGreed(fearGreedIndex);
