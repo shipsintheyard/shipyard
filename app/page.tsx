@@ -292,15 +292,14 @@ export default function ShipyardPlatform() {
           <div style={{
             width: '42px',
             height: '42px',
-            background: 'linear-gradient(135deg, #88c0ff 0%, #5a9fd4 100%)',
             borderRadius: '8px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: '22px',
+            overflow: 'hidden',
             boxShadow: '0 4px 20px rgba(136, 192, 255, 0.3)'
           }}>
-            ⛵
+            <img src="/icon.png" alt="Shipyard" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           </div>
           <div>
             <div style={{
