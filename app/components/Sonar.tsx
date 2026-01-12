@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import MarketLighthouse from './MarketLighthouse';
 import WeatherForecast from './WeatherForecast';
+import VolumeRadar from './VolumeRadar';
 import { fetchMarketData } from '../utils/marketData';
 
 interface Token {
@@ -1097,9 +1098,15 @@ export default function Sonar() {
             }}>"Detect the signal."</p>
           </header>
 
-          {/* Weather Forecast */}
-          <div style={{ marginBottom: '24px' }}>
+          {/* Weather & Volume Grid */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+            gap: '16px',
+            marginBottom: '24px'
+          }}>
             <WeatherForecast />
+            <VolumeRadar />
           </div>
 
           {/* Market Signal Banner */}
