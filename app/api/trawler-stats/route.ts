@@ -1,7 +1,11 @@
 import { Redis } from '@upstash/redis';
 import { NextRequest, NextResponse } from 'next/server';
 
-const redis = Redis.fromEnv();
+// Vercel KV uses different env var names than Upstash default
+const redis = new Redis({
+  url: process.env.KV_REST_API_URL!,
+  token: process.env.KV_REST_API_TOKEN!,
+});
 
 const STATS_KEY = 'trawler:stats';
 
