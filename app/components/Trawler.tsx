@@ -43,6 +43,36 @@ export default function Trawler() {
   const [toast, setToast] = useState('');
   const [showCatchModal, setShowCatchModal] = useState(false);
   const [caughtSol, setCaughtSol] = useState(0);
+  const [fleetStats, setFleetStats] = useState({ totalSol: 0, totalClaims: 0, totalAccounts: 0 });
+
+  // Fetch fleet stats on load
+  useEffect(() => {
+    const fetchFleetStats = async () => {
+      try {
+        const res = await fetch('/api/trawler-stats');
+        const data = await res.json();
+        setFleetStats(data);
+      } catch (err) {
+        console.warn('Could not fetch fleet stats:', err);
+      }
+    };
+    fetchFleetStats();
+  }, []);
+
+  // Record stats after successful claim
+  const recordClaim = async (solAmount: number, accountsClosed: number) => {
+    try {
+      const res = await fetch('/api/trawler-stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ solAmount, accountsClosed }),
+      });
+      const data = await res.json();
+      setFleetStats(data);
+    } catch (err) {
+      console.warn('Could not record claim:', err);
+    }
+  };
 
   // Update wallet input when connected
   useEffect(() => {
@@ -342,8 +372,9 @@ export default function Trawler() {
       const recovered = accountsToClose.reduce((sum, acc) => sum + acc.rent, 0);
       showToast(`Successfully recovered ${recovered.toFixed(4)} SOL!`);
 
-      // Show fish catch modal
+      // Record stats and show fish catch modal
       setCaughtSol(recovered);
+      recordClaim(recovered, accountsToClose.length);
       setTimeout(() => {
         setShowCatchModal(true);
       }, 1000);
@@ -358,6 +389,7 @@ export default function Trawler() {
       if (err.message?.includes('429') || err.message?.includes('rate limit')) {
         const recovered = accountsToClose.reduce((sum, acc) => sum + acc.rent, 0);
         setCaughtSol(recovered);
+        recordClaim(recovered, accountsToClose.length);
         showToast('Transactions sent! Check your wallet.');
         setTimeout(() => {
           setShowCatchModal(true);
@@ -536,6 +568,59 @@ export default function Trawler() {
           max-width: 480px;
           margin-left: auto;
           margin-right: auto;
+        }
+
+        .fleet-stats {
+          background: linear-gradient(135deg, rgba(94, 174, 216, 0.1) 0%, rgba(74, 222, 128, 0.1) 100%);
+          border: 1px solid rgba(94, 174, 216, 0.3);
+          border-radius: 12px;
+          padding: 16px 24px;
+          margin-bottom: 24px;
+        }
+
+        .fleet-stats-inner {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          gap: 32px;
+        }
+
+        .fleet-stat {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 4px;
+        }
+
+        .fleet-stat-value {
+          font-size: 24px;
+          font-weight: 700;
+          color: #5EAED8;
+          text-shadow: 0 0 20px rgba(94, 174, 216, 0.4);
+        }
+
+        .fleet-stat-label {
+          font-size: 9px;
+          letter-spacing: 0.15em;
+          color: #6B7B8F;
+        }
+
+        .fleet-divider {
+          width: 1px;
+          height: 40px;
+          background: linear-gradient(to bottom, transparent, #1E2A3A, transparent);
+        }
+
+        @media (max-width: 600px) {
+          .fleet-stats-inner {
+            gap: 16px;
+          }
+          .fleet-stat-value {
+            font-size: 18px;
+          }
+          .fleet-divider {
+            height: 30px;
+          }
         }
 
         .main-card {
@@ -998,6 +1083,28 @@ export default function Trawler() {
               Every empty account holds ~0.002 SOL hostage.
             </p>
           </header>
+
+          {/* Fleet Stats Banner */}
+          {fleetStats.totalSol > 0 && (
+            <div className="fleet-stats">
+              <div className="fleet-stats-inner">
+                <div className="fleet-stat">
+                  <span className="fleet-stat-value">{fleetStats.totalSol.toFixed(2)}</span>
+                  <span className="fleet-stat-label">SOL RECLAIMED</span>
+                </div>
+                <div className="fleet-divider"></div>
+                <div className="fleet-stat">
+                  <span className="fleet-stat-value">{fleetStats.totalClaims.toLocaleString()}</span>
+                  <span className="fleet-stat-label">SAILORS</span>
+                </div>
+                <div className="fleet-divider"></div>
+                <div className="fleet-stat">
+                  <span className="fleet-stat-value">{fleetStats.totalAccounts.toLocaleString()}</span>
+                  <span className="fleet-stat-label">ACCOUNTS CLOSED</span>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="main-card">
             <div className="card-header">

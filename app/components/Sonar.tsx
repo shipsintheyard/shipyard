@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import MarketLighthouse from './MarketLighthouse';
+import WeatherForecast from './WeatherForecast';
 import { fetchMarketData } from '../utils/marketData';
 
 interface Token {
@@ -1095,6 +1096,11 @@ export default function Sonar() {
               fontStyle: 'italic'
             }}>"Detect the signal."</p>
           </header>
+
+          {/* Weather Forecast */}
+          <div style={{ marginBottom: '24px' }}>
+            <WeatherForecast />
+          </div>
 
           {/* Market Signal Banner */}
           <div style={{
