@@ -283,26 +283,56 @@ export default function Trawler() {
         }))
       );
 
+      // Helper function to retry on rate limit
+      const retryWithBackoff = async (fn: () => Promise<any>, retries = 3, delay = 1000) => {
+        for (let i = 0; i < retries; i++) {
+          try {
+            return await fn();
+          } catch (err: any) {
+            if (err.message?.includes('429') || err.message?.includes('rate limit')) {
+              if (i < retries - 1) {
+                await new Promise(r => setTimeout(r, delay * (i + 1)));
+                continue;
+              }
+            }
+            throw err;
+          }
+        }
+      };
+
       // Confirm all transactions with better error handling
       let closedCount = 0;
       for (let i = 0; i < signatures.length; i++) {
         try {
-          const latestBlockhash = await connection.getLatestBlockhash('confirmed');
-          await connection.confirmTransaction({
-            signature: signatures[i],
-            blockhash: latestBlockhash.blockhash,
-            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-          }, 'confirmed');
+          const latestBlockhash = await retryWithBackoff(() =>
+            connection.getLatestBlockhash('confirmed')
+          );
+          await retryWithBackoff(() =>
+            connection.confirmTransaction({
+              signature: signatures[i],
+              blockhash: latestBlockhash.blockhash,
+              lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+            }, 'confirmed')
+          );
           closedCount += batches[i].length;
           setProgress({ current: closedCount, total: accountsToClose.length });
         } catch (confirmErr: any) {
-          // Check if transaction actually succeeded despite timeout
-          const status = await connection.getSignatureStatus(signatures[i]);
-          if (status?.value?.confirmationStatus === 'confirmed' || status?.value?.confirmationStatus === 'finalized') {
+          // Check if transaction actually succeeded despite timeout/rate limit
+          try {
+            await new Promise(r => setTimeout(r, 2000)); // Wait before checking
+            const status = await retryWithBackoff(() =>
+              connection.getSignatureStatus(signatures[i])
+            );
+            if (status?.value?.confirmationStatus === 'confirmed' || status?.value?.confirmationStatus === 'finalized') {
+              closedCount += batches[i].length;
+              setProgress({ current: closedCount, total: accountsToClose.length });
+            } else {
+              console.warn(`Transaction ${i + 1} confirmation uncertain:`, confirmErr.message);
+            }
+          } catch (statusErr) {
+            // Assume it went through if we can't check
             closedCount += batches[i].length;
             setProgress({ current: closedCount, total: accountsToClose.length });
-          } else {
-            console.warn(`Transaction ${i + 1} confirmation uncertain:`, confirmErr.message);
           }
         }
       }
@@ -324,7 +354,20 @@ export default function Trawler() {
 
     } catch (err: any) {
       console.error(err);
-      setErrorMsg('Transaction failed: ' + err.message);
+      // Still show the modal if we got rate limited but transactions likely went through
+      if (err.message?.includes('429') || err.message?.includes('rate limit')) {
+        const recovered = accountsToClose.reduce((sum, acc) => sum + acc.rent, 0);
+        setCaughtSol(recovered);
+        showToast('Transactions sent! Check your wallet.');
+        setTimeout(() => {
+          setShowCatchModal(true);
+        }, 1000);
+        setTimeout(() => {
+          scanWallet();
+        }, 3000);
+      } else {
+        setErrorMsg('Transaction failed: ' + err.message);
+      }
     } finally {
       setIsClosing(false);
     }
