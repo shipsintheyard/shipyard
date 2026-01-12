@@ -82,7 +82,7 @@ export default function FishCatchModal({ solAmount, onClose }: FishCatchModalPro
     await copyImageToClipboard();
 
     // Then open Twitter with follow intent
-    const text = `Just caught a ${fishTier.size} fish with @ShipsInTheYard's Trawler! 🎣\n\nRecovered ${solAmount.toFixed(4)} SOL by closing empty token accounts.\n\nClean your wallet at trawler.shipyard.com`;
+    const text = `Just caught a ${fishTier.size} fish with @ShipsInTheYard's Trawler! 🎣\n\nRecovered ${solAmount.toFixed(4)} SOL by closing empty token accounts.\n\nClean your wallet at shipyardtools.xyz`;
 
     // Twitter intent URL with related accounts to follow
     const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&related=ShipsInTheYard`;
