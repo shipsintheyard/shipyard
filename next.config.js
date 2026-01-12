@@ -1,5 +1,15 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Redirect root to /trawler (remove this block to show full site)
+  async redirects() {
+    return [
+      {
+        source: '/',
+        destination: '/trawler',
+        permanent: false,
+      },
+    ]
+  },
   webpack: (config, { isServer }) => {
     if (!isServer) {
       // Exclude native node modules from client bundle
