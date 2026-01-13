@@ -945,8 +945,13 @@ export default function ShipyardPlatform() {
                             style={{ display: 'none' }}
                           />
                           <div style={{
+                            width: '120px',
                             height: '120px',
-                            background: imagePreview && !useImageUrl ? `url(${imagePreview}) center/cover` : 'rgba(10, 14, 18, 0.8)',
+                            backgroundColor: 'rgba(10, 14, 18, 0.8)',
+                            backgroundImage: imagePreview && !useImageUrl ? `url(${imagePreview})` : 'none',
+                            backgroundSize: 'cover',
+                            backgroundPosition: 'center',
+                            backgroundRepeat: 'no-repeat',
                             border: '2px dashed rgba(136, 192, 255, 0.2)',
                             borderRadius: '8px',
                             display: 'flex',

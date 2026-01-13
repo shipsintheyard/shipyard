@@ -34,6 +34,74 @@ export interface LaunchResult {
   signature: string;
 }
 
+// ============================================================
+// SHIPYARD PUMP.FUN-STYLE BONDING CURVE CONFIGURATION
+// ============================================================
+// Matches pump.fun parameters exactly:
+// - Start MC: $3,770
+// - Graduation MC: $57,000
+// - SOL to fill: 85 SOL
+// - Auto-migration to Meteora DAMM v2
+// - 100% LP locked forever
+// ============================================================
+
+export const PUMPFUN_STYLE_CONFIG = {
+  // Token supply (standard 1B)
+  totalTokenSupply: 1_000_000_000,
+
+  // Market cap parameters (USD)
+  initialMarketCap: 3770,     // $3,770 starting MC
+  migrationMarketCap: 57000,  // $57,000 graduation MC
+
+  // SOL required to fill the bonding curve
+  migrationQuoteThreshold: 85_000_000_000, // 85 SOL in lamports
+
+  // Migration destination
+  migrationOption: MigrationOption.MET_DAMM_V2,
+
+  // LP distribution - 100% locked forever
+  partnerLockedLpPercentage: 100, // All LP locked by partner (Shipyard)
+  partnerLpPercentage: 0,         // No unlocked partner LP
+  creatorLockedLpPercentage: 0,   // No creator locked LP
+  creatorLpPercentage: 0,         // No unlocked creator LP
+
+  // Fee configuration
+  tradingFeeBps: 100,             // 1% trading fee
+  creatorTradingFeePercentage: 0, // No creator fee during bonding
+
+  // Post-migration pool fee
+  migratedPoolFeeBps: 100,        // 1% fee on graduated pool
+} as const;
+
+// Calculate approximate curve points for pump.fun style
+// This creates a curve that requires ~85 SOL to graduate
+export function calculatePumpfunCurvePoints(solPrice: number = 142) {
+  const startMC = 3770;
+  const endMC = 57000;
+  const solToFill = 85;
+
+  // Calculate the implied token price at start and graduation
+  const supply = 1_000_000_000;
+  const startPrice = startMC / supply;  // ~$0.00000377 per token
+  const endPrice = endMC / supply;      // ~$0.000057 per token
+
+  // Price multiplier from start to graduation
+  const priceMultiplier = endPrice / startPrice; // ~15.1x
+
+  // Total USD raised at graduation
+  const totalRaised = solToFill * solPrice; // $12,070
+
+  return {
+    startMarketCap: startMC,
+    graduationMarketCap: endMC,
+    startPriceUsd: startPrice,
+    graduationPriceUsd: endPrice,
+    priceMultiplier,
+    solRequired: solToFill,
+    totalRaisedUsd: totalRaised,
+  };
+}
+
 // Meteora DBC Program ID (Mainnet/Devnet)
 const METEORA_DBC_PROGRAM_ID = new PublicKey('dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN');
 
@@ -89,14 +157,22 @@ export function getPoolAddress(
 /**
  * Creates a Meteora Dynamic Bonding Curve config
  * This defines the bonding curve parameters and fee splits
+ *
+ * PUMP.FUN STYLE CURVE:
+ * - Start MC: $3,770
+ * - Graduation MC: $57,000
+ * - SOL to fill: 85 SOL
+ * - 100% LP locked forever
  */
 export async function createMeteoraConfig(
   connection: Connection,
   payer: Keypair,
   feeConfig: FeeConfig,
-  totalSupply: number = 1_000_000_000
+  totalSupply: number = 1_000_000_000,
+  usePumpfunStyle: boolean = true
 ): Promise<PublicKey> {
   console.log('Creating Meteora DBC config with fee split:', feeConfig);
+  console.log('Using pump.fun style curve:', usePumpfunStyle);
 
   // Initialize the DBC client
   const client = new DynamicBondingCurveClient(connection, 'confirmed');
@@ -104,39 +180,45 @@ export async function createMeteoraConfig(
   // Generate a new config keypair
   const configKeypair = Keypair.generate();
 
-  // Calculate LP percentages based on fee config
-  // The LP percentages determine how much goes to liquidity vs gets burned
-  // partnerLockedLpPercentage is the LP that gets locked (autocompounding)
-  const partnerLockedLpPercentage = feeConfig.lpPercent;
-  const creatorLockedLpPercentage = 0; // We use partner percentage for our LP
+  // Market cap parameters - use pump.fun style or custom
+  const initialMarketCap = usePumpfunStyle ? PUMPFUN_STYLE_CONFIG.initialMarketCap : 3000;
+  const migrationMarketCap = usePumpfunStyle ? PUMPFUN_STYLE_CONFIG.migrationMarketCap : 69000;
+
+  // LP allocation - 100% locked for pump.fun style
+  const partnerLockedLpPercentage = usePumpfunStyle
+    ? PUMPFUN_STYLE_CONFIG.partnerLockedLpPercentage
+    : feeConfig.lpPercent;
+  const creatorLockedLpPercentage = 0;
+
+  console.log(`Curve parameters: $${initialMarketCap} → $${migrationMarketCap}`);
+  console.log(`LP locked: ${partnerLockedLpPercentage}%`);
 
   // Build the curve configuration using market cap parameters
-  // Pump.fun style: $3k start → $69k graduation
   const curveConfig = buildCurveWithMarketCap({
     totalTokenSupply: totalSupply,
-    initialMarketCap: 3000, // Starting market cap: $3,000 (like pump.fun)
-    migrationMarketCap: 69000, // Graduation at $69,000 market cap
+    initialMarketCap: initialMarketCap,
+    migrationMarketCap: migrationMarketCap,
     migrationOption: MigrationOption.MET_DAMM_V2,
-    tokenBaseDecimal: TokenDecimal.NINE, // Token decimals (9 for SPL standard)
-    tokenQuoteDecimal: TokenDecimal.NINE, // SOL decimals
+    tokenBaseDecimal: TokenDecimal.NINE,
+    tokenQuoteDecimal: TokenDecimal.NINE,
 
-    // Fee configuration
+    // Fee configuration - 1% trading fee
     baseFeeParams: {
       baseFeeMode: BaseFeeMode.FeeSchedulerLinear,
       feeSchedulerParam: {
-        startingFeeBps: 100, // 1% starting fee
-        endingFeeBps: 100,   // 1% ending fee
+        startingFeeBps: PUMPFUN_STYLE_CONFIG.tradingFeeBps,
+        endingFeeBps: PUMPFUN_STYLE_CONFIG.tradingFeeBps,
         numberOfPeriod: 0,
         totalDuration: 0
       }
     },
 
-    // LP and fee distribution
-    partnerLpPercentage: 0,
-    creatorLpPercentage: 0,
+    // LP and fee distribution - 100% locked
+    partnerLpPercentage: PUMPFUN_STYLE_CONFIG.partnerLpPercentage,
+    creatorLpPercentage: PUMPFUN_STYLE_CONFIG.creatorLpPercentage,
     partnerLockedLpPercentage: partnerLockedLpPercentage,
     creatorLockedLpPercentage: creatorLockedLpPercentage,
-    creatorTradingFeePercentage: feeConfig.devPercent || 0, // Dev fee from trading
+    creatorTradingFeePercentage: feeConfig.devPercent || PUMPFUN_STYLE_CONFIG.creatorTradingFeePercentage,
 
     // Dynamic fee settings
     dynamicFeeEnabled: true,
@@ -146,9 +228,9 @@ export async function createMeteoraConfig(
     collectFeeMode: CollectFeeMode.QuoteToken,
     migrationFeeOption: MigrationFeeOption.Customizable,
     migratedPoolFee: {
-      poolFeeBps: 100, // 1% base fee after migration (in basis points)
+      poolFeeBps: PUMPFUN_STYLE_CONFIG.migratedPoolFeeBps,
       collectFeeMode: CollectFeeMode.QuoteToken,
-      dynamicFee: 0, // Static fee
+      dynamicFee: 0,
     },
     tokenType: TokenType.SPL,
     tokenUpdateAuthority: TokenUpdateAuthorityOption.Immutable,
