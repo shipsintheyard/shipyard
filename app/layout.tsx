@@ -4,8 +4,7 @@ import { WalletContextProvider } from "./providers";
 
 export const metadata: Metadata = {
   title: "THE SHIPYARD | We Ship Widgets",
-  description:
-    "Zero dev extraction. Locked LP forever. Auto-compounding fees. Build vessels that can't sink.",
+  description: "We Ship Widgets",
 };
 
 export default function RootLayout({
