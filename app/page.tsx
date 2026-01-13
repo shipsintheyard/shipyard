@@ -2,13 +2,14 @@
 import React, { useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
-import { Connection, Keypair } from '@solana/web3.js';
+import { Connection, Transaction, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import Trawler from './components/Trawler';
 import Sonar from './components/Sonar';
-import { launchToken, TokenConfig, FeeConfig } from './utils/meteora';
+import LaunchHistory from './components/LaunchHistory';
+import { TokenConfig, FeeConfig } from './utils/meteora';
 
 export default function ShipyardPlatform() {
-  const { publicKey, connected, disconnect } = useWallet();
+  const { publicKey, connected, disconnect, signTransaction, sendTransaction } = useWallet();
   const { setVisible } = useWalletModal();
   
   const [activeTab, setActiveTab] = useState('landing');
@@ -26,6 +27,11 @@ export default function ShipyardPlatform() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState('');
   const [useImageUrl, setUseImageUrl] = useState(false);
+
+  // Dev buy state
+  const [devBuyEnabled, setDevBuyEnabled] = useState(false);
+  const [devBuyAmount, setDevBuyAmount] = useState(0);
+  const MAX_DEV_BUY_SOL = 1.5; // ~5% of supply at launch price
 
   // Launch state
   const [isLaunching, setIsLaunching] = useState(false);
@@ -65,9 +71,9 @@ export default function ShipyardPlatform() {
     }
   };
 
-  // Real launch function using Meteora DBC
+  // Real launch function using Meteora DBC via API
   const handleLaunch = async () => {
-    if (!connected || !publicKey) {
+    if (!connected || !publicKey || !signTransaction) {
       setVisible(true);
       return;
     }
@@ -80,89 +86,147 @@ export default function ShipyardPlatform() {
     setIsLaunching(true);
 
     try {
-      // Get the selected engine's fee configuration
       const engine = engines[selectedEngine];
-      const feeConfig: FeeConfig = {
-        lpPercent: engine.lp,
-        burnPercent: engine.burn,
-        devPercent: engine.dev || 0
-      };
 
       // Handle image - either URL or upload
-      let finalImageUrl = undefined;
-
+      let finalImageUrl = '';
       if (useImageUrl && imageUrl) {
-        // Use the provided URL directly
-        console.log('🖼️ Using image URL:', imageUrl);
+        console.log('Using image URL:', imageUrl);
         finalImageUrl = imageUrl;
       } else if (tokenImage) {
-        // Upload the file
-        console.log('📸 Uploading token image...');
+        console.log('Uploading token image...');
         try {
           const { uploadTokenImage } = await import('./utils/imageUpload');
           const uploadResult = await uploadTokenImage(tokenImage);
           finalImageUrl = uploadResult.url;
-          console.log('✅ Image uploaded:', uploadResult.provider, finalImageUrl);
+          console.log('Image uploaded:', uploadResult.provider, finalImageUrl);
         } catch (imageError) {
           console.error('Image upload failed:', imageError);
-          alert('Image upload failed. Continuing without image.\n\n' + (imageError as Error).message);
         }
       }
 
-      const tokenConfig: TokenConfig = {
-        name: tokenName,
-        symbol: tokenSymbol,
-        description: tokenDescription,
-        decimals: 9,
-        imageUrl: finalImageUrl
-      };
+      // Create metadata URI (for now use image URL as uri, later use proper metadata JSON)
+      const metadataUri = finalImageUrl || `https://shipyard.app/token/${tokenSymbol}`;
 
-      // Connect to Solana (use devnet for testing!)
       const connection = new Connection(
         process.env.NEXT_PUBLIC_RPC_URL || 'https://api.devnet.solana.com',
         'confirmed'
       );
 
-      console.log('🚀 Launching token with Meteora DBC...');
-      console.log('Token:', tokenConfig);
-      console.log('Fee split:', feeConfig);
-      console.log('Selected engine:', selectedEngine);
+      console.log('Step 1: Getting fee payment transaction...');
 
-      alert(
-        '🚀 METEORA DBC INTEGRATION COMPLETE!\n\n' +
-        'The full integration is ready with:\n' +
-        '✅ Config creation ($3k → $69k market cap)\n' +
-        '✅ Token creation (SPL Token)\n' +
-        '✅ Pool creation (Meteora DBC)\n' +
-        '✅ Image upload (IPFS/base64)\n' +
-        '✅ Fee splits: ' + engine.lp + '% LP / ' + engine.burn + '% Burn\n\n' +
-        '⚠️ WALLET SIGNING:\n' +
-        'The Meteora SDK requires a Keypair for signing.\n\n' +
-        '📝 TO TEST WITH REAL TRANSACTIONS:\n' +
-        '1. Get devnet SOL (https://faucet.solana.com)\n' +
-        '2. Use a burner wallet & export private key\n' +
-        '3. Update code to use Keypair.fromSecretKey()\n' +
-        '4. Test the full flow on devnet\n\n' +
-        'For image uploads, add Pinata keys to .env.local:\n' +
-        'NEXT_PUBLIC_PINATA_API_KEY=...\n' +
-        'NEXT_PUBLIC_PINATA_SECRET_KEY=...\n\n' +
-        'See METEORA_INTEGRATION.md for details.'
-      );
+      // Step 1: Get fee payment transaction from API
+      const engineMap: Record<string, 1 | 2 | 3> = { navigator: 1, lighthouse: 2, supernova: 3 };
+      const feeResponse = await fetch('/api/launch-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: tokenName,
+          symbol: tokenSymbol,
+          description: tokenDescription,
+          uri: metadataUri,
+          engine: engineMap[selectedEngine] || 2,
+          creatorWallet: publicKey.toBase58(),
+          devBuyAmount: devBuyEnabled ? devBuyAmount : 0,
+        }),
+      });
 
-      // Mock result for demonstration
-      // In production with a keypair, you would call:
-      // const result = await launchToken(connection, keypair, tokenConfig, feeConfig);
-      const fakeTokenAddress = 'Dev' + Math.random().toString(36).substring(2, 10) + '...' + Math.random().toString(36).substring(2, 6);
-      const fakePoolAddress = 'Pool' + Math.random().toString(36).substring(2, 10) + '...' + Math.random().toString(36).substring(2, 6);
+      const feeData = await feeResponse.json();
+      if (!feeData.success) {
+        throw new Error(feeData.error || 'Failed to create fee transaction');
+      }
+
+      console.log('Fee tx received. Launch fee:', feeData.launchFee, 'SOL');
+
+      // Step 2: Sign and send fee payment
+      console.log('Step 2: Signing fee payment...');
+      const feeTx = Transaction.from(Buffer.from(feeData.transaction, 'base64'));
+      const signedFeeTx = await signTransaction(feeTx);
+
+      console.log('Sending fee payment...');
+      const feeSignature = await connection.sendRawTransaction(signedFeeTx.serialize());
+      console.log('Fee tx sent:', feeSignature);
+
+      // Wait for confirmation
+      console.log('Waiting for fee confirmation...');
+      await connection.confirmTransaction(feeSignature, 'confirmed');
+      console.log('Fee payment confirmed!');
+
+      // Step 3: Create pool transaction
+      console.log('Step 3: Creating pool transaction...');
+      const createResponse = await fetch('/api/launch-token/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          feeSignature,
+          name: tokenName,
+          symbol: tokenSymbol,
+          uri: metadataUri,
+          creatorWallet: publicKey.toBase58(),
+          devBuyAmount: devBuyEnabled ? devBuyAmount : 0,
+        }),
+      });
+
+      const createData = await createResponse.json();
+      if (!createData.success) {
+        throw new Error(createData.error || 'Failed to create pool transaction');
+      }
+
+      console.log('Pool tx received. Token:', createData.tokenMint);
+
+      // Step 4: Sign and send pool creation
+      console.log('Step 4: Signing pool creation...');
+      const poolTx = Transaction.from(Buffer.from(createData.createPoolTransaction, 'base64'));
+      const signedPoolTx = await signTransaction(poolTx);
+
+      console.log('Sending pool creation...');
+      const poolSignature = await connection.sendRawTransaction(signedPoolTx.serialize());
+      console.log('Pool tx sent:', poolSignature);
+
+      await connection.confirmTransaction(poolSignature, 'confirmed');
+      console.log('Pool created!');
+
+      // Step 5: Execute dev buy if enabled
+      if (createData.swapBuyTransaction) {
+        console.log('Step 5: Executing dev buy...');
+        const swapTx = Transaction.from(Buffer.from(createData.swapBuyTransaction, 'base64'));
+        const signedSwapTx = await signTransaction(swapTx);
+        const swapSignature = await connection.sendRawTransaction(signedSwapTx.serialize());
+        await connection.confirmTransaction(swapSignature, 'confirmed');
+        console.log('Dev buy executed!');
+      }
+
+      // Record the launch in our tracking system
+      try {
+        await fetch('/api/launches', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tokenMint: createData.tokenMint,
+            poolAddress: createData.poolAddress,
+            name: tokenName,
+            symbol: tokenSymbol,
+            description: tokenDescription,
+            imageUrl: finalImageUrl || '',
+            creator: publicKey.toBase58(),
+            engine: engineMap[selectedEngine] || 2,
+            devBuyAmount: devBuyEnabled ? devBuyAmount : 0,
+            devBuyPercent: devBuyEnabled ? (devBuyAmount / 1.5) * 5 : 0,
+          }),
+        });
+      } catch (e) {
+        console.error('Failed to record launch:', e);
+      }
 
       setLaunchedToken({
         name: tokenName,
         symbol: tokenSymbol,
-        address: fakeTokenAddress,
-        poolAddress: fakePoolAddress
+        address: createData.tokenMint,
+        poolAddress: createData.poolAddress
       });
 
       setLaunchSuccess(true);
+      console.log('Launch complete!');
 
     } catch (error) {
       console.error('Launch failed:', error);
@@ -966,7 +1030,7 @@ export default function ShipyardPlatform() {
                             {!imagePreview || useImageUrl ? (
                               <>
                                 <span style={{ fontSize: '28px', marginBottom: '8px', opacity: 0.5 }}>⭐</span>
-                                <span>Drop image or click</span>
+                                <span style={{ textAlign: 'center' }}>Drop image or click</span>
                               </>
                             ) : (
                               <div style={{
@@ -1170,6 +1234,88 @@ export default function ShipyardPlatform() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Dev Buy Section */}
+                  <div style={{
+                    marginTop: '28px',
+                    padding: '22px',
+                    background: 'rgba(10, 14, 18, 0.8)',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(136, 192, 255, 0.1)'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                      <div>
+                        <div style={{ fontSize: '13px', color: '#fff', fontWeight: '600', marginBottom: '4px' }}>
+                          Dev Buy (Optional)
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#6e7b8b' }}>
+                          Buy up to 5% of supply at launch. Transparent & on-chain.
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setDevBuyEnabled(!devBuyEnabled);
+                          if (!devBuyEnabled) setDevBuyAmount(0);
+                        }}
+                        style={{
+                          padding: '8px 16px',
+                          background: devBuyEnabled ? 'rgba(126, 231, 135, 0.2)' : 'rgba(136, 192, 255, 0.1)',
+                          border: devBuyEnabled ? '1px solid rgba(126, 231, 135, 0.4)' : '1px solid rgba(136, 192, 255, 0.2)',
+                          borderRadius: '8px',
+                          color: devBuyEnabled ? '#7ee787' : '#6e7b8b',
+                          fontSize: '11px',
+                          cursor: 'pointer',
+                          fontFamily: "'Space Mono', monospace",
+                          transition: 'all 0.2s ease'
+                        }}
+                      >
+                        {devBuyEnabled ? 'ENABLED' : 'DISABLED'}
+                      </button>
+                    </div>
+
+                    {devBuyEnabled && (
+                      <div>
+                        <div style={{ marginBottom: '12px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                            <span style={{ fontSize: '11px', color: '#6e7b8b' }}>Amount (SOL)</span>
+                            <span style={{ fontSize: '11px', color: '#88c0ff', fontWeight: '600' }}>
+                              {devBuyAmount.toFixed(2)} SOL (~{((devBuyAmount / MAX_DEV_BUY_SOL) * 5).toFixed(1)}% supply)
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max={MAX_DEV_BUY_SOL}
+                            step="0.25"
+                            value={devBuyAmount}
+                            onChange={(e) => setDevBuyAmount(parseFloat(e.target.value))}
+                            style={{
+                              width: '100%',
+                              height: '8px',
+                              borderRadius: '4px',
+                              background: `linear-gradient(to right, #88c0ff ${(devBuyAmount / MAX_DEV_BUY_SOL) * 100}%, rgba(136, 192, 255, 0.1) ${(devBuyAmount / MAX_DEV_BUY_SOL) * 100}%)`,
+                              appearance: 'none',
+                              cursor: 'pointer'
+                            }}
+                          />
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
+                            <span style={{ fontSize: '9px', color: '#4a5568' }}>0 SOL</span>
+                            <span style={{ fontSize: '9px', color: '#4a5568' }}>{MAX_DEV_BUY_SOL} SOL (5%)</span>
+                          </div>
+                        </div>
+                        <div style={{
+                          padding: '12px',
+                          background: 'rgba(126, 231, 135, 0.05)',
+                          border: '1px solid rgba(126, 231, 135, 0.15)',
+                          borderRadius: '8px',
+                          fontSize: '10px',
+                          color: '#7ee787'
+                        }}>
+                          Dev buys are publicly visible on-chain. This will be shown on your token page.
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -1204,6 +1350,7 @@ export default function ShipyardPlatform() {
                         { label: 'Split', value: engines[selectedEngine].name, color: '#88c0ff' },
                         { label: 'LP Reinvest', value: `${engines[selectedEngine].lp}%`, color: '#88c0ff' },
                         { label: 'Burn Rate', value: `${engines[selectedEngine].burn}%`, color: '#f97316' },
+                        { label: 'Dev Buy', value: devBuyEnabled && devBuyAmount > 0 ? `${devBuyAmount.toFixed(2)} SOL (~${((devBuyAmount / MAX_DEV_BUY_SOL) * 5).toFixed(1)}%)` : 'None', color: devBuyEnabled && devBuyAmount > 0 ? '#88c0ff' : '#6e7b8b' },
                         { label: 'Dev Extraction', value: '0% LOCKED', color: '#7ee787' },
                         { label: 'LP Status', value: 'LOCKED FOREVER', color: '#7ee787' },
                       ].map((item, i) => (
@@ -1211,7 +1358,7 @@ export default function ShipyardPlatform() {
                           display: 'flex',
                           justifyContent: 'space-between',
                           padding: '10px 0',
-                          borderBottom: i < 5 ? '1px solid rgba(136, 192, 255, 0.08)' : 'none'
+                          borderBottom: i < 6 ? '1px solid rgba(136, 192, 255, 0.08)' : 'none'
                         }}>
                           <span style={{ fontSize: '12px', color: '#6e7b8b' }}>{item.label}</span>
                           <span style={{ fontSize: '12px', color: item.color, fontWeight: '600' }}>{item.value}</span>
@@ -1234,6 +1381,12 @@ export default function ShipyardPlatform() {
                           <span style={{ fontSize: '12px', color: '#6e7b8b' }}>Raft Fee</span>
                           <span style={{ fontSize: '13px', color: '#fff' }}>2.00 SOL</span>
                         </div>
+                        {devBuyEnabled && devBuyAmount > 0 && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                            <span style={{ fontSize: '12px', color: '#6e7b8b' }}>Dev Buy</span>
+                            <span style={{ fontSize: '13px', color: '#88c0ff' }}>{devBuyAmount.toFixed(2)} SOL</span>
+                          </div>
+                        )}
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '14px' }}>
                           <span style={{ fontSize: '12px', color: '#6e7b8b' }}>Network</span>
                           <span style={{ fontSize: '13px', color: '#fff' }}>~0.01 SOL</span>
@@ -1253,7 +1406,7 @@ export default function ShipyardPlatform() {
                             fontWeight: '700',
                             color: '#88c0ff'
                           }}>
-                            2.01 SOL
+                            {(2.01 + (devBuyEnabled ? devBuyAmount : 0)).toFixed(2)} SOL
                           </span>
                         </div>
                       </div>
@@ -1327,6 +1480,11 @@ export default function ShipyardPlatform() {
                   </button>
                 )}
               </div>
+            </div>
+
+            {/* Launch History */}
+            <div style={{ marginTop: '40px' }}>
+              <LaunchHistory />
             </div>
           </div>
         )}
@@ -2146,6 +2304,8 @@ export default function ShipyardPlatform() {
                   setTokenName('');
                   setTokenSymbol('');
                   setTokenDescription('');
+                  setDevBuyEnabled(false);
+                  setDevBuyAmount(0);
                 }}
                 style={{
                   flex: 1,

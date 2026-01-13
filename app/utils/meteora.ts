@@ -1,5 +1,6 @@
-import { Connection, PublicKey, Keypair, Transaction, sendAndConfirmTransaction } from '@solana/web3.js';
-import { createMint, getOrCreateAssociatedTokenAccount, TOKEN_PROGRAM_ID, NATIVE_MINT } from '@solana/spl-token';
+import { Connection, PublicKey, Keypair, sendAndConfirmTransaction } from '@solana/web3.js';
+import { NATIVE_MINT } from '@solana/spl-token';
+import BN from 'bn.js';
 import {
   DynamicBondingCurveClient,
   buildCurveWithMarketCap,
@@ -10,7 +11,6 @@ import {
   MigrationOption,
   TokenDecimal,
   TokenType,
-  TokenUpdateAuthorityOption
 } from '@meteora-ag/dynamic-bonding-curve-sdk';
 
 export interface TokenConfig {
@@ -37,9 +37,9 @@ export interface LaunchResult {
 // ============================================================
 // SHIPYARD PUMP.FUN-STYLE BONDING CURVE CONFIGURATION
 // ============================================================
-// Matches pump.fun parameters exactly:
-// - Start MC: $3,770
-// - Graduation MC: $57,000
+// Matches pump.fun parameters:
+// - Start MC: ~$4,950 (27.48 SOL at $180)
+// - Graduation MC: ~$74,800 (415.49 SOL at $180)
 // - SOL to fill: 85 SOL
 // - Auto-migration to Meteora DAMM v2
 // - 100% LP locked forever
@@ -49,12 +49,9 @@ export const PUMPFUN_STYLE_CONFIG = {
   // Token supply (standard 1B)
   totalTokenSupply: 1_000_000_000,
 
-  // Market cap parameters (USD)
-  initialMarketCap: 3770,     // $3,770 starting MC
-  migrationMarketCap: 57000,  // $57,000 graduation MC
-
-  // SOL required to fill the bonding curve
-  migrationQuoteThreshold: 85_000_000_000, // 85 SOL in lamports
+  // Market cap parameters (USD) - based on SOL at ~$180
+  initialMarketCap: 4950,     // ~27.48 SOL starting MC
+  migrationMarketCap: 74800,  // ~415.49 SOL graduation MC
 
   // Migration destination
   migrationOption: MigrationOption.MET_DAMM_V2,
@@ -73,66 +70,8 @@ export const PUMPFUN_STYLE_CONFIG = {
   migratedPoolFeeBps: 100,        // 1% fee on graduated pool
 } as const;
 
-// Calculate approximate curve points for pump.fun style
-// This creates a curve that requires ~85 SOL to graduate
-export function calculatePumpfunCurvePoints(solPrice: number = 142) {
-  const startMC = 3770;
-  const endMC = 57000;
-  const solToFill = 85;
-
-  // Calculate the implied token price at start and graduation
-  const supply = 1_000_000_000;
-  const startPrice = startMC / supply;  // ~$0.00000377 per token
-  const endPrice = endMC / supply;      // ~$0.000057 per token
-
-  // Price multiplier from start to graduation
-  const priceMultiplier = endPrice / startPrice; // ~15.1x
-
-  // Total USD raised at graduation
-  const totalRaised = solToFill * solPrice; // $12,070
-
-  return {
-    startMarketCap: startMC,
-    graduationMarketCap: endMC,
-    startPriceUsd: startPrice,
-    graduationPriceUsd: endPrice,
-    priceMultiplier,
-    solRequired: solToFill,
-    totalRaisedUsd: totalRaised,
-  };
-}
-
 // Meteora DBC Program ID (Mainnet/Devnet)
 const METEORA_DBC_PROGRAM_ID = new PublicKey('dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN');
-
-/**
- * Creates a new SPL token mint
- */
-export async function createToken(
-  connection: Connection,
-  payer: Keypair,
-  config: TokenConfig
-): Promise<PublicKey> {
-  const decimals = config.decimals || 9;
-
-  console.log('Creating SPL token mint...');
-
-  // Create the mint
-  const mint = await createMint(
-    connection,
-    payer,
-    payer.publicKey,
-    null, // no freeze authority for fairness
-    decimals,
-    undefined,
-    undefined,
-    TOKEN_PROGRAM_ID
-  );
-
-  console.log('Token mint created:', mint.toBase58());
-
-  return mint;
-}
 
 /**
  * Derives the Meteora DBC pool address for a given token and config
@@ -155,52 +94,21 @@ export function getPoolAddress(
 }
 
 /**
- * Creates a Meteora Dynamic Bonding Curve config
- * This defines the bonding curve parameters and fee splits
- *
- * PUMP.FUN STYLE CURVE:
- * - Start MC: $3,770
- * - Graduation MC: $57,000
- * - SOL to fill: 85 SOL
- * - 100% LP locked forever
+ * Build curve configuration parameters using pump.fun style
  */
-export async function createMeteoraConfig(
-  connection: Connection,
-  payer: Keypair,
-  feeConfig: FeeConfig,
-  totalSupply: number = 1_000_000_000,
-  usePumpfunStyle: boolean = true
-): Promise<PublicKey> {
-  console.log('Creating Meteora DBC config with fee split:', feeConfig);
-  console.log('Using pump.fun style curve:', usePumpfunStyle);
-
-  // Initialize the DBC client
-  const client = new DynamicBondingCurveClient(connection, 'confirmed');
-
-  // Generate a new config keypair
-  const configKeypair = Keypair.generate();
-
-  // Market cap parameters - use pump.fun style or custom
-  const initialMarketCap = usePumpfunStyle ? PUMPFUN_STYLE_CONFIG.initialMarketCap : 3000;
-  const migrationMarketCap = usePumpfunStyle ? PUMPFUN_STYLE_CONFIG.migrationMarketCap : 69000;
-
-  // LP allocation - 100% locked for pump.fun style
-  const partnerLockedLpPercentage = usePumpfunStyle
-    ? PUMPFUN_STYLE_CONFIG.partnerLockedLpPercentage
-    : feeConfig.lpPercent;
-  const creatorLockedLpPercentage = 0;
-
-  console.log(`Curve parameters: $${initialMarketCap} → $${migrationMarketCap}`);
-  console.log(`LP locked: ${partnerLockedLpPercentage}%`);
-
-  // Build the curve configuration using market cap parameters
-  const curveConfig = buildCurveWithMarketCap({
-    totalTokenSupply: totalSupply,
-    initialMarketCap: initialMarketCap,
-    migrationMarketCap: migrationMarketCap,
-    migrationOption: MigrationOption.MET_DAMM_V2,
+export function buildPumpfunStyleCurve(feeConfig: FeeConfig) {
+  const curveParams = buildCurveWithMarketCap({
+    // Supply and decimals
+    totalTokenSupply: PUMPFUN_STYLE_CONFIG.totalTokenSupply,
     tokenBaseDecimal: TokenDecimal.NINE,
     tokenQuoteDecimal: TokenDecimal.NINE,
+
+    // Market cap defines the curve shape
+    initialMarketCap: PUMPFUN_STYLE_CONFIG.initialMarketCap,
+    migrationMarketCap: PUMPFUN_STYLE_CONFIG.migrationMarketCap,
+
+    // Migration to DAMM v2 when curve fills
+    migrationOption: PUMPFUN_STYLE_CONFIG.migrationOption,
 
     // Fee configuration - 1% trading fee
     baseFeeParams: {
@@ -213,136 +121,53 @@ export async function createMeteoraConfig(
       }
     },
 
-    // LP and fee distribution - 100% locked
+    // LP distribution - 100% locked
     partnerLpPercentage: PUMPFUN_STYLE_CONFIG.partnerLpPercentage,
     creatorLpPercentage: PUMPFUN_STYLE_CONFIG.creatorLpPercentage,
-    partnerLockedLpPercentage: partnerLockedLpPercentage,
-    creatorLockedLpPercentage: creatorLockedLpPercentage,
+    partnerLockedLpPercentage: PUMPFUN_STYLE_CONFIG.partnerLockedLpPercentage,
+    creatorLockedLpPercentage: PUMPFUN_STYLE_CONFIG.creatorLockedLpPercentage,
     creatorTradingFeePercentage: feeConfig.devPercent || PUMPFUN_STYLE_CONFIG.creatorTradingFeePercentage,
 
-    // Dynamic fee settings
-    dynamicFeeEnabled: true,
-
     // Other settings
+    dynamicFeeEnabled: false,
     activationType: ActivationType.Slot,
     collectFeeMode: CollectFeeMode.QuoteToken,
-    migrationFeeOption: MigrationFeeOption.Customizable,
+    migrationFeeOption: MigrationFeeOption.FixedBps100,
+    tokenType: TokenType.SPL,
+    tokenUpdateAuthority: 0, // Immutable
+
+    // Leftover handling (0 = no leftover)
+    leftover: 0,
+
+    // Migration fee (0 = no fee to claim on migration)
+    migrationFee: {
+      feePercentage: 0,
+      creatorFeePercentage: 0,
+    },
+
+    // Locked vesting (disabled)
+    lockedVestingParam: {
+      totalLockedVestingAmount: 0,
+      numberOfVestingPeriod: 0,
+      cliffUnlockAmount: 0,
+      totalVestingDuration: 0,
+      cliffDurationFromMigrationTime: 0,
+    },
+
+    // Post-migration pool fee
     migratedPoolFee: {
-      poolFeeBps: PUMPFUN_STYLE_CONFIG.migratedPoolFeeBps,
       collectFeeMode: CollectFeeMode.QuoteToken,
       dynamicFee: 0,
+      poolFeeBps: PUMPFUN_STYLE_CONFIG.migratedPoolFeeBps,
     },
-    tokenType: TokenType.SPL,
-    tokenUpdateAuthority: TokenUpdateAuthorityOption.Immutable,
+  });
 
-    // Required fields
-    lockedVestingParam: {
-      vestingPeriod: 0,
-      cliffPeriod: 0,
-    },
-    leftover: {
-      leftoverRecipient: payer.publicKey,
-      leftoverPercentage: 0,
-    },
-    migrationFee: {
-      feeRecipient: payer.publicKey,
-      feePercentage: 0,
-    },
-  } as any);
-
-  console.log('Building config transaction...');
-
-  // TODO: Complete Meteora SDK integration
-  // The SDK API has changed and needs to be updated
-  // Suppress unused variable warnings
-  void client;
-  void curveConfig;
-  void configKeypair;
-
-  throw new Error('Meteora integration is under development');
-
-  // // Create the config on-chain
-  // const createConfigTx = await client.createConfig(
-  //   configKeypair.publicKey,
-  //   curveConfig,
-  //   payer.publicKey
-  // );
-
-  // console.log('Sending config creation transaction...');
-
-  // const signature = await sendAndConfirmTransaction(
-  //   connection,
-  //   createConfigTx,
-  //   [payer, configKeypair],
-  //   { commitment: 'confirmed' }
-  // );
-
-  // console.log('Config created successfully!');
-  // console.log('Config address:', configKeypair.publicKey.toBase58());
-  // console.log('Transaction signature:', signature);
-
-  // return configKeypair.publicKey;
+  return curveParams;
 }
 
 /**
- * Creates a Meteora Dynamic Bonding Curve pool
- */
-export async function createMeteoraPool(
-  connection: Connection,
-  payer: Keypair,
-  baseMint: PublicKey,
-  configAddress: PublicKey
-): Promise<{ poolAddress: PublicKey; signature: string }> {
-  console.log('Creating Meteora DBC pool...');
-  console.log('Base mint:', baseMint.toBase58());
-  console.log('Config:', configAddress.toBase58());
-
-  // Initialize the DBC client
-  const client = new DynamicBondingCurveClient(connection, 'confirmed');
-
-  // Quote mint is SOL (Native mint)
-  const quoteMint = NATIVE_MINT;
-
-  // Derive the pool address
-  const poolAddress = getPoolAddress(baseMint, quoteMint, configAddress);
-  console.log('Pool address (derived):', poolAddress.toBase58());
-
-  console.log('Building pool creation transaction...');
-
-  // TODO: Complete Meteora SDK integration
-  void client;
-  void poolAddress;
-  void quoteMint;
-  void payer;
-  void configAddress;
-
-  throw new Error('Meteora integration is under development');
-
-  // // Create the pool
-  // const createPoolTx = await client.createPool(
-  //   baseMint,
-  //   quoteMint,
-  //   configAddress,
-  //   payer.publicKey
-  // );
-
-  // console.log('Sending pool creation transaction...');
-
-  // const signature = await sendAndConfirmTransaction(
-  //   connection,
-  //   createPoolTx,
-  //   [payer],
-  //   { commitment: 'confirmed' }
-  // );
-
-  // console.log('Pool created successfully!');
-  // console.log('Transaction signature:', signature);
-
-  // return { poolAddress, signature };
-}
-
-/**
- * Full launch flow: Create config + Create token + Create pool
+ * Full launch flow: Create config + token + pool in one transaction
+ * This uses the newer SDK methods that combine config and pool creation
  */
 export async function launchToken(
   connection: Connection,
@@ -355,32 +180,74 @@ export async function launchToken(
     console.log('Token config:', tokenConfig);
     console.log('Fee config:', feeConfig);
 
-    // Step 1: Create the Meteora config
-    console.log('\n⚙️ Step 1: Creating Meteora DBC config...');
-    const configAddress = await createMeteoraConfig(connection, payer, feeConfig);
-    console.log('✅ Config created:', configAddress.toBase58());
+    // Initialize the DBC client
+    const client = DynamicBondingCurveClient.create(connection, 'confirmed');
 
-    // Step 2: Create the token
-    console.log('\n📝 Step 2: Creating SPL token...');
-    const tokenMint = await createToken(connection, payer, tokenConfig);
-    console.log('✅ Token created:', tokenMint.toBase58());
+    // Generate keypairs for config and base mint
+    const configKeypair = Keypair.generate();
+    const baseMintKeypair = Keypair.generate();
 
-    // Step 3: Create Meteora DBC pool
-    console.log('\n🌊 Step 3: Creating Meteora DBC pool...');
-    const { poolAddress, signature } = await createMeteoraPool(
-      connection,
-      payer,
-      tokenMint,
-      configAddress
+    console.log('Config address:', configKeypair.publicKey.toBase58());
+    console.log('Base mint:', baseMintKeypair.publicKey.toBase58());
+
+    // Build the curve parameters
+    const curveParams = buildPumpfunStyleCurve(feeConfig);
+    console.log('Curve parameters built');
+
+    // Create metadata URI (for now just use a placeholder, later we can use IPFS)
+    const metadataUri = tokenConfig.imageUrl || '';
+
+    // Use createConfigAndPool to create both in one transaction
+    console.log('Creating config and pool...');
+
+    const createTx = await client.pool.createConfigAndPool({
+      // Config parameters (spread from curve params)
+      ...curveParams,
+
+      // Config accounts
+      config: configKeypair.publicKey,
+      feeClaimer: payer.publicKey,
+      leftoverReceiver: payer.publicKey,
+      quoteMint: NATIVE_MINT,
+      payer: payer.publicKey,
+
+      // Pool parameters
+      preCreatePoolParam: {
+        name: tokenConfig.name,
+        symbol: tokenConfig.symbol,
+        uri: metadataUri,
+        poolCreator: payer.publicKey,
+        baseMint: baseMintKeypair.publicKey,
+      }
+    });
+
+    // Derive the pool address
+    const poolAddress = getPoolAddress(
+      baseMintKeypair.publicKey,
+      NATIVE_MINT,
+      configKeypair.publicKey
     );
-    console.log('✅ Pool created:', poolAddress.toBase58());
 
-    console.log('\n🎉 Launch complete!');
+    console.log('Sending transaction...');
+
+    // Sign and send the transaction
+    const signature = await sendAndConfirmTransaction(
+      connection,
+      createTx,
+      [payer, configKeypair, baseMintKeypair],
+      { commitment: 'confirmed' }
+    );
+
+    console.log('✅ Launch successful!');
+    console.log('Token mint:', baseMintKeypair.publicKey.toBase58());
+    console.log('Pool address:', poolAddress.toBase58());
+    console.log('Config address:', configKeypair.publicKey.toBase58());
+    console.log('Signature:', signature);
 
     return {
-      tokenMint,
+      tokenMint: baseMintKeypair.publicKey,
       poolAddress,
-      configAddress,
+      configAddress: configKeypair.publicKey,
       signature
     };
   } catch (error) {
@@ -390,45 +257,211 @@ export async function launchToken(
 }
 
 /**
- * Simplified launch that uses a pre-existing config
- * Useful if you've already created configs for your engines
+ * Launch token with a dev buy (creator first buy)
+ * This allows the creator to buy tokens at launch
  */
-export async function launchTokenWithConfig(
+export async function launchTokenWithDevBuy(
   connection: Connection,
   payer: Keypair,
   tokenConfig: TokenConfig,
-  configAddress: PublicKey
+  feeConfig: FeeConfig,
+  devBuyAmountLamports: BN
 ): Promise<LaunchResult> {
   try {
-    console.log('🚀 Starting token launch with existing config...');
+    console.log('🚀 Starting token launch with dev buy...');
     console.log('Token config:', tokenConfig);
-    console.log('Using config:', configAddress.toBase58());
+    console.log('Fee config:', feeConfig);
+    console.log('Dev buy amount:', devBuyAmountLamports.toString(), 'lamports');
 
-    // Step 1: Create the token
-    console.log('\n📝 Step 1: Creating SPL token...');
-    const tokenMint = await createToken(connection, payer, tokenConfig);
-    console.log('✅ Token created:', tokenMint.toBase58());
+    // Initialize the DBC client
+    const client = DynamicBondingCurveClient.create(connection, 'confirmed');
 
-    // Step 2: Create Meteora DBC pool
-    console.log('\n🌊 Step 2: Creating Meteora DBC pool...');
-    const { poolAddress, signature } = await createMeteoraPool(
-      connection,
-      payer,
-      tokenMint,
-      configAddress
+    // Generate keypairs for config and base mint
+    const configKeypair = Keypair.generate();
+    const baseMintKeypair = Keypair.generate();
+
+    console.log('Config address:', configKeypair.publicKey.toBase58());
+    console.log('Base mint:', baseMintKeypair.publicKey.toBase58());
+
+    // Build the curve parameters
+    const curveParams = buildPumpfunStyleCurve(feeConfig);
+
+    // Create metadata URI
+    const metadataUri = tokenConfig.imageUrl || '';
+
+    // Use createConfigAndPoolWithFirstBuy if we have a dev buy
+    console.log('Creating config, pool, and executing first buy...');
+
+    const { createConfigTx, createPoolTx, swapBuyTx } = await client.pool.createConfigAndPoolWithFirstBuy({
+      // Config parameters
+      ...curveParams,
+
+      // Config accounts
+      config: configKeypair.publicKey,
+      feeClaimer: payer.publicKey,
+      leftoverReceiver: payer.publicKey,
+      quoteMint: NATIVE_MINT,
+      payer: payer.publicKey,
+
+      // Pool parameters
+      preCreatePoolParam: {
+        name: tokenConfig.name,
+        symbol: tokenConfig.symbol,
+        uri: metadataUri,
+        poolCreator: payer.publicKey,
+        baseMint: baseMintKeypair.publicKey,
+      },
+
+      // First buy parameters (dev buy)
+      firstBuyParam: {
+        buyer: payer.publicKey,
+        buyAmount: devBuyAmountLamports,
+        minimumAmountOut: new BN(0), // No slippage protection for simplicity
+        referralTokenAccount: null,
+      }
+    });
+
+    // Derive the pool address
+    const poolAddress = getPoolAddress(
+      baseMintKeypair.publicKey,
+      NATIVE_MINT,
+      configKeypair.publicKey
     );
-    console.log('✅ Pool created:', poolAddress.toBase58());
 
-    console.log('\n🎉 Launch complete!');
+    console.log('Sending config transaction...');
+    const configSig = await sendAndConfirmTransaction(
+      connection,
+      createConfigTx,
+      [payer, configKeypair],
+      { commitment: 'confirmed' }
+    );
+    console.log('Config created:', configSig);
+
+    console.log('Sending pool transaction...');
+    const poolSig = await sendAndConfirmTransaction(
+      connection,
+      createPoolTx,
+      [payer, baseMintKeypair],
+      { commitment: 'confirmed' }
+    );
+    console.log('Pool created:', poolSig);
+
+    let finalSig = poolSig;
+
+    if (swapBuyTx) {
+      console.log('Sending dev buy transaction...');
+      finalSig = await sendAndConfirmTransaction(
+        connection,
+        swapBuyTx,
+        [payer],
+        { commitment: 'confirmed' }
+      );
+      console.log('Dev buy executed:', finalSig);
+    }
+
+    console.log('✅ Launch with dev buy successful!');
+    console.log('Token mint:', baseMintKeypair.publicKey.toBase58());
+    console.log('Pool address:', poolAddress.toBase58());
 
     return {
-      tokenMint,
+      tokenMint: baseMintKeypair.publicKey,
       poolAddress,
-      configAddress,
-      signature
+      configAddress: configKeypair.publicKey,
+      signature: finalSig
     };
   } catch (error) {
     console.error('❌ Launch error:', error);
     throw error;
+  }
+}
+
+/**
+ * Buy tokens from a bonding curve pool
+ * swapBaseForQuote: false = buying tokens (SOL → Token)
+ */
+export async function buyTokens(
+  connection: Connection,
+  payer: Keypair,
+  poolAddress: PublicKey,
+  amountLamports: BN,
+  minAmountOut: BN = new BN(0)
+): Promise<string> {
+  const client = DynamicBondingCurveClient.create(connection, 'confirmed');
+
+  const swapTx = await client.pool.swap({
+    owner: payer.publicKey,
+    pool: poolAddress,
+    amountIn: amountLamports,
+    minimumAmountOut: minAmountOut,
+    swapBaseForQuote: false, // false = buying tokens (quote → base)
+    referralTokenAccount: null,
+  });
+
+  const signature = await sendAndConfirmTransaction(
+    connection,
+    swapTx,
+    [payer],
+    { commitment: 'confirmed' }
+  );
+
+  return signature;
+}
+
+/**
+ * Sell tokens back to the bonding curve pool
+ * swapBaseForQuote: true = selling tokens (Token → SOL)
+ */
+export async function sellTokens(
+  connection: Connection,
+  payer: Keypair,
+  poolAddress: PublicKey,
+  tokenAmount: BN,
+  minSolOut: BN = new BN(0)
+): Promise<string> {
+  const client = DynamicBondingCurveClient.create(connection, 'confirmed');
+
+  const swapTx = await client.pool.swap({
+    owner: payer.publicKey,
+    pool: poolAddress,
+    amountIn: tokenAmount,
+    minimumAmountOut: minSolOut,
+    swapBaseForQuote: true, // true = selling tokens (base → quote)
+    referralTokenAccount: null,
+  });
+
+  const signature = await sendAndConfirmTransaction(
+    connection,
+    swapTx,
+    [payer],
+    { commitment: 'confirmed' }
+  );
+
+  return signature;
+}
+
+/**
+ * Get pool state from on-chain
+ */
+export async function getPoolState(
+  connection: Connection,
+  poolAddress: PublicKey
+) {
+  const client = DynamicBondingCurveClient.create(connection, 'confirmed');
+  return await client.state.getPool(poolAddress);
+}
+
+/**
+ * Check if a pool has migrated
+ */
+export async function isPoolMigrated(
+  connection: Connection,
+  poolAddress: PublicKey
+): Promise<boolean> {
+  try {
+    const poolState = await getPoolState(connection, poolAddress);
+    // isMigrated is a number (0 = not migrated, 1 = migrated)
+    return poolState?.isMigrated === 1;
+  } catch {
+    return false;
   }
 }
