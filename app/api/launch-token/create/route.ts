@@ -8,6 +8,7 @@ import {
 import { NATIVE_MINT } from '@solana/spl-token';
 import { DynamicBondingCurveClient } from '@meteora-ag/dynamic-bonding-curve-sdk';
 import BN from 'bn.js';
+import bs58 from 'bs58';
 
 // ============================================================
 // SHIPYARD TOKEN LAUNCH - CREATE POOL
@@ -27,14 +28,24 @@ import BN from 'bn.js';
 
 const SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
 
-// Shipyard Production Config (devnet) - must be pre-created
-const SHIPYARD_CONFIG = new PublicKey('FWV59wJ2wHHVjzTS2Er33KwJ2i7LXc1fAMoRbvVSjHJB');
+// Engine configs (devnet) - different fee split configurations
+const ENGINE_CONFIGS: Record<string, PublicKey> = {
+  navigator: new PublicKey('8Rtd7oXLE9jEdjEnnhCjk9y8UywPGTGYMNJufArG8aH4'),  // 80% LP, 20% Burn, 0% Dev
+  lighthouse: new PublicKey('BZESCTuD5JfmaZDx17J2GpQ9YgLWm9fUbDibyBf2vneQ'), // 50% LP, 0% Burn, 50% Dev
+  supernova: new PublicKey('52DUi3VXX1buX5qkgV5i9EfcDYyYWKhfygqdg8uDQiKS'),  // 25% LP, 75% Burn, 0% Dev
+};
 
-// Launch fee wallet - receives 2 SOL per launch
-const LAUNCH_FEE_WALLET = new PublicKey('8G46itYevnA4gFUBFNSUZF1fZEgRWfa4xYsJbuhY6BFj');
+// Default config (Navigator)
+const DEFAULT_ENGINE = 'navigator';
 
-// Launch fee (reduced to 0.5 for devnet testing)
-const LAUNCH_FEE_SOL = 0.5;
+// Shipyard wallet - receives launch fees and is set as pool creator for all launches
+// This ensures all launches appear from Shipyard on explorers/Meteora
+const SHIPYARD_PRIVATE_KEY = process.env.SHIPYARD_PRIVATE_KEY || 'tHroq5X3iaSVQ6eYbtuCQeritmheWtkeiTs5vHYPJwzDNZ7r8gmTuYE7pqW48AhuMptWdQrPJKsKuEm6NnedRFT';
+const SHIPYARD_KEYPAIR = Keypair.fromSecretKey(bs58.decode(SHIPYARD_PRIVATE_KEY));
+const SHIPYARD_WALLET = SHIPYARD_KEYPAIR.publicKey;
+
+// Launch fee (reduced to 0.1 for devnet testing)
+const LAUNCH_FEE_SOL = 0.1;
 
 // Dev buy limits
 const MAX_DEV_BUY_SOL = 1.5; // ~5% of supply at launch price
@@ -54,6 +65,9 @@ interface CreatePoolRequest {
 
   // Creator wallet
   creatorWallet: string;
+
+  // Engine selection (navigator, lighthouse, supernova)
+  engine?: string;
 
   // Dev buy amount in SOL (optional, max ~5% of supply)
   devBuyAmount?: number;
@@ -121,7 +135,7 @@ export async function POST(request: NextRequest) {
     // Verify the fee was paid to Launch Fee Wallet
     const accountKeys = txInfo.transaction.message.getAccountKeys();
     const launchFeeWalletIndex = accountKeys.staticAccountKeys.findIndex(
-      (key) => key.equals(LAUNCH_FEE_WALLET)
+      (key) => key.equals(SHIPYARD_WALLET)
     );
 
     if (launchFeeWalletIndex === -1) {
@@ -148,12 +162,17 @@ export async function POST(request: NextRequest) {
 
     console.log('Fee payment verified!');
 
+    // Get engine config
+    const engineKey = body.engine && ENGINE_CONFIGS[body.engine] ? body.engine : DEFAULT_ENGINE;
+    const engineConfig = ENGINE_CONFIGS[engineKey];
+    console.log('Selected engine:', engineKey);
+
     // Generate new token mint keypair
     const baseMintKeypair = Keypair.generate();
     const baseMint = baseMintKeypair.publicKey;
 
     // Derive pool address
-    const poolAddress = derivePoolAddress(baseMint, NATIVE_MINT, SHIPYARD_CONFIG);
+    const poolAddress = derivePoolAddress(baseMint, NATIVE_MINT, engineConfig);
 
     // Validate and truncate metadata fields to prevent buffer overflow
     // Meteora DBC has strict limits on metadata field sizes
@@ -169,7 +188,7 @@ export async function POST(request: NextRequest) {
     console.log('Creating pool transaction:');
     console.log('  Token Mint:', baseMint.toBase58());
     console.log('  Pool:', poolAddress.toBase58());
-    console.log('  Config:', SHIPYARD_CONFIG.toBase58());
+    console.log('  Config:', engineConfig.toBase58(), `(${engineKey})`);
     console.log('  Name:', JSON.stringify(tokenName), `(${tokenName.length} chars)`);
     console.log('  Symbol:', JSON.stringify(tokenSymbol), `(${tokenSymbol.length} chars)`);
     console.log('  URI:', JSON.stringify(tokenUri), `(${tokenUri.length} chars)`);
@@ -198,8 +217,8 @@ export async function POST(request: NextRequest) {
         symbol: tokenSymbol,
         uri: tokenUri,
         payer: creatorPubkey,
-        poolCreator: creatorPubkey,
-        config: SHIPYARD_CONFIG,
+        poolCreator: SHIPYARD_WALLET,  // All launches appear from Shipyard
+        config: engineConfig,
         baseMint: baseMint,
       });
       console.log('Pool transaction created successfully!');
@@ -221,8 +240,9 @@ export async function POST(request: NextRequest) {
     createPoolTx.lastValidBlockHeight = lastValidBlockHeight;
     createPoolTx.feePayer = creatorPubkey;
 
-    // Partially sign with baseMint keypair (user will add their signature)
+    // Partially sign with baseMint keypair and Shipyard wallet (user will add their signature)
     createPoolTx.partialSign(baseMintKeypair);
+    createPoolTx.partialSign(SHIPYARD_KEYPAIR);
 
     // Serialize for client
     const serializedPoolTx = createPoolTx.serialize({
@@ -240,7 +260,7 @@ export async function POST(request: NextRequest) {
       // Pool details
       tokenMint: baseMint.toBase58(),
       poolAddress: poolAddress.toBase58(),
-      configAddress: SHIPYARD_CONFIG.toBase58(),
+      configAddress: engineConfig.toBase58(),
 
       // Token details
       tokenDetails: {

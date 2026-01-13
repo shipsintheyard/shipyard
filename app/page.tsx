@@ -163,6 +163,7 @@ export default function ShipyardPlatform() {
           symbol: tokenSymbol,
           uri: metadataUri,
           creatorWallet: publicKey.toBase58(),
+          engine: selectedEngine,
           devBuyAmount: devBuyEnabled ? devBuyAmount : 0,
         }),
       });
@@ -237,9 +238,9 @@ export default function ShipyardPlatform() {
   };
 
   const engines: Record<string, { name: string; lp: number; burn: number; dev?: number; icon: string; desc: string }> = {
-    navigator: { name: 'NAVIGATOR', lp: 80, burn: 20, dev: 0, icon: '⭐', desc: 'Maximum LP depth, steady burns' },
+    navigator: { name: 'NAVIGATOR', lp: 80, burn: 20, icon: '⭐', desc: 'Maximum LP depth, steady burns' },
     lighthouse: { name: 'LIGHTHOUSE', lp: 50, burn: 0, dev: 50, icon: '🏮', desc: '50% LP / 50% Dev - Creator rewards' },
-    supernova: { name: 'SUPERNOVA', lp: 50, burn: 50, dev: 0, icon: '☄️', desc: 'Maximum deflation, 50/50 split' }
+    supernova: { name: 'SUPERNOVA', lp: 25, burn: 75, icon: '☄️', desc: 'Maximum deflation, 25/75 split' }
   };
 
   const tabs = [
@@ -612,7 +613,7 @@ export default function ShipyardPlatform() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
                   {[
-                    { num: '01', title: 'PAY LAUNCH FEE', desc: '2 SOL flat. No ongoing fees. No extraction.', icon: '⚓' },
+                    { num: '01', title: 'PAY LAUNCH FEE', desc: '0.1 SOL flat. No ongoing fees. No extraction.', icon: '⚓' },
                     { num: '02', title: 'PICK YOUR SPLIT', desc: 'Choose how fees compound: more LP or more burns.', icon: '⚖️' },
                     { num: '03', title: 'STAY AFLOAT', desc: 'Launch with locked LP, 0% extraction, auto-compound.', icon: '🛟' }
                   ].map((step, i) => (
@@ -748,7 +749,7 @@ export default function ShipyardPlatform() {
                 READY TO STAY AFLOAT?
               </h2>
               <p style={{ fontSize: '15px', color: '#6e7b8b', marginBottom: '35px' }}>
-                2 SOL. Zero extraction. Your token floats.
+                0.1 SOL. Zero extraction. Your token floats.
               </p>
               <button
                 onClick={() => setActiveTab('raft')}
@@ -1098,8 +1099,7 @@ export default function ShipyardPlatform() {
                     <span style={{ color: '#88c0ff' }}>02</span> CHOOSE YOUR SPLIT
                   </h2>
                   <p style={{ fontSize: '12px', color: '#6e7b8b', marginBottom: '28px' }}>
-                    All options = 0% dev extraction. Choose how fees get reinvested.
-                    All engines = 0% dev extraction. Choose your compound split.
+                    Fees stay in the ecosystem. Choose how they raise the waters.
                   </p>
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', marginBottom: '28px' }}>
@@ -1151,7 +1151,7 @@ export default function ShipyardPlatform() {
                           }}>
                             {engine.burn}% BURN
                           </div>
-                          {engine.dev && engine.dev > 0 && (
+                          {engine.dev !== undefined && engine.dev > 0 && (
                             <div style={{
                               padding: '5px 8px',
                               background: 'rgba(74, 222, 128, 0.1)',
@@ -1557,7 +1557,7 @@ export default function ShipyardPlatform() {
               <div style={{ fontSize: '9px', color: '#88c0ff', letterSpacing: '2px', marginBottom: '18px' }}>ENGINE LOG</div>
               {[
                 { time: '2h ago', amount: '0.85 SOL', lp: '0.68', burn: '0.17', tx: '4xK...9f2' },
-                { time: '6h ago', amount: '0.72 SOL', lp: '0.58', burn: '0.14', tx: '7mP...3a1' },
+                { time: '6h ago', amount: '0.70.1 SOL', lp: '0.58', burn: '0.14', tx: '7mP...3a1' },
                 { time: '14h ago', amount: '0.91 SOL', lp: '0.73', burn: '0.18', tx: '2nR...8k4' },
               ].map((entry, i) => (
                 <div key={i} style={{
@@ -1805,7 +1805,7 @@ export default function ShipyardPlatform() {
                         {
                           step: '01',
                           title: 'Pay the Launch Fee',
-                          desc: '2 SOL flat fee to launch. This is your only cost — no hidden fees, no ongoing extraction. The fee filters out low-effort rugs and funds development.'
+                          desc: '0.1 SOL flat fee to launch. This is your only cost — no hidden fees, no ongoing extraction. The fee filters out low-effort rugs and funds development.'
                         },
                         {
                           step: '02',
@@ -2026,7 +2026,7 @@ export default function ShipyardPlatform() {
                         DOCK FEE
                       </div>
                       <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: '48px', fontWeight: '700', color: '#88c0ff', marginBottom: '8px' }}>
-                        2 SOL
+                        0.1 SOL
                       </div>
                       <div style={{ fontSize: '14px', color: '#8b949e' }}>
                         One-time payment to launch
@@ -2173,7 +2173,7 @@ export default function ShipyardPlatform() {
                           a: "The Shipyard uses Meteora's audited DBC program. We don't have custom smart contracts — we just configure Meteora's existing infrastructure."
                         },
                         {
-                          q: "What happens to the 2 SOL dock fee?",
+                          q: "What happens to the 0.1 SOL dock fee?",
                           a: "It goes to The Shipyard treasury to fund development, hosting, and the compound bot infrastructure."
                         },
                         {

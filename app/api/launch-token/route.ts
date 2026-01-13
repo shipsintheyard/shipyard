@@ -27,8 +27,8 @@ const LAUNCH_FEE_WALLET = '8G46itYevnA4gFUBFNSUZF1fZEgRWfa4xYsJbuhY6BFj';
 // Fee claimer wallet - receives trading fees (for flywheel distribution)
 const FEE_CLAIMER_WALLET = 'BCPC2W5DzAeRQRZL3U1sZWTtPUq8xwvmGxAg7h6BvfJx';
 
-// Launch fee in SOL (reduced to 0.5 for devnet testing)
-const LAUNCH_FEE_SOL = 0.5;
+// Launch fee in SOL (reduced to 0.1 for devnet testing)
+const LAUNCH_FEE_SOL = 0.1;
 
 // Dev buy limits
 // At initial MC of 27.48 SOL, 5% of 1B supply costs ~1.37 SOL

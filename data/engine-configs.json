@@ -1,0 +1,10 @@
+{
+  "created": "2026-01-13T18:39:50.165Z",
+  "network": "devnet",
+  "feeReceiver": "8G46itYevnA4gFUBFNSUZF1fZEgRWfa4xYsJbuhY6BFj",
+  "configs": {
+    "navigator": "8Rtd7oXLE9jEdjEnnhCjk9y8UywPGTGYMNJufArG8aH4",
+    "lighthouse": "BZESCTuD5JfmaZDx17J2GpQ9YgLWm9fUbDibyBf2vneQ",
+    "supernova": "52DUi3VXX1buX5qkgV5i9EfcDYyYWKhfygqdg8uDQiKS"
+  }
+}
