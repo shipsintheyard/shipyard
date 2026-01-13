@@ -2,3 +2,9 @@ node_modules
 .next
 .env
 .env.local
+
+# Scripts with sensitive keys
+scripts/
+
+# Claude settings
+.claude/
