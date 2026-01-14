@@ -48,6 +48,33 @@ function rollRarity(): BottleRarity {
   return 'common';
 }
 
+// Basic profanity filter - catches common slurs and offensive terms
+// This is a minimal list - expand as needed
+const BLOCKED_WORDS = [
+  // Racial slurs
+  'nigger', 'nigga', 'n1gger', 'n1gga', 'nig', 'coon', 'spic', 'spick', 'wetback', 'beaner', 'chink', 'gook', 'kike', 'heeb',
+  // Homophobic slurs
+  'faggot', 'fag', 'f4ggot', 'f4g', 'dyke',
+  // Other slurs
+  'retard', 'retarded', 'r3tard',
+  // Extreme content
+  'kill yourself', 'kys',
+];
+
+function containsProfanity(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/[0-9@$!%*?&]/g, (c) => {
+    // Common leetspeak substitutions
+    const subs: Record<string, string> = { '0': 'o', '1': 'i', '3': 'e', '4': 'a', '@': 'a', '$': 's', '!': 'i' };
+    return subs[c] || c;
+  });
+
+  return BLOCKED_WORDS.some(word => {
+    // Check for word boundaries to avoid false positives
+    const regex = new RegExp(`\\b${word}\\b`, 'i');
+    return regex.test(normalized) || normalized.includes(word);
+  });
+}
+
 // GET - Fetch all bottles
 export async function GET(request: NextRequest) {
   try {
@@ -98,6 +125,11 @@ export async function POST(request: NextRequest) {
     // Validate required fields
     if (!message || !sender || !signature) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
+
+    // Check for profanity/slurs
+    if (containsProfanity(message)) {
+      return NextResponse.json({ error: 'Message contains inappropriate content' }, { status: 400 });
     }
 
     // Verify the transaction exists on-chain
