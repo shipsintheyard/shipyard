@@ -65,7 +65,11 @@ export default function Trawler() {
       const res = await fetch('/api/trawler-stats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ solAmount, accountsClosed }),
+        body: JSON.stringify({
+          solAmount,
+          accountsClosed,
+          wallet: publicKey?.toString()
+        }),
       });
       const data = await res.json();
       setFleetStats(data);

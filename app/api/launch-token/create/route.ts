@@ -9,6 +9,7 @@ import { NATIVE_MINT } from '@solana/spl-token';
 import { DynamicBondingCurveClient } from '@meteora-ag/dynamic-bonding-curve-sdk';
 import BN from 'bn.js';
 import bs58 from 'bs58';
+import { grindVanityKeypairAsync } from '../../../utils/vanityKeypair';
 
 // ============================================================
 // SHIPYARD TOKEN LAUNCH - CREATE POOL
@@ -78,6 +79,9 @@ interface CreatePoolRequest {
 
   // Dev buy amount in SOL (optional, max ~5% of supply)
   devBuyAmount?: number;
+
+  // Vanity address - generate token address ending in "SHIP"
+  vanityEnabled?: boolean;
 }
 
 // Derive pool address PDA
@@ -177,8 +181,31 @@ export async function POST(request: NextRequest) {
     const engineConfig = ENGINE_CONFIGS[engineKey];
     console.log('Selected engine:', engineKey);
 
-    // Generate new token mint keypair
-    const baseMintKeypair = Keypair.generate();
+    // Generate token mint keypair (with optional vanity address)
+    let baseMintKeypair: Keypair;
+    let vanityAttempts = 0;
+
+    if (body.vanityEnabled) {
+      console.log('Grinding for vanity address ending in "SHIP"...');
+      const startTime = Date.now();
+
+      const result = await grindVanityKeypairAsync('SHIP', 100_000_000, 50_000);
+
+      if (result.keypair) {
+        baseMintKeypair = result.keypair;
+        vanityAttempts = result.attempts;
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(`Found vanity address in ${elapsed}s after ${vanityAttempts.toLocaleString()} attempts`);
+        console.log(`Vanity address: ${baseMintKeypair.publicKey.toBase58()}`);
+      } else {
+        // Fallback to random if we hit max attempts (shouldn't happen normally)
+        console.log('Vanity grinding reached max attempts, using random keypair');
+        baseMintKeypair = Keypair.generate();
+      }
+    } else {
+      baseMintKeypair = Keypair.generate();
+    }
+
     const baseMint = baseMintKeypair.publicKey;
 
     // Derive pool address
@@ -380,6 +407,13 @@ export async function POST(request: NextRequest) {
         solAmount: devBuyAmount,
         estimatedPercent: Math.round(devBuyPercent * 100) / 100,
         tokenTransferSignature: tokenTransferSignature,
+      },
+
+      // Vanity address info
+      vanityInfo: {
+        enabled: body.vanityEnabled || false,
+        suffix: body.vanityEnabled ? 'SHIP' : null,
+        attempts: vanityAttempts,
       },
 
       message: devBuyAmount > 0

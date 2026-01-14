@@ -39,6 +39,10 @@ export default function ShipyardPlatform() {
   const [devBuyAmount, setDevBuyAmount] = useState(0);
   const MAX_DEV_BUY_SOL = 1.5; // ~5% of supply at launch price
 
+  // Vanity address state
+  const [vanityEnabled, setVanityEnabled] = useState(false);
+  const [vanityProgress, setVanityProgress] = useState<string | null>(null);
+
   // Launch state
   const [isLaunching, setIsLaunching] = useState(false);
   const [launchSuccess, setLaunchSuccess] = useState(false);
@@ -179,6 +183,9 @@ export default function ShipyardPlatform() {
 
       // Step 3: Create pool (Shipyard creates it server-side)
       console.log('Step 3: Creating pool via Shipyard...');
+      if (vanityEnabled) {
+        console.log('Vanity address enabled - grinding for ...SHIP suffix (this may take 2-4 minutes)');
+      }
       const createResponse = await fetch('/api/launch-token/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -190,6 +197,7 @@ export default function ShipyardPlatform() {
           creatorWallet: publicKey.toBase58(),
           engine: selectedEngine,
           devBuyAmount: devBuyEnabled ? devBuyAmount : 0,
+          vanityEnabled,
         }),
       });
 
@@ -1327,6 +1335,66 @@ export default function ShipyardPlatform() {
                       </div>
                     )}
                   </div>
+
+                  {/* Vanity Address Section */}
+                  <div style={{
+                    marginTop: '28px',
+                    padding: '22px',
+                    background: 'rgba(10, 14, 18, 0.8)',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(136, 192, 255, 0.1)'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                      <div>
+                        <div style={{ fontSize: '13px', color: '#fff', fontWeight: '600', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          Vanity Address
+                          <span style={{
+                            padding: '2px 6px',
+                            background: 'linear-gradient(135deg, rgba(251, 191, 36, 0.2), rgba(245, 158, 11, 0.2))',
+                            border: '1px solid rgba(251, 191, 36, 0.3)',
+                            borderRadius: '4px',
+                            fontSize: '9px',
+                            color: '#fbbf24',
+                            fontWeight: '600'
+                          }}>
+                            SHIP
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#6e7b8b' }}>
+                          Generate a token address ending in &quot;SHIP&quot; (takes 2-4 min)
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setVanityEnabled(!vanityEnabled)}
+                        style={{
+                          padding: '8px 16px',
+                          background: vanityEnabled ? 'rgba(251, 191, 36, 0.2)' : 'rgba(136, 192, 255, 0.1)',
+                          border: vanityEnabled ? '1px solid rgba(251, 191, 36, 0.4)' : '1px solid rgba(136, 192, 255, 0.2)',
+                          borderRadius: '8px',
+                          color: vanityEnabled ? '#fbbf24' : '#6e7b8b',
+                          fontSize: '11px',
+                          cursor: 'pointer',
+                          fontFamily: "'Space Mono', monospace",
+                          transition: 'all 0.2s ease'
+                        }}
+                      >
+                        {vanityEnabled ? 'ENABLED' : 'DISABLED'}
+                      </button>
+                    </div>
+
+                    {vanityEnabled && (
+                      <div style={{
+                        padding: '12px',
+                        background: 'rgba(251, 191, 36, 0.05)',
+                        border: '1px solid rgba(251, 191, 36, 0.15)',
+                        borderRadius: '8px',
+                        fontSize: '10px',
+                        color: '#fbbf24'
+                      }}>
+                        Your token address will end in <strong>...SHIP</strong>. This requires grinding ~11 million keypairs and may take 2-4 minutes during launch.
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -1362,6 +1430,7 @@ export default function ShipyardPlatform() {
                         { label: 'LP Reinvest', value: `${engines[selectedEngine].lp}%`, color: '#88c0ff' },
                         { label: 'Burn Rate', value: `${engines[selectedEngine].burn}%`, color: '#f97316' },
                         { label: 'Dev Buy', value: devBuyEnabled && devBuyAmount > 0 ? `${devBuyAmount.toFixed(2)} SOL (~${((devBuyAmount / MAX_DEV_BUY_SOL) * 5).toFixed(1)}%)` : 'None', color: devBuyEnabled && devBuyAmount > 0 ? '#88c0ff' : '#6e7b8b' },
+                        { label: 'Vanity Address', value: vanityEnabled ? '...SHIP' : 'Random', color: vanityEnabled ? '#fbbf24' : '#6e7b8b' },
                         { label: 'Dev Extraction', value: '0% LOCKED', color: '#7ee787' },
                         { label: 'LP Status', value: 'LOCKED FOREVER', color: '#7ee787' },
                       ].map((item, i) => (
@@ -1369,7 +1438,7 @@ export default function ShipyardPlatform() {
                           display: 'flex',
                           justifyContent: 'space-between',
                           padding: '10px 0',
-                          borderBottom: i < 6 ? '1px solid rgba(136, 192, 255, 0.08)' : 'none'
+                          borderBottom: i < 7 ? '1px solid rgba(136, 192, 255, 0.08)' : 'none'
                         }}>
                           <span style={{ fontSize: '12px', color: '#6e7b8b' }}>{item.label}</span>
                           <span style={{ fontSize: '12px', color: item.color, fontWeight: '600' }}>{item.value}</span>

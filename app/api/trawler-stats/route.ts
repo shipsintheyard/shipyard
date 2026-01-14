@@ -8,11 +8,21 @@ const redis = new Redis({
 });
 
 const STATS_KEY = 'trawler:stats';
+const WHITELIST_KEY = 'trawler:whitelist';
 
 interface TrawlerStats {
   totalSol: number;
   totalClaims: number;
   totalAccounts: number;
+}
+
+interface TrawlerWhitelistEntry {
+  wallet: string;
+  totalSolRecovered: number;
+  totalAccountsClosed: number;
+  claimCount: number;
+  firstClaim: number;
+  lastClaim: number;
 }
 
 // GET - Fetch current stats
@@ -39,7 +49,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { solAmount, accountsClosed } = body;
+    const { solAmount, accountsClosed, wallet } = body;
 
     if (typeof solAmount !== 'number' || solAmount < 0) {
       return NextResponse.json({ error: 'Invalid solAmount' }, { status: 400 });
@@ -60,6 +70,30 @@ export async function POST(request: NextRequest) {
     };
 
     await redis.set(STATS_KEY, newStats);
+
+    // Add user to Trawler whitelist if wallet provided
+    if (wallet && typeof wallet === 'string') {
+      const whitelist = await redis.get<TrawlerWhitelistEntry[]>(WHITELIST_KEY) || [];
+      const existingEntry = whitelist.find(w => w.wallet === wallet);
+
+      if (existingEntry) {
+        existingEntry.totalSolRecovered += solAmount;
+        existingEntry.totalAccountsClosed += (accountsClosed || 0);
+        existingEntry.claimCount++;
+        existingEntry.lastClaim = Date.now();
+      } else {
+        whitelist.push({
+          wallet,
+          totalSolRecovered: solAmount,
+          totalAccountsClosed: accountsClosed || 0,
+          claimCount: 1,
+          firstClaim: Date.now(),
+          lastClaim: Date.now(),
+        });
+      }
+
+      await redis.set(WHITELIST_KEY, whitelist);
+    }
 
     return NextResponse.json(newStats);
   } catch (error) {
