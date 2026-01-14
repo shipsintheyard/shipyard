@@ -39,36 +39,31 @@ export default function Bottles() {
   const [selectedBottle, setSelectedBottle] = useState<Bottle | null>(null);
   const [throwAnimation, setThrowAnimation] = useState(false);
   const [activeTab, setActiveTab] = useState<'ocean' | 'inbox'>('ocean');
+  const [isLoadingBottles, setIsLoadingBottles] = useState(true);
 
-  // Load bottles from localStorage on mount
-  useEffect(() => {
-    const savedBottles = localStorage.getItem('shipyard-bottles');
-    if (savedBottles) {
-      setBottles(JSON.parse(savedBottles));
+  // Fetch bottles from API on mount
+  const fetchBottles = useCallback(async () => {
+    try {
+      const response = await fetch('/api/bottles');
+      const data = await response.json();
+      if (data.bottles) {
+        setBottles(data.bottles);
+      }
+    } catch (err) {
+      console.error('Failed to fetch bottles:', err);
+    } finally {
+      setIsLoadingBottles(false);
     }
   }, []);
 
-  // Save bottles to localStorage when updated
   useEffect(() => {
-    if (bottles.length > 0) {
-      localStorage.setItem('shipyard-bottles', JSON.stringify(bottles));
-    }
-  }, [bottles]);
+    fetchBottles();
+  }, [fetchBottles]);
 
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(''), 4000);
   };
-
-  const generateBottlePosition = useCallback(() => {
-    return {
-      x: 10 + Math.random() * 80,
-      y: 20 + Math.random() * 60,
-      rotation: -20 + Math.random() * 40,
-      animationDelay: Math.random() * 5,
-      animationDuration: 4 + Math.random() * 4,
-    };
-  }, []);
 
   const isValidSolanaAddress = (address: string): boolean => {
     try {
@@ -147,18 +142,25 @@ export default function Bottles() {
         signature,
       }, 'confirmed');
 
-      // Create new bottle
-      const newBottle: Bottle = {
-        id: signature.slice(0, 8),
-        message: message.trim(),
-        sender: publicKey.toBase58(),
-        recipient: messageMode === 'direct' ? recipientAddress.trim() : undefined,
-        signature,
-        timestamp: Date.now(),
-        ...generateBottlePosition(),
-      };
+      // Save bottle to API (stores in shared database)
+      const apiResponse = await fetch('/api/bottles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: message.trim(),
+          sender: publicKey.toBase58(),
+          recipient: messageMode === 'direct' ? recipientAddress.trim() : undefined,
+          signature,
+        }),
+      });
 
-      setBottles(prev => [newBottle, ...prev].slice(0, 100)); // Keep max 100 bottles
+      const apiData = await apiResponse.json();
+
+      if (apiData.bottle) {
+        // Add to local state immediately
+        setBottles(prev => [apiData.bottle, ...prev].slice(0, 200));
+      }
+
       setMessage('');
       setRecipientAddress('');
 
