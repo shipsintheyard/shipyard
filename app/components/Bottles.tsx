@@ -8,6 +8,8 @@ import { Transaction, TransactionInstruction, PublicKey } from '@solana/web3.js'
 // Solana Memo Program ID
 const MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
 
+type BottleRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
+
 interface Bottle {
   id: string;
   message: string;
@@ -16,6 +18,7 @@ interface Bottle {
   recipient?: string; // If set, only recipient can read
   signature: string;
   timestamp: number;
+  rarity?: BottleRarity; // Optional for backwards compat with old bottles
   x: number;
   y: number;
   rotation: number;
@@ -24,6 +27,15 @@ interface Bottle {
 }
 
 type MessageMode = 'ocean' | 'direct';
+
+// Rarity color themes - more distinct colors
+const RARITY_COLORS: Record<BottleRarity, { fill: string; stroke: string; glow: string; label: string; size: number }> = {
+  common: { fill: 'rgba(94, 174, 216, 0.25)', stroke: '#5EAED8', glow: 'none', label: 'Common', size: 1 },
+  uncommon: { fill: 'rgba(74, 222, 128, 0.4)', stroke: '#22C55E', glow: '0 0 20px rgba(74, 222, 128, 0.7)', label: 'Uncommon', size: 1.1 },
+  rare: { fill: 'rgba(59, 130, 246, 0.45)', stroke: '#3B82F6', glow: '0 0 25px rgba(59, 130, 246, 0.8)', label: 'Rare', size: 1.15 },
+  epic: { fill: 'rgba(168, 85, 247, 0.5)', stroke: '#A855F7', glow: '0 0 30px rgba(168, 85, 247, 0.9)', label: 'Epic', size: 1.2 },
+  legendary: { fill: 'rgba(251, 191, 36, 0.55)', stroke: '#F59E0B', glow: '0 0 40px rgba(251, 191, 36, 1), 0 0 60px rgba(251, 191, 36, 0.5)', label: 'Legendary', size: 1.3 },
+};
 
 export default function Bottles() {
   const { publicKey, connected, signTransaction } = useWallet();
@@ -42,6 +54,8 @@ export default function Bottles() {
   const [throwAnimation, setThrowAnimation] = useState(false);
   const [activeTab, setActiveTab] = useState<'ocean' | 'inbox'>('ocean');
   const [isLoadingBottles, setIsLoadingBottles] = useState(true);
+  const [isFishing, setIsFishing] = useState(false);
+  const [caughtBottle, setCaughtBottle] = useState<Bottle | null>(null);
 
   // Fetch bottles from API on mount
   const fetchBottles = useCallback(async () => {
@@ -234,6 +248,59 @@ export default function Bottles() {
 
   // Filter bottles for ocean view (public only)
   const oceanBottles = bottles.filter(b => !b.recipient);
+
+  // Fishing mechanic - cast line and catch a random bottle
+  const castFishingLine = useCallback(() => {
+    if (isFishing || oceanBottles.length === 0) return;
+
+    setIsFishing(true);
+    setCaughtBottle(null);
+
+    // Simulate fishing delay (1.5-3 seconds)
+    const fishingTime = 1500 + Math.random() * 1500;
+
+    setTimeout(() => {
+      // Catch a random bottle (weighted by rarity - rarer = harder to catch)
+      const weights: Record<BottleRarity, number> = {
+        common: 1,
+        uncommon: 0.8,
+        rare: 0.5,
+        epic: 0.3,
+        legendary: 0.15,
+      };
+
+      const weightedBottles = oceanBottles.map(b => ({
+        bottle: b,
+        weight: weights[b.rarity || 'common'],
+      }));
+
+      const totalWeight = weightedBottles.reduce((sum, wb) => sum + wb.weight, 0);
+      let random = Math.random() * totalWeight;
+
+      let caught: Bottle | null = null;
+      for (const wb of weightedBottles) {
+        random -= wb.weight;
+        if (random <= 0) {
+          caught = wb.bottle;
+          break;
+        }
+      }
+
+      if (caught) {
+        setCaughtBottle(caught);
+        playBottleSound();
+        setSelectedBottle(caught);
+      }
+
+      setIsFishing(false);
+    }, fishingTime);
+  }, [isFishing, oceanBottles, playBottleSound]);
+
+  // Get rarity colors for a bottle
+  const getBottleColors = (bottle: Bottle) => {
+    const rarity = bottle.rarity || 'common';
+    return RARITY_COLORS[rarity];
+  };
 
   // Filter bottles for inbox (direct messages to current user)
   const inboxBottles = publicKey
@@ -976,6 +1043,115 @@ export default function Bottles() {
           color: #5EAED8;
         }
 
+        /* Fishing Section */
+        .fishing-section {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          margin-bottom: 20px;
+          padding: 16px;
+          background: rgba(17, 24, 39, 0.6);
+          border: 1px solid rgba(94, 174, 216, 0.2);
+          border-radius: 10px;
+        }
+
+        .fishing-btn {
+          background: linear-gradient(135deg, #3A7A9D, #5EAED8);
+          border: none;
+          color: #0B1120;
+          padding: 12px 24px;
+          border-radius: 6px;
+          font-family: 'IBM Plex Mono', monospace;
+          font-size: 13px;
+          font-weight: 600;
+          letter-spacing: 0.08em;
+          cursor: pointer;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .fishing-btn:hover:not(:disabled) {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 20px rgba(94, 174, 216, 0.4);
+        }
+
+        .fishing-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .fishing-btn.casting {
+          animation: fishing-cast 0.8s ease-in-out infinite;
+        }
+
+        .fishing-icon {
+          font-size: 16px;
+        }
+
+        @keyframes fishing-cast {
+          0%, 100% { transform: rotate(0deg); }
+          25% { transform: rotate(-15deg); }
+          75% { transform: rotate(15deg); }
+        }
+
+        .fishing-hint {
+          font-size: 12px;
+          color: #6B7B8F;
+          letter-spacing: 0.05em;
+        }
+
+        /* Rarity Badge */
+        .rarity-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 4px 12px;
+          border-radius: 12px;
+          font-size: 10px;
+          font-weight: 600;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          margin-left: 12px;
+        }
+
+        .rarity-badge.common {
+          background: rgba(94, 174, 216, 0.2);
+          color: #5EAED8;
+          border: 1px solid rgba(94, 174, 216, 0.3);
+        }
+
+        .rarity-badge.uncommon {
+          background: rgba(74, 222, 128, 0.2);
+          color: #4ADE80;
+          border: 1px solid rgba(74, 222, 128, 0.3);
+        }
+
+        .rarity-badge.rare {
+          background: rgba(96, 165, 250, 0.2);
+          color: #60A5FA;
+          border: 1px solid rgba(96, 165, 250, 0.3);
+        }
+
+        .rarity-badge.epic {
+          background: rgba(167, 139, 250, 0.2);
+          color: #A78BFA;
+          border: 1px solid rgba(167, 139, 250, 0.3);
+        }
+
+        .rarity-badge.legendary {
+          background: rgba(251, 191, 36, 0.2);
+          color: #FBBF24;
+          border: 1px solid rgba(251, 191, 36, 0.3);
+          animation: legendary-pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes legendary-pulse {
+          0%, 100% { box-shadow: 0 0 10px rgba(251, 191, 36, 0.3); }
+          50% { box-shadow: 0 0 20px rgba(251, 191, 36, 0.6); }
+        }
+
         @media (max-width: 640px) {
           .title {
             font-size: 36px;
@@ -1000,6 +1176,15 @@ export default function Bottles() {
 
           .view-tabs {
             flex-wrap: wrap;
+          }
+
+          .fishing-section {
+            flex-direction: column;
+            text-align: center;
+          }
+
+          .fishing-hint {
+            text-align: center;
           }
         }
       `}</style>
@@ -1137,6 +1322,28 @@ export default function Bottles() {
 
           {activeTab === 'ocean' && (
             <div className="ocean-section">
+              {/* Fishing Button */}
+              <div className="fishing-section">
+                <button
+                  className={`fishing-btn ${isFishing ? 'casting' : ''}`}
+                  onClick={castFishingLine}
+                  disabled={isFishing || oceanBottles.length === 0}
+                >
+                  {isFishing ? (
+                    <>
+                      <span className="fishing-icon">🎣</span>
+                      FISHING...
+                    </>
+                  ) : (
+                    <>
+                      <span className="fishing-icon">🎣</span>
+                      CAST LINE
+                    </>
+                  )}
+                </button>
+                <span className="fishing-hint">Catch a random bottle from the ocean!</span>
+              </div>
+
               <div className="ocean-view">
                 {oceanBottles.length === 0 ? (
                   <div className="empty-ocean">
@@ -1144,44 +1351,113 @@ export default function Bottles() {
                     <div className="empty-text">No bottles yet. Be the first to cast a message!</div>
                   </div>
                 ) : (
-                  oceanBottles.map((bottle) => (
-                    <div
-                      key={bottle.id}
-                      className="floating-bottle"
-                      style={{
-                        left: `${bottle.x}%`,
-                        top: `${bottle.y}%`,
-                        ['--rotation' as any]: `${bottle.rotation}deg`,
-                        ['--delay' as any]: `${bottle.animationDelay}s`,
-                        ['--duration' as any]: `${bottle.animationDuration}s`,
-                      }}
-                      onClick={() => { playBottleSound(); setSelectedBottle(bottle); }}
-                      title="Click to read message"
-                    >
-                      <svg className="bottle-svg" viewBox="0 0 40 60" fill="none">
-                        <path
-                          d="M12 20 L12 50 Q12 55 20 55 Q28 55 28 50 L28 20 Q28 15 20 15 Q12 15 12 20Z"
-                          fill="rgba(94, 174, 216, 0.3)"
-                          stroke="#5EAED8"
-                          strokeWidth="1.5"
-                        />
-                        <path
-                          d="M16 15 L16 8 Q16 5 20 5 Q24 5 24 8 L24 15"
-                          fill="rgba(94, 174, 216, 0.2)"
-                          stroke="#5EAED8"
-                          strokeWidth="1.5"
-                        />
-                        <rect x="17" y="3" width="6" height="5" rx="1" fill="#8B7355" stroke="#6B5344" strokeWidth="0.5" />
-                        <rect x="16" y="25" width="8" height="20" rx="1" fill="#E2E8F0" opacity="0.6" />
-                        <path
-                          d="M14 22 L14 45"
-                          stroke="rgba(255, 255, 255, 0.3)"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                        />
-                      </svg>
-                    </div>
-                  ))
+                  oceanBottles.map((bottle) => {
+                    const colors = getBottleColors(bottle);
+                    const rarity = bottle.rarity || 'common';
+                    return (
+                      <div
+                        key={bottle.id}
+                        className={`floating-bottle ${rarity}`}
+                        style={{
+                          left: `${bottle.x}%`,
+                          top: `${bottle.y}%`,
+                          ['--rotation' as any]: `${bottle.rotation}deg`,
+                          ['--delay' as any]: `${bottle.animationDelay}s`,
+                          ['--duration' as any]: `${bottle.animationDuration}s`,
+                          filter: colors.glow !== 'none' ? `drop-shadow(${colors.glow})` : undefined,
+                          transform: `scale(${colors.size})`,
+                        }}
+                        onClick={() => { playBottleSound(); setSelectedBottle(bottle); }}
+                        title={`${colors.label} bottle - Click to read`}
+                      >
+                        <svg className="bottle-svg" viewBox="0 0 40 60" fill="none">
+                          {/* Outer glow ring for epic/legendary */}
+                          {(rarity === 'epic' || rarity === 'legendary') && (
+                            <ellipse cx="20" cy="35" rx="18" ry="25" fill="none" stroke={colors.stroke} strokeWidth="0.5" opacity="0.3">
+                              <animate attributeName="opacity" values="0.3;0.1;0.3" dur="2s" repeatCount="indefinite" />
+                            </ellipse>
+                          )}
+                          {/* Bottle body */}
+                          <path
+                            d="M12 20 L12 50 Q12 55 20 55 Q28 55 28 50 L28 20 Q28 15 20 15 Q12 15 12 20Z"
+                            fill={colors.fill}
+                            stroke={colors.stroke}
+                            strokeWidth={rarity === 'legendary' ? '2' : '1.5'}
+                          />
+                          {/* Bottle neck */}
+                          <path
+                            d="M16 15 L16 8 Q16 5 20 5 Q24 5 24 8 L24 15"
+                            fill={colors.fill}
+                            stroke={colors.stroke}
+                            strokeWidth="1.5"
+                          />
+                          {/* Cork */}
+                          <rect x="17" y="3" width="6" height="5" rx="1" fill={rarity === 'legendary' ? '#DAA520' : '#8B7355'} stroke={rarity === 'legendary' ? '#B8860B' : '#6B5344'} strokeWidth="0.5" />
+                          {/* Message inside */}
+                          <rect x="16" y="25" width="8" height="20" rx="1" fill="#E2E8F0" opacity="0.6" />
+                          {/* Glass highlight */}
+                          <path
+                            d="M14 22 L14 45"
+                            stroke="rgba(255, 255, 255, 0.3)"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                          />
+                          {/* Sparkle for uncommon+ bottles */}
+                          {rarity === 'uncommon' && (
+                            <circle cx="26" cy="14" r="1.5" fill={colors.stroke} opacity="0.7">
+                              <animate attributeName="opacity" values="0.7;0.2;0.7" dur="2s" repeatCount="indefinite" />
+                            </circle>
+                          )}
+                          {/* Sparkles for rare bottles */}
+                          {rarity === 'rare' && (
+                            <>
+                              <circle cx="26" cy="12" r="2" fill={colors.stroke} opacity="0.8">
+                                <animate attributeName="opacity" values="0.8;0.3;0.8" dur="1.5s" repeatCount="indefinite" />
+                              </circle>
+                              <circle cx="12" cy="30" r="1.5" fill={colors.stroke} opacity="0.6">
+                                <animate attributeName="opacity" values="0.6;0.2;0.6" dur="1.8s" repeatCount="indefinite" />
+                              </circle>
+                            </>
+                          )}
+                          {/* Sparkles for epic bottles */}
+                          {rarity === 'epic' && (
+                            <>
+                              <circle cx="26" cy="12" r="2.5" fill={colors.stroke} opacity="0.9">
+                                <animate attributeName="opacity" values="0.9;0.4;0.9" dur="1.2s" repeatCount="indefinite" />
+                              </circle>
+                              <circle cx="10" cy="25" r="2" fill={colors.stroke} opacity="0.7">
+                                <animate attributeName="opacity" values="0.7;0.2;0.7" dur="1.5s" repeatCount="indefinite" />
+                              </circle>
+                              <circle cx="30" cy="40" r="1.5" fill={colors.stroke} opacity="0.6">
+                                <animate attributeName="opacity" values="0.6;0.3;0.6" dur="1.8s" repeatCount="indefinite" />
+                              </circle>
+                            </>
+                          )}
+                          {/* Many sparkles for legendary */}
+                          {rarity === 'legendary' && (
+                            <>
+                              <circle cx="26" cy="10" r="3" fill="#FFD700">
+                                <animate attributeName="opacity" values="1;0.5;1" dur="0.8s" repeatCount="indefinite" />
+                                <animate attributeName="r" values="3;4;3" dur="0.8s" repeatCount="indefinite" />
+                              </circle>
+                              <circle cx="8" cy="22" r="2.5" fill="#FFA500" opacity="0.9">
+                                <animate attributeName="opacity" values="0.9;0.3;0.9" dur="1s" repeatCount="indefinite" />
+                              </circle>
+                              <circle cx="32" cy="35" r="2" fill="#FFD700" opacity="0.8">
+                                <animate attributeName="opacity" values="0.8;0.3;0.8" dur="1.2s" repeatCount="indefinite" />
+                              </circle>
+                              <circle cx="14" cy="50" r="2" fill="#FFA500" opacity="0.7">
+                                <animate attributeName="opacity" values="0.7;0.2;0.7" dur="1.4s" repeatCount="indefinite" />
+                              </circle>
+                              <circle cx="28" cy="18" r="1.5" fill="#FFD700" opacity="0.8">
+                                <animate attributeName="opacity" values="0.8;0.4;0.8" dur="0.9s" repeatCount="indefinite" />
+                              </circle>
+                            </>
+                          )}
+                        </svg>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -1260,6 +1536,11 @@ export default function Bottles() {
               <div className="modal-header">
                 <div className="modal-label">
                   {selectedBottle.recipient ? 'Direct Message' : 'Message in a Bottle'}
+                  {!selectedBottle.recipient && selectedBottle.rarity && (
+                    <span className={`rarity-badge ${selectedBottle.rarity}`}>
+                      {RARITY_COLORS[selectedBottle.rarity].label}
+                    </span>
+                  )}
                 </div>
 
                 {canReadBottle(selectedBottle) ? (

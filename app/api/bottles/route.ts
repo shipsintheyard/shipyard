@@ -10,6 +10,8 @@ const redis = new Redis({
 const BOTTLES_KEY = 'bottles:all';
 const MEMO_PROGRAM_ID = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
 
+type BottleRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
+
 interface Bottle {
   id: string;
   message: string;
@@ -18,6 +20,7 @@ interface Bottle {
   recipient?: string;
   signature: string;
   timestamp: number;
+  rarity: BottleRarity;
   x: number;
   y: number;
   rotation: number;
@@ -25,11 +28,51 @@ interface Bottle {
   animationDuration: number;
 }
 
+// Rarity chances: common 60%, uncommon 25%, rare 10%, epic 4%, legendary 1%
+function rollRarity(): BottleRarity {
+  const roll = Math.random() * 100;
+  if (roll < 1) return 'legendary';
+  if (roll < 5) return 'epic';
+  if (roll < 15) return 'rare';
+  if (roll < 40) return 'uncommon';
+  return 'common';
+}
+
 // GET - Fetch all bottles
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const bottles = await redis.get<Bottle[]>(BOTTLES_KEY);
-    return NextResponse.json({ bottles: bottles || [] });
+    const bottles = await redis.get<Bottle[]>(BOTTLES_KEY) || [];
+
+    // Check for reroll query param (one-time use to fix rarities)
+    const { searchParams } = new URL(request.url);
+    const reroll = searchParams.get('reroll');
+
+    if (reroll === 'true') {
+      // Force re-roll all rarities
+      const rerolledBottles = bottles.map(bottle => ({
+        ...bottle,
+        rarity: rollRarity(),
+      }));
+      await redis.set(BOTTLES_KEY, rerolledBottles);
+      return NextResponse.json({ bottles: rerolledBottles, rerolled: true });
+    }
+
+    // Migrate bottles without rarity (one-time migration)
+    let needsSave = false;
+    const migratedBottles = bottles.map(bottle => {
+      if (!bottle.rarity) {
+        needsSave = true;
+        return { ...bottle, rarity: rollRarity() };
+      }
+      return bottle;
+    });
+
+    // Save migrated bottles back to Redis
+    if (needsSave) {
+      await redis.set(BOTTLES_KEY, migratedBottles);
+    }
+
+    return NextResponse.json({ bottles: migratedBottles });
   } catch (error) {
     console.error('Failed to fetch bottles:', error);
     return NextResponse.json({ bottles: [] });
@@ -85,7 +128,8 @@ export async function POST(request: NextRequest) {
       // Continue anyway - transaction might be too new
     }
 
-    // Generate random position for the bottle
+    // Generate random position and rarity for the bottle
+    const rarity = rollRarity();
     const newBottle: Bottle = {
       id: signature.slice(0, 8),
       message: message.slice(0, 280), // Enforce max length
@@ -94,6 +138,7 @@ export async function POST(request: NextRequest) {
       recipient: recipient || undefined,
       signature,
       timestamp: Date.now(),
+      rarity,
       x: 10 + Math.random() * 80,
       y: 20 + Math.random() * 60,
       rotation: -20 + Math.random() * 40,
