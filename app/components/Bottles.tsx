@@ -40,7 +40,7 @@ const RARITY_COLORS: Record<BottleRarity, { fill: string; stroke: string; glow: 
 };
 
 export default function Bottles() {
-  const { publicKey, connected, signTransaction } = useWallet();
+  const { publicKey, connected, signTransaction, disconnect } = useWallet();
   const { connection } = useConnection();
   const { setVisible } = useWalletModal();
 
@@ -586,6 +586,7 @@ export default function Bottles() {
 
         .image-url-input {
           width: 100%;
+          box-sizing: border-box;
           background: rgba(11, 17, 32, 0.6);
           border: 1px solid rgba(94, 174, 216, 0.15);
           border-radius: 8px;
@@ -1097,10 +1098,32 @@ export default function Bottles() {
         .wallet-status {
           font-size: 11px;
           color: #6B7B8F;
+          display: flex;
+          align-items: center;
+          gap: 12px;
         }
 
         .wallet-address {
           color: #5EAED8;
+        }
+
+        .disconnect-btn {
+          background: transparent;
+          border: 1px solid rgba(239, 68, 68, 0.4);
+          color: #EF4444;
+          padding: 6px 12px;
+          border-radius: 4px;
+          font-family: 'IBM Plex Mono', monospace;
+          font-size: 10px;
+          font-weight: 500;
+          letter-spacing: 0.05em;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .disconnect-btn:hover {
+          background: rgba(239, 68, 68, 0.1);
+          border-color: #EF4444;
         }
 
         /* Fishing Section */
@@ -1397,7 +1420,10 @@ export default function Bottles() {
             <div className="action-row">
               {connected ? (
                 <div className="wallet-status">
-                  Connected: <span className="wallet-address">{formatAddress(publicKey?.toBase58() || '')}</span>
+                  <span>Connected: <span className="wallet-address">{formatAddress(publicKey?.toBase58() || '')}</span></span>
+                  <button className="disconnect-btn" onClick={() => disconnect()}>
+                    DISCONNECT
+                  </button>
                 </div>
               ) : (
                 <button className="connect-btn" onClick={() => setVisible(true)}>
