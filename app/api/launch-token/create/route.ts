@@ -28,11 +28,12 @@ import bs58 from 'bs58';
 
 const SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
 
-// Engine configs (devnet) - different fee split configurations
+// Engine configs (MAINNET) - ~94 SOL to fill, ~27 SOL start MC, ~500 SOL migration MC
+// Slightly more generous than pump.fun but similar curve shape
 const ENGINE_CONFIGS: Record<string, PublicKey> = {
-  navigator: new PublicKey('8Rtd7oXLE9jEdjEnnhCjk9y8UywPGTGYMNJufArG8aH4'),  // 80% LP, 20% Burn, 0% Dev
-  lighthouse: new PublicKey('BZESCTuD5JfmaZDx17J2GpQ9YgLWm9fUbDibyBf2vneQ'), // 50% LP, 0% Burn, 50% Dev
-  supernova: new PublicKey('52DUi3VXX1buX5qkgV5i9EfcDYyYWKhfygqdg8uDQiKS'),  // 25% LP, 75% Burn, 0% Dev
+  navigator: new PublicKey('Ga4DCnyPHcxfp1k5FRbpn6PHhP9QXaLDczuMJL5RTN6U'),  // 80% LP, 20% Burn, 0% Dev
+  lighthouse: new PublicKey('EBiqUqvwEx7k19KZrn8FDPaW8L6tDNmRn1zZG2SsS8VM'), // 50% LP, 0% Burn, 50% Dev
+  supernova: new PublicKey('8jFgQdWHcUbjzP3a4wXZXxHWqh1tvApbiQHHrXUynJcP'),  // 25% LP, 75% Burn, 0% Dev
 };
 
 // Default config (Navigator)
@@ -50,12 +51,12 @@ const SHIPYARD_KEYPAIR = SHIPYARD_PRIVATE_KEY
   : Keypair.generate(); // Fallback for build time only
 const SHIPYARD_WALLET = SHIPYARD_KEYPAIR.publicKey;
 
-// Launch fee (reduced to 0.1 for devnet testing)
-const LAUNCH_FEE_SOL = 0.1;
+// Launch fee (reduced to 0.01 for testing, change to 2 for production)
+const LAUNCH_FEE_SOL = 0.01;
 
 // Dev buy limits
-const MAX_DEV_BUY_SOL = 1.5; // ~5% of supply at launch price
-const MAX_DEV_BUY_PERCENT = 5;
+const MAX_DEV_BUY_SOL = 1; // ~6.6% of supply at launch price
+const MAX_DEV_BUY_PERCENT = 6.6;
 
 // Meteora DBC Program
 const DBC_PROGRAM_ID = new PublicKey('dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN');
@@ -154,19 +155,22 @@ export async function POST(request: NextRequest) {
     const preBalance = txInfo.meta?.preBalances[launchFeeWalletIndex] || 0;
     const postBalance = txInfo.meta?.postBalances[launchFeeWalletIndex] || 0;
     const receivedLamports = postBalance - preBalance;
-    const expectedLamports = LAUNCH_FEE_SOL * LAMPORTS_PER_SOL;
+
+    // Calculate expected payment: launch fee + dev buy amount
+    const devBuyAmount = body.devBuyAmount ? Math.min(body.devBuyAmount, MAX_DEV_BUY_SOL) : 0;
+    const expectedLamports = (LAUNCH_FEE_SOL + devBuyAmount) * LAMPORTS_PER_SOL;
 
     if (receivedLamports < expectedLamports * 0.99) {
       return NextResponse.json(
         {
           success: false,
-          error: `Insufficient fee. Expected ${LAUNCH_FEE_SOL} SOL, received ${receivedLamports / LAMPORTS_PER_SOL} SOL`,
+          error: `Insufficient payment. Expected ${(LAUNCH_FEE_SOL + devBuyAmount).toFixed(2)} SOL (${LAUNCH_FEE_SOL} fee${devBuyAmount > 0 ? ` + ${devBuyAmount} dev buy` : ''}), received ${(receivedLamports / LAMPORTS_PER_SOL).toFixed(4)} SOL`,
         },
         { status: 400 }
       );
     }
 
-    console.log('Fee payment verified!');
+    console.log(`Fee payment verified! Received ${receivedLamports / LAMPORTS_PER_SOL} SOL (${LAUNCH_FEE_SOL} fee + ${devBuyAmount} dev buy)`);
 
     // Get engine config
     const engineKey = body.engine && ENGINE_CONFIGS[body.engine] ? body.engine : DEFAULT_ENGINE;
@@ -203,65 +207,160 @@ export async function POST(request: NextRequest) {
     // Initialize Meteora client
     const client = DynamicBondingCurveClient.create(connection, 'confirmed');
 
-    // Calculate dev buy
-    const devBuyAmount = body.devBuyAmount
-      ? Math.min(body.devBuyAmount, MAX_DEV_BUY_SOL)
-      : 0;
+    // Dev buy was already calculated above during fee verification
     const devBuyLamports = Math.floor(devBuyAmount * LAMPORTS_PER_SOL);
     const devBuyPercent = (devBuyAmount / MAX_DEV_BUY_SOL) * MAX_DEV_BUY_PERCENT;
 
     let createPoolTx;
-    let swapBuyTx;
 
-    // TEMP: Always use createPool without first buy to debug the encoding issue
-    // The createPoolWithFirstBuy has a buffer encoding error
-    console.log('Creating pool (dev buy disabled for debugging)');
+    // Create pool with SHIPYARD as both payer and creator
+    // This ensures all launches appear from Shipyard on explorers
+    console.log('Creating pool with Shipyard as payer/creator...');
 
-    try {
-      createPoolTx = await client.pool.createPool({
-        name: tokenName,
-        symbol: tokenSymbol,
-        uri: tokenUri,
-        payer: creatorPubkey,
-        poolCreator: SHIPYARD_WALLET,  // All launches appear from Shipyard
-        config: engineConfig,
-        baseMint: baseMint,
-      });
-      console.log('Pool transaction created successfully!');
-    } catch (poolError) {
-      console.error('createPool error:', poolError);
-      throw poolError;
+    // If dev buy enabled, Shipyard will create pool + do the dev buy + transfer tokens to user
+    // This keeps Shipyard as the creator and prevents frontrunning
+    if (devBuyAmount > 0) {
+      console.log('Using createPoolWithFirstBuy - Shipyard buys, then transfers to user...');
+
+      try {
+        const result = await client.pool.createPoolWithFirstBuy({
+          createPoolParam: {
+            name: tokenName,
+            symbol: tokenSymbol,
+            uri: tokenUri,
+            payer: SHIPYARD_WALLET,         // Shipyard pays for everything
+            poolCreator: SHIPYARD_WALLET,   // Shipyard is the creator
+            config: engineConfig,
+            baseMint: baseMint,
+          },
+          firstBuyParam: {
+            buyer: SHIPYARD_WALLET,         // Shipyard does the dev buy
+            buyAmount: new BN(devBuyLamports),
+            minimumAmountOut: new BN(0),    // Accept any amount
+            referralTokenAccount: null,     // No referral
+          },
+        });
+
+        createPoolTx = result.createPoolTx;
+
+        // If there's a swap tx, combine the instructions
+        if (result.swapBuyTx) {
+          for (const ix of result.swapBuyTx.instructions) {
+            createPoolTx.add(ix);
+          }
+          console.log('Combined pool creation + dev buy into single transaction');
+        }
+      } catch (poolError) {
+        console.error('createPoolWithFirstBuy error:', poolError);
+        throw poolError;
+      }
+    } else {
+      // No dev buy - just create the pool
+      try {
+        createPoolTx = await client.pool.createPool({
+          name: tokenName,
+          symbol: tokenSymbol,
+          uri: tokenUri,
+          payer: SHIPYARD_WALLET,
+          poolCreator: SHIPYARD_WALLET,
+          config: engineConfig,
+          baseMint: baseMint,
+        });
+        console.log('Pool transaction created successfully!');
+      } catch (poolError) {
+        console.error('createPool error:', poolError);
+        throw poolError;
+      }
     }
-
-    // TODO: Re-enable dev buy once basic pool creation works
-    // if (devBuyAmount > 0) {
-    //   // Create swap transaction separately after pool creation
-    // }
 
     // Get blockhash for transactions
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
 
-    // Set transaction properties
+    // Shipyard is always the fee payer
     createPoolTx.recentBlockhash = blockhash;
     createPoolTx.lastValidBlockHeight = lastValidBlockHeight;
-    createPoolTx.feePayer = creatorPubkey;
-
-    // Partially sign with baseMint keypair and Shipyard wallet (user will add their signature)
+    createPoolTx.feePayer = SHIPYARD_WALLET;
     createPoolTx.partialSign(baseMintKeypair);
     createPoolTx.partialSign(SHIPYARD_KEYPAIR);
 
-    // Serialize for client
-    const serializedPoolTx = createPoolTx.serialize({
-      requireAllSignatures: false,
-      verifySignatures: false,
-    }).toString('base64');
+    // Send transaction from Shipyard
+    console.log('Sending pool creation transaction from Shipyard...');
+    const poolSignature = await connection.sendRawTransaction(createPoolTx.serialize(), {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed',
+    });
+    console.log('Pool tx sent:', poolSignature);
 
-    // Prepare response
+    // Wait for confirmation
+    await connection.confirmTransaction(poolSignature, 'confirmed');
+    console.log('Pool created successfully!');
+
+    // If dev buy was done, we need to transfer tokens from Shipyard to the user
+    let tokenTransferSignature = null;
+    if (devBuyAmount > 0) {
+      console.log('Transferring purchased tokens to user...');
+
+      // Wait a bit for token accounts to be created
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      try {
+        const { getAssociatedTokenAddress, createTransferInstruction, getAccount } = await import('@solana/spl-token');
+        const { Transaction: SolTransaction } = await import('@solana/web3.js');
+
+        // Get Shipyard's token account
+        const shipyardAta = await getAssociatedTokenAddress(baseMint, SHIPYARD_WALLET);
+        const userAta = await getAssociatedTokenAddress(baseMint, creatorPubkey);
+
+        // Check Shipyard's balance
+        const shipyardAccount = await getAccount(connection, shipyardAta);
+        const tokensToTransfer = shipyardAccount.amount;
+        console.log('Tokens to transfer:', tokensToTransfer.toString());
+
+        if (tokensToTransfer > 0n) {
+          // Create transfer instruction
+          const transferTx = new SolTransaction();
+
+          // Create user's ATA if needed (using createAssociatedTokenAccountIdempotentInstruction)
+          const { createAssociatedTokenAccountIdempotentInstruction } = await import('@solana/spl-token');
+          transferTx.add(
+            createAssociatedTokenAccountIdempotentInstruction(
+              SHIPYARD_WALLET,
+              userAta,
+              creatorPubkey,
+              baseMint
+            )
+          );
+
+          // Transfer all tokens
+          transferTx.add(
+            createTransferInstruction(
+              shipyardAta,
+              userAta,
+              SHIPYARD_WALLET,
+              tokensToTransfer
+            )
+          );
+
+          const { blockhash: transferBlockhash } = await connection.getLatestBlockhash();
+          transferTx.recentBlockhash = transferBlockhash;
+          transferTx.feePayer = SHIPYARD_WALLET;
+          transferTx.sign(SHIPYARD_KEYPAIR);
+
+          tokenTransferSignature = await connection.sendRawTransaction(transferTx.serialize());
+          await connection.confirmTransaction(tokenTransferSignature, 'confirmed');
+          console.log('Tokens transferred to user:', tokenTransferSignature);
+        }
+      } catch (transferError) {
+        console.error('Token transfer failed:', transferError);
+        // Pool is created, tokens just stayed with Shipyard - user can contact support
+      }
+    }
+
+    // Build response
     const response: Record<string, unknown> = {
       success: true,
-
-      // Transactions to sign
-      createPoolTransaction: serializedPoolTx,
+      poolCreated: true,
+      poolSignature: poolSignature,
 
       // Pool details
       tokenMint: baseMint.toBase58(),
@@ -280,37 +379,20 @@ export async function POST(request: NextRequest) {
         enabled: devBuyAmount > 0,
         solAmount: devBuyAmount,
         estimatedPercent: Math.round(devBuyPercent * 100) / 100,
+        tokenTransferSignature: tokenTransferSignature,
       },
 
       message: devBuyAmount > 0
-        ? `Sign to create ${tokenSymbol} pool + dev buy ${devBuyAmount} SOL (~${devBuyPercent.toFixed(1)}% of supply)`
-        : `Sign to create ${tokenSymbol} pool on Shipyard`,
+        ? `${tokenSymbol} pool created with ${devBuyAmount} SOL dev buy!`
+        : `${tokenSymbol} pool created by Shipyard!`,
     };
 
-    // Add swap transaction if dev buy
-    if (swapBuyTx) {
-      swapBuyTx.recentBlockhash = blockhash;
-      swapBuyTx.lastValidBlockHeight = lastValidBlockHeight;
-      swapBuyTx.feePayer = creatorPubkey;
-
-      response.swapBuyTransaction = swapBuyTx.serialize({
-        requireAllSignatures: false,
-        verifySignatures: false,
-      }).toString('base64');
-
-      response.instructions = [
-        '1. Sign and send createPoolTransaction first',
-        '2. Wait for confirmation',
-        '3. Sign and send swapBuyTransaction for dev buy',
-      ];
-    } else {
-      response.instructions = [
-        '1. Sign and send createPoolTransaction',
-        '2. Pool will be live on Shipyard!',
-      ];
+    // Include token transfer signature if dev buy was done
+    if (tokenTransferSignature) {
+      response.tokenTransferSignature = tokenTransferSignature;
     }
 
-    console.log('Pool transaction created successfully!');
+    console.log('Pool created by Shipyard:', poolSignature);
     return NextResponse.json(response);
 
   } catch (error) {

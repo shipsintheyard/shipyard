@@ -18,17 +18,20 @@ import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } f
 
 const SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
 
-// Shipyard Production Config (devnet)
-const SHIPYARD_CONFIG = 'FWV59wJ2wHHVjzTS2Er33KwJ2i7LXc1fAMoRbvVSjHJB';
+// Shipyard wallet - receives launch fees and trading fees (MAINNET)
+const SHIPYARD_WALLET = '96u4qqbZc7MHmw8aujr4vSCaxSWyZ1EpenQ7detv5S6J';
 
-// Launch fee wallet - receives 2 SOL per launch (Shipyard operations)
-const LAUNCH_FEE_WALLET = '8G46itYevnA4gFUBFNSUZF1fZEgRWfa4xYsJbuhY6BFj';
+// Launch fee wallet - receives launch fees (Shipyard operations)
+const LAUNCH_FEE_WALLET = SHIPYARD_WALLET;
 
 // Fee claimer wallet - receives trading fees (for flywheel distribution)
-const FEE_CLAIMER_WALLET = 'BCPC2W5DzAeRQRZL3U1sZWTtPUq8xwvmGxAg7h6BvfJx';
+const FEE_CLAIMER_WALLET = SHIPYARD_WALLET;
 
-// Launch fee in SOL (reduced to 0.1 for devnet testing)
-const LAUNCH_FEE_SOL = 0.1;
+// Default engine config (Navigator - 80% LP, 20% Burn)
+const DEFAULT_CONFIG = '8E4GRoXQLUuV5HpnRD1hwTNrNR2kF9thoazChc5GUNE4';
+
+// Launch fee in SOL (reduced to 0.01 for testing, change to 2 for production)
+const LAUNCH_FEE_SOL = 0.01;
 
 // Dev buy limits
 // At initial MC of 27.48 SOL, 5% of 1B supply costs ~1.37 SOL
@@ -138,7 +141,7 @@ export async function GET() {
     },
 
     config: {
-      address: SHIPYARD_CONFIG,
+      address: DEFAULT_CONFIG,
       feeClaimer: FEE_CLAIMER_WALLET,
     },
 
@@ -236,15 +239,18 @@ export async function POST(request: NextRequest) {
     }
 
     // Build the launch transaction
-    // Step 1: Transfer launch fee to Shipyard
-    const launchFeeLamports = LAUNCH_FEE_SOL * LAMPORTS_PER_SOL;
+    // Step 1: Transfer launch fee + dev buy amount to Shipyard
+    // Shipyard will use the dev buy amount to buy tokens and transfer them to user
+    const totalFeeLamports = (LAUNCH_FEE_SOL + devBuyAmount) * LAMPORTS_PER_SOL;
     const launchFeeWallet = new PublicKey(LAUNCH_FEE_WALLET);
 
     const feeTransferIx = SystemProgram.transfer({
       fromPubkey: creatorPubkey,
       toPubkey: launchFeeWallet,
-      lamports: launchFeeLamports,
+      lamports: totalFeeLamports,
     });
+
+    console.log(`Fee transfer: ${LAUNCH_FEE_SOL} SOL fee + ${devBuyAmount} SOL dev buy = ${LAUNCH_FEE_SOL + devBuyAmount} SOL total`);
 
     // Step 2: Create pool instruction would go here
     // This requires the Meteora SDK on the backend
@@ -274,7 +280,7 @@ export async function POST(request: NextRequest) {
       // These will be populated once pool creation is integrated
       tokenMint: 'pending', // Will be generated
       poolAddress: 'pending', // Will be derived
-      configAddress: SHIPYARD_CONFIG,
+      configAddress: DEFAULT_CONFIG,
 
       curveInfo: {
         migrationThreshold: '85 SOL',
