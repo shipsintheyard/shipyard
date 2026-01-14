@@ -19,6 +19,8 @@ interface Bottle {
   signature: string;
   timestamp: number;
   rarity?: BottleRarity; // Optional for backwards compat with old bottles
+  hearts?: number;
+  heartedBy?: string[];
   x: number;
   y: number;
   rotation: number;
@@ -56,6 +58,64 @@ export default function Bottles() {
   const [isLoadingBottles, setIsLoadingBottles] = useState(true);
   const [isFishing, setIsFishing] = useState(false);
   const [caughtBottle, setCaughtBottle] = useState<Bottle | null>(null);
+  const [isHearting, setIsHearting] = useState(false);
+
+  // Heart a bottle
+  const heartBottle = useCallback(async (bottleId: string) => {
+    if (!publicKey || isHearting) return;
+
+    setIsHearting(true);
+    try {
+      const response = await fetch('/api/bottles', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bottleId,
+          wallet: publicKey.toBase58(),
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        // Update local state
+        setBottles(prev => prev.map(b => {
+          if (b.id === bottleId) {
+            const heartedBy = b.heartedBy || [];
+            const wallet = publicKey.toBase58();
+            return {
+              ...b,
+              hearts: data.hearts,
+              heartedBy: data.hearted
+                ? [...heartedBy, wallet]
+                : heartedBy.filter(w => w !== wallet),
+            };
+          }
+          return b;
+        }));
+
+        // Update selected bottle if it's the one being hearted
+        if (selectedBottle?.id === bottleId) {
+          setSelectedBottle(prev => prev ? {
+            ...prev,
+            hearts: data.hearts,
+            heartedBy: data.hearted
+              ? [...(prev.heartedBy || []), publicKey.toBase58()]
+              : (prev.heartedBy || []).filter(w => w !== publicKey.toBase58()),
+          } : null);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to heart bottle:', err);
+    } finally {
+      setIsHearting(false);
+    }
+  }, [publicKey, isHearting, selectedBottle]);
+
+  // Check if current user has hearted a bottle
+  const hasHearted = useCallback((bottle: Bottle) => {
+    if (!publicKey) return false;
+    return (bottle.heartedBy || []).includes(publicKey.toBase58());
+  }, [publicKey]);
 
   // Fetch bottles from API on mount
   const fetchBottles = useCallback(async () => {
@@ -1102,6 +1162,70 @@ export default function Bottles() {
           letter-spacing: 0.05em;
         }
 
+        /* Heart Section */
+        .heart-section {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin-top: 20px;
+          padding-top: 16px;
+          border-top: 1px solid rgba(94, 174, 216, 0.1);
+        }
+
+        .heart-btn {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          background: rgba(239, 68, 68, 0.1);
+          border: 1px solid rgba(239, 68, 68, 0.3);
+          border-radius: 20px;
+          padding: 8px 16px;
+          cursor: pointer;
+          transition: all 0.2s;
+          font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .heart-btn:hover:not(:disabled) {
+          background: rgba(239, 68, 68, 0.2);
+          border-color: rgba(239, 68, 68, 0.5);
+          transform: scale(1.05);
+        }
+
+        .heart-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .heart-btn.hearted {
+          background: rgba(239, 68, 68, 0.2);
+          border-color: #EF4444;
+        }
+
+        .heart-btn.hearted .heart-icon {
+          animation: heart-pop 0.3s ease-out;
+        }
+
+        @keyframes heart-pop {
+          0% { transform: scale(1); }
+          50% { transform: scale(1.3); }
+          100% { transform: scale(1); }
+        }
+
+        .heart-icon {
+          font-size: 18px;
+        }
+
+        .heart-count {
+          font-size: 14px;
+          font-weight: 600;
+          color: #EF4444;
+        }
+
+        .heart-hint {
+          font-size: 11px;
+          color: #6B7B8F;
+        }
+
         /* Rarity Badge */
         .rarity-badge {
           display: inline-flex;
@@ -1559,6 +1683,23 @@ export default function Bottles() {
                       This message is private.<br />
                       Only the recipient can read it.
                     </div>
+                  </div>
+                )}
+
+                {/* Heart button - only for public bottles */}
+                {!selectedBottle.recipient && (
+                  <div className="heart-section">
+                    <button
+                      className={`heart-btn ${hasHearted(selectedBottle) ? 'hearted' : ''}`}
+                      onClick={() => heartBottle(selectedBottle.id)}
+                      disabled={!connected || isHearting}
+                    >
+                      <span className="heart-icon">{hasHearted(selectedBottle) ? '❤️' : '🤍'}</span>
+                      <span className="heart-count">{selectedBottle.hearts || 0}</span>
+                    </button>
+                    {!connected && (
+                      <span className="heart-hint">Connect wallet to heart</span>
+                    )}
                   </div>
                 )}
               </div>

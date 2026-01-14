@@ -8,6 +8,7 @@ const redis = new Redis({
 });
 
 const BOTTLES_KEY = 'bottles:all';
+const WHITELIST_KEY = 'bottles:whitelist';
 const MEMO_PROGRAM_ID = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
 
 type BottleRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
@@ -21,11 +22,20 @@ interface Bottle {
   signature: string;
   timestamp: number;
   rarity: BottleRarity;
+  hearts: number;
+  heartedBy: string[]; // wallet addresses that hearted this bottle
   x: number;
   y: number;
   rotation: number;
   animationDelay: number;
   animationDuration: number;
+}
+
+interface WhitelistEntry {
+  wallet: string;
+  bottlesSent: number;
+  firstBottle: number;
+  lastBottle: number;
 }
 
 // Rarity chances: common 60%, uncommon 25%, rare 10%, epic 4%, legendary 1%
@@ -139,12 +149,30 @@ export async function POST(request: NextRequest) {
       signature,
       timestamp: Date.now(),
       rarity,
+      hearts: 0,
+      heartedBy: [],
       x: 10 + Math.random() * 80,
       y: 20 + Math.random() * 60,
       rotation: -20 + Math.random() * 40,
       animationDelay: Math.random() * 5,
       animationDuration: 4 + Math.random() * 4,
     };
+
+    // Add sender to whitelist
+    const whitelist = await redis.get<WhitelistEntry[]>(WHITELIST_KEY) || [];
+    const existingEntry = whitelist.find(w => w.wallet === sender);
+    if (existingEntry) {
+      existingEntry.bottlesSent++;
+      existingEntry.lastBottle = Date.now();
+    } else {
+      whitelist.push({
+        wallet: sender,
+        bottlesSent: 1,
+        firstBottle: Date.now(),
+        lastBottle: Date.now(),
+      });
+    }
+    await redis.set(WHITELIST_KEY, whitelist);
 
     // Get existing bottles and add new one
     const existingBottles = await redis.get<Bottle[]>(BOTTLES_KEY) || [];
@@ -162,5 +190,54 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Failed to add bottle:', error);
     return NextResponse.json({ error: 'Failed to add bottle' }, { status: 500 });
+  }
+}
+
+// PATCH - Heart/unheart a bottle
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { bottleId, wallet } = body;
+
+    if (!bottleId || !wallet) {
+      return NextResponse.json({ error: 'Missing bottleId or wallet' }, { status: 400 });
+    }
+
+    const bottles = await redis.get<Bottle[]>(BOTTLES_KEY) || [];
+    const bottleIndex = bottles.findIndex(b => b.id === bottleId);
+
+    if (bottleIndex === -1) {
+      return NextResponse.json({ error: 'Bottle not found' }, { status: 404 });
+    }
+
+    const bottle = bottles[bottleIndex];
+
+    // Initialize hearts fields if missing (migration for old bottles)
+    if (typeof bottle.hearts !== 'number') bottle.hearts = 0;
+    if (!Array.isArray(bottle.heartedBy)) bottle.heartedBy = [];
+
+    // Toggle heart
+    const alreadyHearted = bottle.heartedBy.includes(wallet);
+    if (alreadyHearted) {
+      // Remove heart
+      bottle.heartedBy = bottle.heartedBy.filter(w => w !== wallet);
+      bottle.hearts = Math.max(0, bottle.hearts - 1);
+    } else {
+      // Add heart
+      bottle.heartedBy.push(wallet);
+      bottle.hearts++;
+    }
+
+    bottles[bottleIndex] = bottle;
+    await redis.set(BOTTLES_KEY, bottles);
+
+    return NextResponse.json({
+      success: true,
+      hearted: !alreadyHearted,
+      hearts: bottle.hearts
+    });
+  } catch (error) {
+    console.error('Failed to heart bottle:', error);
+    return NextResponse.json({ error: 'Failed to heart bottle' }, { status: 500 });
   }
 }

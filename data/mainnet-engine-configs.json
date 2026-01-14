@@ -1,0 +1,10 @@
+{
+  "created": "2026-01-14T00:57:35.115Z",
+  "network": "mainnet",
+  "feeReceiver": "96u4qqbZc7MHmw8aujr4vSCaxSWyZ1EpenQ7detv5S6J",
+  "configs": {
+    "navigator": "Ga4DCnyPHcxfp1k5FRbpn6PHhP9QXaLDczuMJL5RTN6U",
+    "lighthouse": "EBiqUqvwEx7k19KZrn8FDPaW8L6tDNmRn1zZG2SsS8VM",
+    "supernova": "8jFgQdWHcUbjzP3a4wXZXxHWqh1tvApbiQHHrXUynJcP"
+  }
+}
