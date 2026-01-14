@@ -21,12 +21,21 @@ export interface Launch {
   imageUrl?: string;
   creator: string;
   engine: 1 | 2 | 3;
+  engineName: 'navigator' | 'lighthouse' | 'supernova';
   devBuyAmount: number;
   devBuyPercent: number;
   createdAt: number;
   solRaised: number;
   migrated: boolean;
+  migratedAt?: number;
   txSignature?: string;
+  // Buyback-burn tracking (for supernova engine)
+  buybackBurnEnabled: boolean;
+  buybackBurnPercent: number; // e.g., 20 for 20%
+  buybackBurnExecuted: boolean;
+  buybackBurnTxSignature?: string;
+  buybackBurnAmount?: number; // SOL used for buyback
+  tokensBurned?: number; // Tokens burned
 }
 
 async function ensureDataDir() {
@@ -104,6 +113,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Map engine number to name
+    const engineNum = body.engine || 2;
+    const engineNames: Record<number, 'navigator' | 'lighthouse' | 'supernova'> = {
+      1: 'navigator',
+      2: 'lighthouse',
+      3: 'supernova',
+    };
+    const engineName = body.engineName || engineNames[engineNum] || 'lighthouse';
+
+    // Supernova engine enables buyback-burn (20% of migration fees)
+    const isBuybackBurn = engineName === 'supernova';
+
     const newLaunch: Launch = {
       id: `launch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       tokenMint: body.tokenMint,
@@ -113,13 +134,18 @@ export async function POST(request: NextRequest) {
       description: body.description || '',
       imageUrl: body.imageUrl || '',
       creator: body.creator,
-      engine: body.engine || 2,
+      engine: engineNum as 1 | 2 | 3,
+      engineName: engineName,
       devBuyAmount: body.devBuyAmount || 0,
       devBuyPercent: body.devBuyPercent || 0,
       createdAt: Date.now(),
       solRaised: 0,
       migrated: false,
       txSignature: body.txSignature,
+      // Buyback-burn fields
+      buybackBurnEnabled: isBuybackBurn,
+      buybackBurnPercent: isBuybackBurn ? 20 : 0, // 20% for supernova
+      buybackBurnExecuted: false,
     };
 
     launches.push(newLaunch);
