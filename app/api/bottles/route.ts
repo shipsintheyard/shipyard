@@ -13,6 +13,7 @@ const MEMO_PROGRAM_ID = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
 interface Bottle {
   id: string;
   message: string;
+  imageUrl?: string;
   sender: string;
   recipient?: string;
   signature: string;
@@ -39,7 +40,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { message, sender, recipient, signature } = body;
+    const { message, imageUrl, sender, recipient, signature } = body;
 
     // Validate required fields
     if (!message || !sender || !signature) {
@@ -88,6 +89,7 @@ export async function POST(request: NextRequest) {
     const newBottle: Bottle = {
       id: signature.slice(0, 8),
       message: message.slice(0, 280), // Enforce max length
+      imageUrl: imageUrl || undefined,
       sender,
       recipient: recipient || undefined,
       signature,

@@ -11,6 +11,7 @@ const MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfc
 interface Bottle {
   id: string;
   message: string;
+  imageUrl?: string; // Optional image/GIF URL
   sender: string;
   recipient?: string; // If set, only recipient can read
   signature: string;
@@ -32,6 +33,7 @@ export default function Bottles() {
   const [message, setMessage] = useState('');
   const [messageMode, setMessageMode] = useState<MessageMode>('ocean');
   const [recipientAddress, setRecipientAddress] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
@@ -148,6 +150,7 @@ export default function Bottles() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: message.trim(),
+          imageUrl: imageUrl.trim() || undefined,
           sender: publicKey.toBase58(),
           recipient: messageMode === 'direct' ? recipientAddress.trim() : undefined,
           signature,
@@ -162,6 +165,7 @@ export default function Bottles() {
       }
 
       setMessage('');
+      setImageUrl('');
       setRecipientAddress('');
 
       if (messageMode === 'direct') {
@@ -447,6 +451,46 @@ export default function Bottles() {
 
         .message-input::placeholder {
           color: #3D4A5C;
+        }
+
+        .image-url-section {
+          margin-top: 12px;
+        }
+
+        .image-url-input {
+          width: 100%;
+          background: rgba(11, 17, 32, 0.6);
+          border: 1px solid rgba(94, 174, 216, 0.15);
+          border-radius: 8px;
+          padding: 12px 16px;
+          font-family: 'IBM Plex Mono', monospace;
+          font-size: 12px;
+          color: #E2E8F0;
+          outline: none;
+          transition: border-color 0.2s;
+        }
+
+        .image-url-input:focus {
+          border-color: rgba(94, 174, 216, 0.4);
+        }
+
+        .image-url-input::placeholder {
+          color: #3D4A5C;
+        }
+
+        .image-preview {
+          margin-top: 12px;
+          border-radius: 8px;
+          overflow: hidden;
+          max-height: 200px;
+        }
+
+        .image-preview img {
+          width: 100%;
+          max-height: 200px;
+          object-fit: contain;
+          background: rgba(11, 17, 32, 0.6);
+          border-radius: 8px;
         }
 
         .action-row {
@@ -829,6 +873,20 @@ export default function Bottles() {
           word-break: break-word;
         }
 
+        .modal-image {
+          margin-top: 16px;
+          border-radius: 8px;
+          overflow: hidden;
+        }
+
+        .modal-image img {
+          width: 100%;
+          max-height: 300px;
+          object-fit: contain;
+          background: rgba(11, 17, 32, 0.6);
+          border-radius: 8px;
+        }
+
         .locked-message {
           display: flex;
           flex-direction: column;
@@ -1011,6 +1069,22 @@ export default function Bottles() {
               disabled={isLoading}
             />
 
+            <div className="image-url-section">
+              <input
+                type="text"
+                className="image-url-input"
+                placeholder="Image/GIF URL (optional)"
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
+                disabled={isLoading}
+              />
+              {imageUrl && (
+                <div className="image-preview">
+                  <img src={imageUrl} alt="Preview" onError={(e) => e.currentTarget.style.display = 'none'} />
+                </div>
+              )}
+            </div>
+
             <div className="action-row">
               {connected ? (
                 <div className="wallet-status">
@@ -1189,7 +1263,14 @@ export default function Bottles() {
                 </div>
 
                 {canReadBottle(selectedBottle) ? (
-                  <div className="modal-message">{selectedBottle.message}</div>
+                  <>
+                    <div className="modal-message">{selectedBottle.message}</div>
+                    {selectedBottle.imageUrl && (
+                      <div className="modal-image">
+                        <img src={selectedBottle.imageUrl} alt="Bottle attachment" />
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <div className="locked-message">
                     <div className="locked-icon">🔒</div>
