@@ -6,6 +6,7 @@ import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { Connection, Transaction, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import Trawler from './components/Trawler';
 import Sonar from './components/Sonar';
+import Bottles from './components/Bottles';
 import LaunchHistory from './components/LaunchHistory';
 import { TokenConfig, FeeConfig } from './utils/meteora';
 
@@ -257,6 +258,7 @@ export default function ShipyardPlatform() {
     { id: 'raft', label: 'Raft' },
     { id: 'trawler', label: 'Trawler' },
     { id: 'sonar', label: 'Sonar' },
+    { id: 'bottles', label: 'Bottles' },
     { id: 'dock', label: 'The Dock' },
     { id: 'docs', label: 'Docs' },
     { id: 'widgets', label: 'Widgets' }
@@ -2344,6 +2346,12 @@ export default function ShipyardPlatform() {
       {activeTab === 'sonar' && (
         <div className="animate-in">
           <Sonar />
+        </div>
+      )}
+
+      {activeTab === 'bottles' && (
+        <div className="animate-in">
+          <Bottles />
         </div>
       )}
 
