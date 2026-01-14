@@ -41,10 +41,10 @@ export default function ShipyardPlatform() {
 
   // Vanity address state
   const [vanityEnabled, setVanityEnabled] = useState(false);
-  const [vanityProgress, setVanityProgress] = useState<string | null>(null);
 
   // Launch state
   const [isLaunching, setIsLaunching] = useState(false);
+  const [launchStatus, setLaunchStatus] = useState<string>('');
   const [launchSuccess, setLaunchSuccess] = useState(false);
   const [launchedToken, setLaunchedToken] = useState<{
     name: string;
@@ -94,6 +94,7 @@ export default function ShipyardPlatform() {
     }
 
     setIsLaunching(true);
+    setLaunchStatus('Preparing launch...');
 
     try {
       const engine = engines[selectedEngine];
@@ -116,6 +117,7 @@ export default function ShipyardPlatform() {
       }
 
       // Create proper Metaplex-standard metadata JSON and upload to IPFS
+      setLaunchStatus('Uploading metadata...');
       console.log('Creating metadata JSON...');
       const { uploadMetadataToIPFS } = await import('./utils/imageUpload');
 
@@ -168,15 +170,18 @@ export default function ShipyardPlatform() {
       console.log('Fee tx received. Launch fee:', feeData.launchFee, 'SOL');
 
       // Step 2: Sign and send fee payment
+      setLaunchStatus('Sign fee payment...');
       console.log('Step 2: Signing fee payment...');
       const feeTx = Transaction.from(Buffer.from(feeData.transaction, 'base64'));
       const signedFeeTx = await signTransaction(feeTx);
 
+      setLaunchStatus('Sending fee payment...');
       console.log('Sending fee payment...');
       const feeSignature = await connection.sendRawTransaction(signedFeeTx.serialize());
       console.log('Fee tx sent:', feeSignature);
 
       // Wait for confirmation
+      setLaunchStatus('Confirming fee payment...');
       console.log('Waiting for fee confirmation...');
       await connection.confirmTransaction(feeSignature, 'confirmed');
       console.log('Fee payment confirmed!');
@@ -184,7 +189,10 @@ export default function ShipyardPlatform() {
       // Step 3: Create pool (Shipyard creates it server-side)
       console.log('Step 3: Creating pool via Shipyard...');
       if (vanityEnabled) {
+        setLaunchStatus('Grinding vanity address ...SHIP (2-4 min)');
         console.log('Vanity address enabled - grinding for ...SHIP suffix (this may take 2-4 minutes)');
+      } else {
+        setLaunchStatus('Creating pool...');
       }
       const createResponse = await fetch('/api/launch-token/create', {
         method: 'POST',
@@ -252,6 +260,7 @@ export default function ShipyardPlatform() {
       alert('Launch failed: ' + (error as Error).message);
     } finally {
       setIsLaunching(false);
+      setLaunchStatus('');
     }
   };
 
@@ -1491,26 +1500,40 @@ export default function ShipyardPlatform() {
                         </div>
                       </div>
 
-                      <button 
+                      <button
                         onClick={handleLaunch}
                         disabled={isLaunching}
                         style={{
                           width: '100%',
                           padding: '18px',
-                          background: isLaunching 
-                            ? 'rgba(136, 192, 255, 0.3)' 
+                          background: isLaunching
+                            ? 'rgba(136, 192, 255, 0.3)'
                             : 'linear-gradient(135deg, #88c0ff 0%, #5a9fd4 100%)',
-                          color: '#0f1419',
+                          color: isLaunching ? '#88c0ff' : '#0f1419',
                           border: 'none',
                           borderRadius: '8px',
                           fontFamily: "'Outfit', sans-serif",
-                          fontSize: '15px',
+                          fontSize: isLaunching ? '13px' : '15px',
                           fontWeight: '700',
                           cursor: isLaunching ? 'not-allowed' : 'pointer',
                           boxShadow: isLaunching ? 'none' : '0 4px 25px rgba(136, 192, 255, 0.4)'
                         }}>
-                        {isLaunching ? '⏳ LAUNCHING...' : '🛟 LAUNCH ON RAFT'}
+                        {isLaunching ? `⏳ ${launchStatus || 'LAUNCHING...'}` : '🛟 LAUNCH ON RAFT'}
                       </button>
+                      {isLaunching && launchStatus.includes('vanity') && (
+                        <div style={{
+                          marginTop: '12px',
+                          padding: '10px 14px',
+                          background: 'rgba(251, 191, 36, 0.1)',
+                          border: '1px solid rgba(251, 191, 36, 0.3)',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          color: '#fbbf24',
+                          textAlign: 'center'
+                        }}>
+                          Finding a token address ending in <strong>SHIP</strong>... this takes 2-4 minutes. Please wait!
+                        </div>
+                      )}
                       <p style={{ fontSize: '9px', color: '#4a5568', textAlign: 'center', marginTop: '10px' }}>
                         LP locked forever. 0% extraction. Stay afloat.
                       </p>
