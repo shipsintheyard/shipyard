@@ -1,5 +1,6 @@
 "use client";
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { Connection, Transaction, LAMPORTS_PER_SOL } from '@solana/web3.js';
@@ -11,7 +12,11 @@ import { TokenConfig, FeeConfig } from './utils/meteora';
 export default function ShipyardPlatform() {
   const { publicKey, connected, disconnect, signTransaction, sendTransaction } = useWallet();
   const { setVisible } = useWalletModal();
-  
+  const searchParams = useSearchParams();
+
+  // Check for ?dev=1 to enable dev mode (bypasses any redirects, shows full UI)
+  const isDevMode = searchParams.get('dev') === '1';
+
   const [activeTab, setActiveTab] = useState('landing');
   const [launchStep, setLaunchStep] = useState(1);
   const [selectedEngine, setSelectedEngine] = useState('navigator');
@@ -105,8 +110,27 @@ export default function ShipyardPlatform() {
         }
       }
 
-      // Create metadata URI (for now use image URL as uri, later use proper metadata JSON)
-      const metadataUri = finalImageUrl || `https://shipyard.app/token/${tokenSymbol}`;
+      // Create proper Metaplex-standard metadata JSON and upload to IPFS
+      console.log('Creating metadata JSON...');
+      const { uploadMetadataToIPFS } = await import('./utils/imageUpload');
+
+      // Build extensions/links for social data (used by Axiom, Birdeye, etc.)
+      const extensions: Record<string, string> = {};
+      if (twitterUrl) extensions.twitter = twitterUrl;
+      if (telegramUrl) extensions.telegram = telegramUrl;
+      extensions.website = 'https://shipyardtools.xyz';
+
+      const metadata = {
+        name: tokenName,
+        symbol: tokenSymbol,
+        description: tokenDescription || `${tokenName} token launched on Shipyard`,
+        image: finalImageUrl || undefined,
+        external_url: twitterUrl || telegramUrl || 'https://shipyardtools.xyz',
+        // Standard extensions format for social links
+        extensions,
+      };
+      const metadataUri = await uploadMetadataToIPFS(metadata);
+      console.log('Metadata URI:', metadataUri);
 
       const connection = new Connection(
         process.env.NEXT_PUBLIC_RPC_URL || 'https://api.devnet.solana.com',
@@ -152,8 +176,8 @@ export default function ShipyardPlatform() {
       await connection.confirmTransaction(feeSignature, 'confirmed');
       console.log('Fee payment confirmed!');
 
-      // Step 3: Create pool transaction
-      console.log('Step 3: Creating pool transaction...');
+      // Step 3: Create pool (Shipyard creates it server-side)
+      console.log('Step 3: Creating pool via Shipyard...');
       const createResponse = await fetch('/api/launch-token/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -170,31 +194,16 @@ export default function ShipyardPlatform() {
 
       const createData = await createResponse.json();
       if (!createData.success) {
-        throw new Error(createData.error || 'Failed to create pool transaction');
+        throw new Error(createData.error || 'Failed to create pool');
       }
 
-      console.log('Pool tx received. Token:', createData.tokenMint);
-
-      // Step 4: Sign and send pool creation
-      console.log('Step 4: Signing pool creation...');
-      const poolTx = Transaction.from(Buffer.from(createData.createPoolTransaction, 'base64'));
-      const signedPoolTx = await signTransaction(poolTx);
-
-      console.log('Sending pool creation...');
-      const poolSignature = await connection.sendRawTransaction(signedPoolTx.serialize());
-      console.log('Pool tx sent:', poolSignature);
-
-      await connection.confirmTransaction(poolSignature, 'confirmed');
-      console.log('Pool created!');
-
-      // Step 5: Execute dev buy if enabled
-      if (createData.swapBuyTransaction) {
-        console.log('Step 5: Executing dev buy...');
-        const swapTx = Transaction.from(Buffer.from(createData.swapBuyTransaction, 'base64'));
-        const signedSwapTx = await signTransaction(swapTx);
-        const swapSignature = await connection.sendRawTransaction(signedSwapTx.serialize());
-        await connection.confirmTransaction(swapSignature, 'confirmed');
-        console.log('Dev buy executed!');
+      // Pool created by Shipyard (with optional dev buy + token transfer)
+      console.log('Pool created by Shipyard!');
+      console.log('Token:', createData.tokenMint);
+      console.log('Pool:', createData.poolAddress);
+      console.log('Tx:', createData.poolSignature);
+      if (createData.tokenTransferSignature) {
+        console.log('Tokens transferred:', createData.tokenTransferSignature);
       }
 
       // Record the launch in our tracking system
@@ -613,7 +622,7 @@ export default function ShipyardPlatform() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
                   {[
-                    { num: '01', title: 'PAY LAUNCH FEE', desc: '0.1 SOL flat. No ongoing fees. No extraction.', icon: '⚓' },
+                    { num: '01', title: 'PAY LAUNCH FEE', desc: '0.01 SOL flat. No ongoing fees. No extraction.', icon: '⚓' },
                     { num: '02', title: 'PICK YOUR SPLIT', desc: 'Choose how fees compound: more LP or more burns.', icon: '⚖️' },
                     { num: '03', title: 'STAY AFLOAT', desc: 'Launch with locked LP, 0% extraction, auto-compound.', icon: '🛟' }
                   ].map((step, i) => (
@@ -749,7 +758,7 @@ export default function ShipyardPlatform() {
                 READY TO STAY AFLOAT?
               </h2>
               <p style={{ fontSize: '15px', color: '#6e7b8b', marginBottom: '35px' }}>
-                0.1 SOL. Zero extraction. Your token floats.
+                0.01 SOL. Zero extraction. Your token floats.
               </p>
               <button
                 onClick={() => setActiveTab('raft')}
@@ -1557,7 +1566,7 @@ export default function ShipyardPlatform() {
               <div style={{ fontSize: '9px', color: '#88c0ff', letterSpacing: '2px', marginBottom: '18px' }}>ENGINE LOG</div>
               {[
                 { time: '2h ago', amount: '0.85 SOL', lp: '0.68', burn: '0.17', tx: '4xK...9f2' },
-                { time: '6h ago', amount: '0.70.1 SOL', lp: '0.58', burn: '0.14', tx: '7mP...3a1' },
+                { time: '6h ago', amount: '0.70.01 SOL', lp: '0.58', burn: '0.14', tx: '7mP...3a1' },
                 { time: '14h ago', amount: '0.91 SOL', lp: '0.73', burn: '0.18', tx: '2nR...8k4' },
               ].map((entry, i) => (
                 <div key={i} style={{
@@ -1805,7 +1814,7 @@ export default function ShipyardPlatform() {
                         {
                           step: '01',
                           title: 'Pay the Launch Fee',
-                          desc: '0.1 SOL flat fee to launch. This is your only cost — no hidden fees, no ongoing extraction. The fee filters out low-effort rugs and funds development.'
+                          desc: '0.01 SOL flat fee to launch. This is your only cost — no hidden fees, no ongoing extraction. The fee filters out low-effort rugs and funds development.'
                         },
                         {
                           step: '02',
@@ -2026,7 +2035,7 @@ export default function ShipyardPlatform() {
                         DOCK FEE
                       </div>
                       <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: '48px', fontWeight: '700', color: '#88c0ff', marginBottom: '8px' }}>
-                        0.1 SOL
+                        0.01 SOL
                       </div>
                       <div style={{ fontSize: '14px', color: '#8b949e' }}>
                         One-time payment to launch
@@ -2173,7 +2182,7 @@ export default function ShipyardPlatform() {
                           a: "The Shipyard uses Meteora's audited DBC program. We don't have custom smart contracts — we just configure Meteora's existing infrastructure."
                         },
                         {
-                          q: "What happens to the 0.1 SOL dock fee?",
+                          q: "What happens to the 0.01 SOL dock fee?",
                           a: "It goes to The Shipyard treasury to fund development, hosting, and the compound bot infrastructure."
                         },
                         {
