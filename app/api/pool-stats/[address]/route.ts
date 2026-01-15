@@ -85,13 +85,18 @@ export async function GET(request: NextRequest) {
         const baseTokenAccount = await getAccount(connection, baseVault);
         const quoteTokenAccount = await getAccount(connection, quoteVault);
 
-        tokenBalance = Number(baseTokenAccount.amount) / 1e6; // Assuming 6 decimals
+        // Token has 6 decimals, so raw amount / 1e6 = actual token count
+        // e.g., 818M tokens with 6 decimals = 818,000,000,000,000 raw / 1e6 = 818,000,000 tokens
+        tokenBalance = Number(baseTokenAccount.amount) / 1e6;
         solBalance = Number(quoteTokenAccount.amount) / 1e9;  // SOL has 9 decimals
 
         baseVaultAddress = baseVault.toBase58();
         quoteVaultAddress = quoteVault.toBase58();
 
         console.log('Found vaults via PDA derivation');
+        console.log('Raw token amount:', baseTokenAccount.amount.toString());
+        console.log('Token balance after decimals:', tokenBalance);
+        console.log('SOL balance:', solBalance);
       }
     } catch (e) {
       console.log('PDA vault derivation failed, trying alternate method');
@@ -145,12 +150,13 @@ export async function GET(request: NextRequest) {
 
     // Calculate derived stats
     const tokensInPool = tokenBalance;
-    const tokensSold = CURVE_TOKENS - tokensInPool;
+    const tokensSold = TOTAL_SUPPLY - tokensInPool; // Use total supply, not curve tokens
     const percentSold = (tokensSold / TOTAL_SUPPLY) * 100;
     const percentRemaining = (tokensInPool / TOTAL_SUPPLY) * 100;
 
-    // Progress through the curve
-    const curveProgress = Math.min(tokensSold / CURVE_TOKENS, 1);
+    // Progress through the curve (based on curve tokens sold, not total)
+    const curveTokensSold = Math.max(0, CURVE_TOKENS - (tokensInPool - (TOTAL_SUPPLY - CURVE_TOKENS)));
+    const curveProgress = Math.min(curveTokensSold / CURVE_TOKENS, 1);
 
     // Estimated SOL raised based on tokens sold (if we couldn't read SOL vault)
     // Using the inverse of our token calculation: tokens = CURVE_TOKENS * (sol/85)^0.65
@@ -160,6 +166,8 @@ export async function GET(request: NextRequest) {
       const tokenProgress = tokensSold / CURVE_TOKENS;
       estimatedSolRaised = MIGRATION_THRESHOLD * Math.pow(tokenProgress, 1 / 0.65);
     }
+
+    console.log('Final stats - tokensInPool:', tokensInPool, 'tokensSold:', tokensSold, 'solBalance:', solBalance);
 
     return NextResponse.json({
       success: true,
