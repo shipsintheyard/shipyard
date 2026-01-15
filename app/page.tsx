@@ -41,6 +41,10 @@ export default function ShipyardPlatform() {
 
   // Vanity address state
   const [vanityEnabled, setVanityEnabled] = useState(false);
+  const [vanityKeypair, setVanityKeypair] = useState<{ publicKey: string; secretKey: number[] } | null>(null);
+  const [isGrinding, setIsGrinding] = useState(false);
+  const [grindProgress, setGrindProgress] = useState<{ attempts: number; elapsed: number; rate: number } | null>(null);
+  const [vanityWorker, setVanityWorker] = useState<Worker | null>(null);
 
   // Launch state
   const [isLaunching, setIsLaunching] = useState(false);
@@ -52,6 +56,51 @@ export default function ShipyardPlatform() {
     address: string;
     poolAddress: string;
   } | null>(null);
+
+  // Start vanity address grinding (client-side)
+  const startVanityGrind = () => {
+    if (vanityWorker) {
+      vanityWorker.terminate();
+    }
+
+    setIsGrinding(true);
+    setVanityKeypair(null);
+    setGrindProgress(null);
+
+    const worker = new Worker('/vanity-worker.js');
+    setVanityWorker(worker);
+
+    worker.onmessage = (e) => {
+      const { type, ...data } = e.data;
+
+      if (type === 'progress') {
+        setGrindProgress({ attempts: data.attempts, elapsed: data.elapsed, rate: data.rate });
+      } else if (type === 'found') {
+        setVanityKeypair({ publicKey: data.publicKey, secretKey: data.secretKey });
+        setGrindProgress({ attempts: data.attempts, elapsed: data.elapsed, rate: data.rate });
+        setIsGrinding(false);
+        worker.terminate();
+        setVanityWorker(null);
+      } else if (type === 'maxed' || type === 'error') {
+        setIsGrinding(false);
+        worker.terminate();
+        setVanityWorker(null);
+        alert('Failed to find vanity address. Try again or disable vanity.');
+      }
+    };
+
+    worker.postMessage({ suffix: 'SHIP', maxAttempts: 100_000_000, reportInterval: 50_000 });
+  };
+
+  // Cancel vanity grinding
+  const cancelVanityGrind = () => {
+    if (vanityWorker) {
+      vanityWorker.terminate();
+      setVanityWorker(null);
+    }
+    setIsGrinding(false);
+    setGrindProgress(null);
+  };
 
   // Handle image upload
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -90,6 +139,12 @@ export default function ShipyardPlatform() {
 
     if (!tokenName || !tokenSymbol) {
       alert('Please fill in token name and symbol');
+      return;
+    }
+
+    // If vanity is enabled, ensure we have a pre-ground keypair
+    if (vanityEnabled && !vanityKeypair) {
+      alert('Please grind a vanity address first before launching');
       return;
     }
 
@@ -162,6 +217,13 @@ export default function ShipyardPlatform() {
         }),
       });
 
+      // Check if response is OK before parsing JSON
+      if (!feeResponse.ok) {
+        const errorText = await feeResponse.text();
+        console.error('Fee API error:', feeResponse.status, errorText);
+        throw new Error(`API error ${feeResponse.status}: ${errorText.slice(0, 200)}`);
+      }
+
       const feeData = await feeResponse.json();
       if (!feeData.success) {
         throw new Error(feeData.error || 'Failed to create fee transaction');
@@ -188,26 +250,37 @@ export default function ShipyardPlatform() {
 
       // Step 3: Create pool (Shipyard creates it server-side)
       console.log('Step 3: Creating pool via Shipyard...');
-      if (vanityEnabled) {
-        setLaunchStatus('Grinding vanity address ...SHIP (2-4 min)');
-        console.log('Vanity address enabled - grinding for ...SHIP suffix (this may take 2-4 minutes)');
-      } else {
-        setLaunchStatus('Creating pool...');
+      setLaunchStatus('Creating pool...');
+
+      // Build request body
+      const createBody: Record<string, unknown> = {
+        feeSignature,
+        name: tokenName,
+        symbol: tokenSymbol,
+        uri: metadataUri,
+        creatorWallet: publicKey.toBase58(),
+        engine: selectedEngine,
+        devBuyAmount: devBuyEnabled ? devBuyAmount : 0,
+      };
+
+      // If vanity keypair was pre-ground, send it to the API
+      if (vanityEnabled && vanityKeypair) {
+        console.log('Using pre-ground vanity address:', vanityKeypair.publicKey);
+        createBody.vanitySecretKey = vanityKeypair.secretKey;
       }
+
       const createResponse = await fetch('/api/launch-token/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          feeSignature,
-          name: tokenName,
-          symbol: tokenSymbol,
-          uri: metadataUri,
-          creatorWallet: publicKey.toBase58(),
-          engine: selectedEngine,
-          devBuyAmount: devBuyEnabled ? devBuyAmount : 0,
-          vanityEnabled,
-        }),
+        body: JSON.stringify(createBody),
       });
+
+      // Check if response is OK before parsing JSON
+      if (!createResponse.ok) {
+        const errorText = await createResponse.text();
+        console.error('Create pool API error:', createResponse.status, errorText);
+        throw new Error(`API error ${createResponse.status}: ${errorText.slice(0, 200)}`);
+      }
 
       const createData = await createResponse.json();
       if (!createData.success) {
@@ -311,6 +384,11 @@ export default function ShipyardPlatform() {
         @keyframes slideIn {
           from { opacity: 0; transform: translateY(20px); }
           to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes shimmer {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
         }
         
         .animate-in { animation: slideIn 0.5s ease-out forwards; }
@@ -1392,15 +1470,142 @@ export default function ShipyardPlatform() {
                     </div>
 
                     {vanityEnabled && (
-                      <div style={{
-                        padding: '12px',
-                        background: 'rgba(251, 191, 36, 0.05)',
-                        border: '1px solid rgba(251, 191, 36, 0.15)',
-                        borderRadius: '8px',
-                        fontSize: '10px',
-                        color: '#fbbf24'
-                      }}>
-                        Your token address will end in <strong>...SHIP</strong>. This requires grinding ~11 million keypairs and may take 2-4 minutes during launch.
+                      <div>
+                        {/* Grind controls */}
+                        {!vanityKeypair && !isGrinding && (
+                          <div style={{ marginBottom: '12px' }}>
+                            <button
+                              onClick={startVanityGrind}
+                              style={{
+                                padding: '12px 24px',
+                                background: 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)',
+                                border: 'none',
+                                borderRadius: '8px',
+                                color: '#0f1419',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                fontFamily: "'Space Mono', monospace",
+                              }}
+                            >
+                              ⚡ START GRINDING
+                            </button>
+                            <div style={{ fontSize: '10px', color: '#6e7b8b', marginTop: '8px' }}>
+                              Click to find a vanity address before paying. You can cancel anytime.
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Grinding in progress */}
+                        {isGrinding && (
+                          <div style={{
+                            padding: '16px',
+                            background: 'rgba(251, 191, 36, 0.1)',
+                            border: '1px solid rgba(251, 191, 36, 0.3)',
+                            borderRadius: '8px',
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                              <div style={{ fontSize: '12px', color: '#fbbf24', fontWeight: '600' }}>
+                                ⏳ Grinding for ...SHIP
+                              </div>
+                              <button
+                                onClick={cancelVanityGrind}
+                                style={{
+                                  padding: '6px 12px',
+                                  background: 'transparent',
+                                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                                  borderRadius: '4px',
+                                  color: '#ef4444',
+                                  fontSize: '10px',
+                                  cursor: 'pointer',
+                                  fontFamily: "'Space Mono', monospace",
+                                }}
+                              >
+                                CANCEL
+                              </button>
+                            </div>
+                            {grindProgress && (
+                              <div style={{ fontSize: '11px', color: '#6e7b8b' }}>
+                                <div>Attempts: {grindProgress.attempts.toLocaleString()}</div>
+                                <div>Time: {grindProgress.elapsed.toFixed(1)}s</div>
+                                <div>Rate: {grindProgress.rate.toLocaleString()}/sec</div>
+                              </div>
+                            )}
+                            <div style={{
+                              marginTop: '12px',
+                              height: '4px',
+                              background: 'rgba(251, 191, 36, 0.2)',
+                              borderRadius: '2px',
+                              overflow: 'hidden'
+                            }}>
+                              <div style={{
+                                width: '100%',
+                                height: '100%',
+                                background: 'linear-gradient(90deg, #fbbf24, #f59e0b)',
+                                animation: 'shimmer 1.5s ease-in-out infinite',
+                              }} />
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Found vanity address */}
+                        {vanityKeypair && (
+                          <div style={{
+                            padding: '16px',
+                            background: 'rgba(126, 231, 135, 0.1)',
+                            border: '1px solid rgba(126, 231, 135, 0.3)',
+                            borderRadius: '8px',
+                          }}>
+                            <div style={{ fontSize: '12px', color: '#7ee787', fontWeight: '600', marginBottom: '8px' }}>
+                              ✓ Vanity Address Found!
+                            </div>
+                            <div style={{
+                              padding: '10px',
+                              background: 'rgba(0, 0, 0, 0.3)',
+                              borderRadius: '6px',
+                              fontFamily: "'Space Mono', monospace",
+                              fontSize: '11px',
+                              color: '#fbbf24',
+                              wordBreak: 'break-all'
+                            }}>
+                              {vanityKeypair.publicKey}
+                            </div>
+                            <div style={{ fontSize: '10px', color: '#6e7b8b', marginTop: '8px' }}>
+                              This address is ready. Proceed to launch to use it.
+                            </div>
+                            <button
+                              onClick={() => { setVanityKeypair(null); startVanityGrind(); }}
+                              style={{
+                                marginTop: '10px',
+                                padding: '6px 12px',
+                                background: 'transparent',
+                                border: '1px solid rgba(136, 192, 255, 0.3)',
+                                borderRadius: '4px',
+                                color: '#6e7b8b',
+                                fontSize: '10px',
+                                cursor: 'pointer',
+                                fontFamily: "'Space Mono', monospace",
+                              }}
+                            >
+                              GRIND NEW ADDRESS
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Info when nothing happening */}
+                        {!vanityKeypair && !isGrinding && (
+                          <div style={{
+                            padding: '12px',
+                            background: 'rgba(251, 191, 36, 0.05)',
+                            border: '1px solid rgba(251, 191, 36, 0.15)',
+                            borderRadius: '8px',
+                            fontSize: '10px',
+                            color: '#fbbf24',
+                            marginTop: '12px'
+                          }}>
+                            Your token address will end in <strong>...SHIP</strong>. Grind happens in your browser - no payment until you&apos;re ready!
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1439,7 +1644,6 @@ export default function ShipyardPlatform() {
                         { label: 'LP Reinvest', value: `${engines[selectedEngine].lp}%`, color: '#88c0ff' },
                         { label: 'Burn Rate', value: `${engines[selectedEngine].burn}%`, color: '#f97316' },
                         { label: 'Dev Buy', value: devBuyEnabled && devBuyAmount > 0 ? `${devBuyAmount.toFixed(2)} SOL (~${((devBuyAmount / MAX_DEV_BUY_SOL) * 5).toFixed(1)}%)` : 'None', color: devBuyEnabled && devBuyAmount > 0 ? '#88c0ff' : '#6e7b8b' },
-                        { label: 'Vanity Address', value: vanityEnabled ? '...SHIP' : 'Random', color: vanityEnabled ? '#fbbf24' : '#6e7b8b' },
                         { label: 'Dev Extraction', value: '0% LOCKED', color: '#7ee787' },
                         { label: 'LP Status', value: 'LOCKED FOREVER', color: '#7ee787' },
                       ].map((item, i) => (
@@ -1447,12 +1651,50 @@ export default function ShipyardPlatform() {
                           display: 'flex',
                           justifyContent: 'space-between',
                           padding: '10px 0',
-                          borderBottom: i < 7 ? '1px solid rgba(136, 192, 255, 0.08)' : 'none'
+                          borderBottom: '1px solid rgba(136, 192, 255, 0.08)'
                         }}>
                           <span style={{ fontSize: '12px', color: '#6e7b8b' }}>{item.label}</span>
                           <span style={{ fontSize: '12px', color: item.color, fontWeight: '600' }}>{item.value}</span>
                         </div>
                       ))}
+
+                      {/* Vanity Address Display */}
+                      {vanityEnabled && vanityKeypair && (
+                        <div style={{
+                          marginTop: '16px',
+                          padding: '14px',
+                          background: 'rgba(126, 231, 135, 0.08)',
+                          border: '1px solid rgba(126, 231, 135, 0.25)',
+                          borderRadius: '8px'
+                        }}>
+                          <div style={{ fontSize: '9px', color: '#7ee787', letterSpacing: '1px', marginBottom: '8px' }}>
+                            ✓ VANITY TOKEN ADDRESS
+                          </div>
+                          <div style={{
+                            fontFamily: "'Space Mono', monospace",
+                            fontSize: '10px',
+                            color: '#fbbf24',
+                            wordBreak: 'break-all',
+                            lineHeight: '1.4'
+                          }}>
+                            {vanityKeypair.publicKey}
+                          </div>
+                        </div>
+                      )}
+
+                      {vanityEnabled && !vanityKeypair && (
+                        <div style={{
+                          marginTop: '16px',
+                          padding: '14px',
+                          background: 'rgba(239, 68, 68, 0.08)',
+                          border: '1px solid rgba(239, 68, 68, 0.25)',
+                          borderRadius: '8px'
+                        }}>
+                          <div style={{ fontSize: '10px', color: '#ef4444' }}>
+                            ⚠️ Go back to Step 2 and grind a vanity address first
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div>
@@ -1502,23 +1744,27 @@ export default function ShipyardPlatform() {
 
                       <button
                         onClick={handleLaunch}
-                        disabled={isLaunching}
+                        disabled={isLaunching || (vanityEnabled && !vanityKeypair)}
                         style={{
                           width: '100%',
                           padding: '18px',
-                          background: isLaunching
+                          background: isLaunching || (vanityEnabled && !vanityKeypair)
                             ? 'rgba(136, 192, 255, 0.3)'
                             : 'linear-gradient(135deg, #88c0ff 0%, #5a9fd4 100%)',
-                          color: isLaunching ? '#88c0ff' : '#0f1419',
+                          color: isLaunching || (vanityEnabled && !vanityKeypair) ? '#88c0ff' : '#0f1419',
                           border: 'none',
                           borderRadius: '8px',
                           fontFamily: "'Outfit', sans-serif",
                           fontSize: isLaunching ? '13px' : '15px',
                           fontWeight: '700',
-                          cursor: isLaunching ? 'not-allowed' : 'pointer',
-                          boxShadow: isLaunching ? 'none' : '0 4px 25px rgba(136, 192, 255, 0.4)'
+                          cursor: isLaunching || (vanityEnabled && !vanityKeypair) ? 'not-allowed' : 'pointer',
+                          boxShadow: isLaunching || (vanityEnabled && !vanityKeypair) ? 'none' : '0 4px 25px rgba(136, 192, 255, 0.4)'
                         }}>
-                        {isLaunching ? `⏳ ${launchStatus || 'LAUNCHING...'}` : '🛟 LAUNCH ON RAFT'}
+                        {isLaunching
+                          ? `⏳ ${launchStatus || 'LAUNCHING...'}`
+                          : vanityEnabled && !vanityKeypair
+                            ? '⚠️ GRIND VANITY ADDRESS FIRST'
+                            : '🛟 LAUNCH ON RAFT'}
                       </button>
                       {isLaunching && launchStatus.includes('vanity') && (
                         <div style={{

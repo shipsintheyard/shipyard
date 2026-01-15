@@ -20,9 +20,9 @@ interface Launch {
 }
 
 const ENGINE_NAMES: Record<number, string> = {
-  1: 'Engine 1',
-  2: 'Engine 2',
-  3: 'Engine 3',
+  1: 'Navigator',
+  2: 'Lighthouse',
+  3: 'Supernova',
 };
 
 const ENGINE_COLORS: Record<number, string> = {

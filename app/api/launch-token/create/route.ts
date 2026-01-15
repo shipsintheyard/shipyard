@@ -9,7 +9,6 @@ import { NATIVE_MINT } from '@solana/spl-token';
 import { DynamicBondingCurveClient } from '@meteora-ag/dynamic-bonding-curve-sdk';
 import BN from 'bn.js';
 import bs58 from 'bs58';
-import { grindVanityKeypairAsync } from '../../../utils/vanityKeypair';
 
 // ============================================================
 // SHIPYARD TOKEN LAUNCH - CREATE POOL
@@ -80,8 +79,9 @@ interface CreatePoolRequest {
   // Dev buy amount in SOL (optional, max ~5% of supply)
   devBuyAmount?: number;
 
-  // Vanity address - generate token address ending in "SHIP"
-  vanityEnabled?: boolean;
+  // Pre-ground vanity keypair secret key (from client-side grinding)
+  // This is an array of 64 bytes representing the secret key
+  vanitySecretKey?: number[];
 }
 
 // Derive pool address PDA
@@ -181,29 +181,26 @@ export async function POST(request: NextRequest) {
     const engineConfig = ENGINE_CONFIGS[engineKey];
     console.log('Selected engine:', engineKey);
 
-    // Generate token mint keypair (with optional vanity address)
+    // Generate token mint keypair (with optional pre-ground vanity address)
     let baseMintKeypair: Keypair;
-    let vanityAttempts = 0;
+    let isVanity = false;
 
-    if (body.vanityEnabled) {
-      console.log('Grinding for vanity address ending in "SHIP"...');
-      const startTime = Date.now();
+    if (body.vanitySecretKey && Array.isArray(body.vanitySecretKey) && body.vanitySecretKey.length === 64) {
+      // Use pre-ground vanity keypair from client
+      console.log('Using pre-ground vanity keypair from client...');
+      baseMintKeypair = Keypair.fromSecretKey(Uint8Array.from(body.vanitySecretKey));
+      isVanity = true;
 
-      const result = await grindVanityKeypairAsync('SHIP', 100_000_000, 50_000);
-
-      if (result.keypair) {
-        baseMintKeypair = result.keypair;
-        vanityAttempts = result.attempts;
-        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        console.log(`Found vanity address in ${elapsed}s after ${vanityAttempts.toLocaleString()} attempts`);
-        console.log(`Vanity address: ${baseMintKeypair.publicKey.toBase58()}`);
+      // Verify it actually ends in SHIP
+      const address = baseMintKeypair.publicKey.toBase58();
+      if (!address.toUpperCase().endsWith('SHIP')) {
+        console.warn('Warning: Provided keypair does not end in SHIP:', address);
       } else {
-        // Fallback to random if we hit max attempts (shouldn't happen normally)
-        console.log('Vanity grinding reached max attempts, using random keypair');
-        baseMintKeypair = Keypair.generate();
+        console.log('Vanity address verified:', address);
       }
     } else {
       baseMintKeypair = Keypair.generate();
+      console.log('Using random keypair:', baseMintKeypair.publicKey.toBase58());
     }
 
     const baseMint = baseMintKeypair.publicKey;
@@ -411,9 +408,8 @@ export async function POST(request: NextRequest) {
 
       // Vanity address info
       vanityInfo: {
-        enabled: body.vanityEnabled || false,
-        suffix: body.vanityEnabled ? 'SHIP' : null,
-        attempts: vanityAttempts,
+        enabled: isVanity,
+        suffix: isVanity ? 'SHIP' : null,
       },
 
       message: devBuyAmount > 0
