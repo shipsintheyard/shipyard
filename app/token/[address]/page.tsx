@@ -3,9 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 
-// Use a public RPC with better rate limits, or env variable if set
-const SOLANA_RPC = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://mainnet.helius-rpc.com/?api-key=1d8740dc-e5f4-421c-b823-e1bad1889eff';
-const LAMPORTS_PER_SOL = 1_000_000_000;
+// Constants moved to API route, keeping only what's needed client-side
 
 
 interface Launch {
@@ -35,7 +33,7 @@ const ENGINE_INFO: Record<number, { name: string; lp: number; burn: number; colo
 const MIGRATION_THRESHOLD = 85; // SOL needed to fill the curve
 const TOTAL_SUPPLY = 1_000_000_000; // 1 billion tokens
 const CURVE_TOKENS = 800_000_000; // 80% sold through bonding curve
-const LP_TOKENS = 200_000_000; // 20% goes to LP after migration
+// LP_TOKENS = 200_000_000 (20% goes to LP after migration)
 
 // Initial and final market caps
 const INITIAL_MC_SOL = 27.48;
@@ -134,7 +132,6 @@ export default function TokenPage() {
   // Live on-chain stats from pool
   const [liveSolRaised, setLiveSolRaised] = useState<number | null>(null);
   const [liveTokensInPool, setLiveTokensInPool] = useState<number | null>(null);
-  const [liveFees, setLiveFees] = useState<number | null>(null);
 
   const fetchLaunch = useCallback(async () => {
     try {
@@ -167,68 +164,74 @@ export default function TokenPage() {
     }
   };
 
-  // Fetch live pool stats from DexScreener API
+  // Fetch live pool stats from our backend API (reads on-chain data)
   const fetchPoolStats = useCallback(async (poolAddress: string, tokenMint: string) => {
     try {
-      console.log('Fetching pool stats from DexScreener for:', tokenMint);
+      console.log('Fetching pool stats from backend for:', poolAddress);
 
-      const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenMint}`);
+      const response = await fetch(`/api/pool-stats/${poolAddress}?tokenMint=${tokenMint}`);
       const data = await response.json();
 
-      console.log('DexScreener response:', data);
+      console.log('Pool stats response:', data);
 
-      if (data.pairs && data.pairs.length > 0) {
-        // Find the Meteora pair that matches our pool
-        const pair = data.pairs.find((p: { pairAddress: string }) => p.pairAddress === poolAddress) || data.pairs[0];
+      if (data.success) {
+        // Use actual on-chain SOL balance
+        if (data.balances.sol > 0) {
+          console.log('Setting SOL raised from on-chain:', data.balances.sol);
+          setLiveSolRaised(data.balances.sol);
+        } else if (data.stats.solRaised > 0) {
+          // Fallback to estimated if vault couldn't be read
+          console.log('Setting SOL raised from estimate:', data.stats.solRaised);
+          setLiveSolRaised(data.stats.solRaised);
+        }
 
-        if (pair) {
-          console.log('Found pair:', pair.pairAddress);
-          console.log('FDV:', pair.fdv, 'priceNative:', pair.priceNative);
-
-          // DexScreener gives us FDV (market cap in USD)
-          // We need to convert to SOL raised for our bonding curve
-          // Our curve: MC starts at 27.48 SOL, ends at 415.49 SOL at 85 SOL raised
-          // FDV in USD / SOL price = MC in SOL
-          // Then reverse the curve formula to get SOL raised
-
-          if (pair.fdv && pair.priceNative) {
-            // priceNative is token price in SOL
-            // MC in SOL = FDV_USD / (priceUsd / priceNative)
-            const tokenPriceSol = parseFloat(pair.priceNative);
-            const tokenPriceUsd = parseFloat(pair.priceUsd);
-            const solPriceUsd = tokenPriceUsd / tokenPriceSol;
-
-            const mcSol = pair.fdv / solPriceUsd;
-            console.log('FDV USD:', pair.fdv, 'Token price SOL:', tokenPriceSol, 'Token price USD:', tokenPriceUsd);
-            console.log('SOL price USD:', solPriceUsd, 'Market cap in SOL:', mcSol);
-
-            // Reverse our curve: MC = 27.48 * (415.49/27.48)^(sol/85)
-            // sol = 85 * log(MC/27.48) / log(415.49/27.48)
-            const INITIAL_MC = 27.48;
-            const FINAL_MC = 415.49;
-            const THRESHOLD = 85;
-
-            console.log('Comparing mcSol:', mcSol, 'vs INITIAL_MC:', INITIAL_MC);
-
-            if (mcSol > INITIAL_MC) {
-              const solRaised = THRESHOLD * Math.log(mcSol / INITIAL_MC) / Math.log(FINAL_MC / INITIAL_MC);
-              console.log('Calculated SOL raised from MC:', solRaised);
-              setLiveSolRaised(Math.max(0, Math.min(solRaised, THRESHOLD)));
-            } else {
-              console.log('mcSol <= INITIAL_MC, setting liveSolRaised to 0');
-              setLiveSolRaised(0);
-            }
-          } else {
-            console.log('Missing fdv or priceNative:', pair.fdv, pair.priceNative);
-          }
+        // Use actual token balance to calculate tokens sold
+        if (data.balances.tokens > 0) {
+          console.log('Tokens in pool:', data.balances.tokens, 'Tokens sold:', data.stats.tokensSold);
+          setLiveTokensInPool(data.balances.tokens);
         }
       } else {
-        console.log('No pairs found for token');
+        console.log('Pool stats fetch failed:', data.error);
+        // Fallback to DexScreener
+        await fetchPoolStatsFromDexScreener(tokenMint);
       }
     } catch (err) {
       console.error('Failed to fetch pool stats:', err);
+      // Fallback to DexScreener
+      await fetchPoolStatsFromDexScreener(tokenMint);
     }
   }, []);
+
+  // Fallback: Fetch from DexScreener if our API fails
+  const fetchPoolStatsFromDexScreener = async (tokenMint: string) => {
+    try {
+      console.log('Falling back to DexScreener for:', tokenMint);
+      const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenMint}`);
+      const data = await response.json();
+
+      if (data.pairs && data.pairs.length > 0) {
+        const pair = data.pairs[0];
+        if (pair.fdv && pair.priceNative) {
+          const tokenPriceSol = parseFloat(pair.priceNative);
+          const tokenPriceUsd = parseFloat(pair.priceUsd);
+          const solPriceUsd = tokenPriceUsd / tokenPriceSol;
+          const mcSol = pair.fdv / solPriceUsd;
+
+          // Reverse curve to get SOL raised estimate
+          const INITIAL_MC = 27.48;
+          const FINAL_MC = 415.49;
+          const THRESHOLD = 85;
+
+          if (mcSol > INITIAL_MC) {
+            const solRaised = THRESHOLD * Math.log(mcSol / INITIAL_MC) / Math.log(FINAL_MC / INITIAL_MC);
+            setLiveSolRaised(Math.max(0, Math.min(solRaised, THRESHOLD)));
+          }
+        }
+      }
+    } catch (err) {
+      console.error('DexScreener fallback failed:', err);
+    }
+  };
 
   useEffect(() => {
     fetchLaunch();
@@ -292,11 +295,17 @@ export default function TokenPage() {
   }
 
   // Use simulated SOL raised in sim mode, live on-chain balance if available, otherwise stored value
-  console.log('Rendering with liveSolRaised:', liveSolRaised, 'launch.solRaised:', launch.solRaised, 'simMode:', simMode);
+  console.log('Rendering with liveSolRaised:', liveSolRaised, 'liveTokensInPool:', liveTokensInPool, 'simMode:', simMode);
   const effectiveSolRaised = simMode ? simSolRaised : (liveSolRaised ?? launch.solRaised);
   const effectiveMigrated = simMode ? simSolRaised >= MIGRATION_THRESHOLD : (effectiveSolRaised >= MIGRATION_THRESHOLD || launch.migrated);
 
+  // Calculate curve position, but override tokens sold if we have live data
   const curve = calculateCurvePosition(effectiveSolRaised);
+
+  // Use actual token balance from pool if available (more accurate than deriving from SOL)
+  const actualTokensSold = liveTokensInPool !== null && !simMode
+    ? CURVE_TOKENS - (liveTokensInPool * 1_000_000) // liveTokensInPool is in millions
+    : curve.tokensSold;
   const engine = ENGINE_INFO[launch.engine];
 
   // Calculate USD values
@@ -569,10 +578,10 @@ export default function TokenPage() {
               }}>
                 <div style={{ fontSize: '10px', color: '#4a5568', marginBottom: '4px' }}>TOKENS SOLD</div>
                 <div style={{ fontSize: '18px', fontWeight: '700', color: '#fff' }}>
-                  {(curve.tokensSold / 1_000_000).toFixed(0)}M
+                  {(actualTokensSold / 1_000_000).toFixed(0)}M
                 </div>
                 <div style={{ fontSize: '10px', color: '#6e7b8b' }}>
-                  {((curve.tokensSold / TOTAL_SUPPLY) * 100).toFixed(1)}% of supply
+                  {((actualTokensSold / TOTAL_SUPPLY) * 100).toFixed(1)}% of supply
                 </div>
               </div>
               <div style={{
