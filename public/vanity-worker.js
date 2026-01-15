@@ -20,7 +20,7 @@ if (typeof solanaWeb3 === 'undefined') {
 } else {
   const { Keypair } = solanaWeb3;
 
-  // Base58 alphabet for validation
+  // Base58 alphabet for validation (note: no I, O, l, 0)
   const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
   function isValidBase58Suffix(suffix) {
@@ -33,12 +33,13 @@ if (typeof solanaWeb3 === 'undefined') {
     if (!suffix || !isValidBase58Suffix(suffix)) {
       self.postMessage({
         type: 'error',
-        error: 'Invalid suffix - must be valid base58 characters'
+        error: 'Invalid suffix "' + suffix + '" - must be valid base58 characters (no I, O, l, 0)'
       });
       return;
     }
 
-    const targetSuffix = suffix.toUpperCase();
+    // Use lowercase for comparison (base58 has lowercase 'i' but not uppercase 'I')
+    const targetSuffix = suffix.toLowerCase();
     let attempts = 0;
     const startTime = Date.now();
 
@@ -49,7 +50,7 @@ if (typeof solanaWeb3 === 'undefined') {
       const address = keypair.publicKey.toBase58();
 
       // Check if address ends with target suffix (case insensitive)
-      if (address.toUpperCase().endsWith(targetSuffix)) {
+      if (address.toLowerCase().endsWith(targetSuffix)) {
         const elapsed = (Date.now() - startTime) / 1000;
 
         // Convert secret key to array for transfer
