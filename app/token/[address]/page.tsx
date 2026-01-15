@@ -7,6 +7,17 @@ import Link from 'next/link';
 const SOLANA_RPC = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://mainnet.helius-rpc.com/?api-key=1d8740dc-e5f4-421c-b823-e1bad1889eff';
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
+// Meteora DBC constants for pool derivation
+const DBC_PROGRAM_ID = 'dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN';
+const NATIVE_MINT = 'So11111111111111111111111111111111111111112';
+
+// Engine configs (must match create route)
+const ENGINE_CONFIGS: Record<number, string> = {
+  1: 'Ga4DCnyPHcxfp1k5FRbpn6PHhP9QXaLDczuMJL5RTN6U',  // Navigator
+  2: 'EBiqUqvwEx7k19KZrn8FDPaW8L6tDNmRn1zZG2SsS8VM', // Lighthouse
+  3: '8jFgQdWHcUbjzP3a4wXZXxHWqh1tvApbiQHHrXUynJcP',  // Supernova
+};
+
 interface Launch {
   id: string;
   tokenMint: string;
@@ -164,26 +175,31 @@ export default function TokenPage() {
     }
   };
 
-  // Fetch live SOL raised by reading the pool account data directly
-  const fetchPoolSolRaised = useCallback(async (poolAddress: string) => {
+  // Fetch live SOL raised by deriving pool PDA and reading account data
+  const fetchPoolSolRaised = useCallback(async (tokenMint: string, engine: number) => {
     try {
       const { Connection, PublicKey } = await import('@solana/web3.js');
 
-      // Validate pool address
-      let poolPubkey;
-      try {
-        poolPubkey = new PublicKey(poolAddress);
-      } catch {
-        console.warn('Invalid pool address:', poolAddress);
-        return;
-      }
+      // Derive pool PDA from token mint, WSOL, and engine config
+      const baseMint = new PublicKey(tokenMint);
+      const quoteMint = new PublicKey(NATIVE_MINT);
+      const config = new PublicKey(ENGINE_CONFIGS[engine] || ENGINE_CONFIGS[2]);
+      const programId = new PublicKey(DBC_PROGRAM_ID);
+
+      // PDA seeds: ["pool", baseMint, quoteMint, config]
+      const [poolPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from('pool'), baseMint.toBuffer(), quoteMint.toBuffer(), config.toBuffer()],
+        programId
+      );
+
+      console.log('Derived pool PDA:', poolPda.toBase58());
 
       const connection = new Connection(SOLANA_RPC, 'confirmed');
 
       // Read the pool account data
-      const accountInfo = await connection.getAccountInfo(poolPubkey);
+      const accountInfo = await connection.getAccountInfo(poolPda);
       if (!accountInfo) {
-        console.warn('Pool account not found');
+        console.warn('Pool account not found at:', poolPda.toBase58());
         return;
       }
 
@@ -223,13 +239,13 @@ export default function TokenPage() {
 
   // Fetch live SOL raised when launch is loaded
   useEffect(() => {
-    if (launch?.poolAddress) {
-      fetchPoolSolRaised(launch.poolAddress);
+    if (launch?.tokenMint && launch?.engine) {
+      fetchPoolSolRaised(launch.tokenMint, launch.engine);
       // Refresh every 30 seconds
-      const interval = setInterval(() => fetchPoolSolRaised(launch.poolAddress), 30000);
+      const interval = setInterval(() => fetchPoolSolRaised(launch.tokenMint, launch.engine), 30000);
       return () => clearInterval(interval);
     }
-  }, [launch?.poolAddress, fetchPoolSolRaised]);
+  }, [launch?.tokenMint, launch?.engine, fetchPoolSolRaised]);
 
   const shortenAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 
