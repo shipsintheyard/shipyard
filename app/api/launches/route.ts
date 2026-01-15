@@ -114,6 +114,48 @@ export async function DELETE(request: NextRequest) {
   }
 }
 
+// PATCH - Update a launch (for fixing data)
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json();
+
+    if (!body.tokenMint) {
+      return NextResponse.json(
+        { success: false, error: 'tokenMint is required' },
+        { status: 400 }
+      );
+    }
+
+    const launches = await getLaunches();
+    const index = launches.findIndex(l => l.tokenMint === body.tokenMint);
+
+    if (index === -1) {
+      return NextResponse.json(
+        { success: false, error: 'Launch not found' },
+        { status: 404 }
+      );
+    }
+
+    // Update allowed fields
+    if (body.poolAddress) launches[index].poolAddress = body.poolAddress;
+    if (body.solRaised !== undefined) launches[index].solRaised = body.solRaised;
+    if (body.migrated !== undefined) launches[index].migrated = body.migrated;
+
+    await saveLaunches(launches);
+
+    return NextResponse.json({
+      success: true,
+      launch: launches[index],
+    });
+  } catch (error) {
+    console.error('Update launch error:', error);
+    return NextResponse.json(
+      { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    );
+  }
+}
+
 // POST - Record a new launch
 export async function POST(request: NextRequest) {
   try {
