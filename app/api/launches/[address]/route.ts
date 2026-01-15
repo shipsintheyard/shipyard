@@ -24,10 +24,10 @@ async function getLaunches(): Promise<Launch[]> {
 // GET - Return a single launch by token mint address
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ address: string }> }
+  { params }: { params: { address: string } }
 ) {
   try {
-    const { address } = await params;
+    const { address } = params;
 
     if (!address) {
       return NextResponse.json(
