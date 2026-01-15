@@ -58,6 +58,28 @@ export default function ShipyardPlatform() {
     poolAddress: string;
   } | null>(null);
 
+  // Platform stats (fetched from launches API)
+  const [platformStats, setPlatformStats] = useState({ totalLaunches: 0, totalSolRaised: 0 });
+
+  // Fetch platform stats on mount
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const res = await fetch('/api/launches');
+        const data = await res.json();
+        if (data.success) {
+          setPlatformStats({
+            totalLaunches: data.totalLaunches || 0,
+            totalSolRaised: data.totalSolRaised || 0
+          });
+        }
+      } catch {
+        // Keep default stats on error
+      }
+    };
+    fetchStats();
+  }, []);
+
   // Start vanity address grinding (client-side with parallel workers)
   const startVanityGrind = () => {
     // Terminate any existing workers
@@ -734,8 +756,8 @@ export default function ShipyardPlatform() {
                 backdropFilter: 'blur(10px)'
               }}>
                 {[
-                  { value: '847', label: 'VESSELS SHIPPED', color: '#88c0ff' },
-                  { value: '12,450', label: 'SOL COMPOUNDED', color: '#88c0ff' },
+                  { value: platformStats.totalLaunches.toString(), label: 'VESSELS SHIPPED', color: '#88c0ff' },
+                  { value: platformStats.totalSolRaised.toFixed(2), label: 'SOL COMPOUNDED', color: '#88c0ff' },
                   { value: '∞', label: 'LP LOCKED', color: '#a8d4ff' },
                   { value: '0%', label: 'DEV EXTRACTION', color: '#7ee787' }
                 ].map((stat, i) => (
