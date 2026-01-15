@@ -167,79 +167,56 @@ export default function TokenPage() {
     }
   };
 
-  // Fetch live pool stats by reading pool account and extracting vault pubkeys
+  // Fetch live pool stats using Helius getTokenAccounts API
   const fetchPoolStats = useCallback(async (poolAddress: string, tokenMint: string) => {
     try {
-      const { Connection, PublicKey } = await import('@solana/web3.js');
-
-      const poolPubkey = new PublicKey(poolAddress);
       const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 
       console.log('Fetching pool stats for:', poolAddress);
       console.log('Token mint:', tokenMint);
 
-      const connection = new Connection(SOLANA_RPC, 'confirmed');
+      // Use Helius RPC to get token accounts for the pool
+      // This uses the DAS API which properly indexes token balances
+      const response = await fetch(SOLANA_RPC, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'helius-test',
+          method: 'getTokenAccounts',
+          params: {
+            owner: poolAddress,
+          },
+        }),
+      });
 
-      // Get pool account SOL balance (fees)
-      const poolBalance = await connection.getBalance(poolPubkey);
-      const feesCollected = poolBalance / LAMPORTS_PER_SOL;
-      console.log('Pool SOL balance (fees):', feesCollected);
-      setLiveFees(feesCollected);
+      const data = await response.json();
+      console.log('Helius getTokenAccounts response:', data);
 
-      // Read the pool account raw data
-      const poolInfo = await connection.getAccountInfo(poolPubkey);
-      if (!poolInfo) {
-        console.error('Pool account not found');
-        return;
-      }
+      if (data.result?.token_accounts) {
+        for (const account of data.result.token_accounts) {
+          const mint = account.mint;
+          const amount = account.amount;
+          const decimals = account.decimals || 9;
+          const balance = amount / Math.pow(10, decimals);
 
-      const data = poolInfo.data;
-      console.log('Pool data length:', data.length);
-
-      // Extract all 32-byte pubkeys from pool data and fetch them
-      // We'll look for token accounts (165 bytes) that hold WSOL or our token
-      const pubkeys: PublicKey[] = [];
-      for (let offset = 0; offset <= data.length - 32; offset += 8) {
-        try {
-          const bytes = data.subarray(offset, offset + 32);
-          const pk = new PublicKey(bytes);
-          const str = pk.toBase58();
-          // Skip system program, token program, and obviously invalid addresses
-          if (!str.startsWith('1111') && str.length === 44) {
-            pubkeys.push(pk);
-          }
-        } catch {
-          // Invalid pubkey
-        }
-      }
-
-      // Deduplicate
-      const uniquePubkeys = [...new Set(pubkeys.map(p => p.toBase58()))].map(s => new PublicKey(s));
-      console.log('Found', uniquePubkeys.length, 'unique pubkeys in pool data');
-
-      // Fetch all accounts in batch
-      const accounts = await connection.getMultipleParsedAccounts(uniquePubkeys);
-
-      for (let i = 0; i < accounts.value.length; i++) {
-        const acc = accounts.value[i];
-        if (!acc) continue;
-
-        const accData = acc.data;
-        if ('parsed' in accData && accData.program === 'spl-token' && accData.parsed?.type === 'account') {
-          const info = accData.parsed.info;
-          const mint = info.mint;
-          const balance = info.tokenAmount?.uiAmount;
-
-          console.log('Token account:', uniquePubkeys[i].toBase58(), 'mint:', mint, 'balance:', balance);
+          console.log('Token account:', account.address, 'mint:', mint, 'balance:', balance);
 
           if (mint === WSOL_MINT) {
-            console.log('Found WSOL vault! Balance:', balance, 'SOL');
+            console.log('Found WSOL! Balance:', balance, 'SOL');
             setLiveSolRaised(balance);
           } else if (mint === tokenMint) {
-            console.log('Found token vault! Balance:', balance, 'tokens');
+            console.log('Found token! Balance:', balance, 'tokens');
             setLiveTokensInPool(balance);
           }
         }
+      } else {
+        console.log('No token accounts found, trying standard RPC...');
+        // Fallback to standard getBalance for fees
+        const { Connection, PublicKey } = await import('@solana/web3.js');
+        const connection = new Connection(SOLANA_RPC, 'confirmed');
+        const poolBalance = await connection.getBalance(new PublicKey(poolAddress));
+        setLiveFees(poolBalance / LAMPORTS_PER_SOL);
       }
     } catch (err) {
       console.error('Failed to fetch pool stats:', err);
