@@ -165,7 +165,7 @@ export default function TokenPage() {
     }
   };
 
-  // Fetch live SOL raised by reading the pool account's internal WSOL balance
+  // Fetch live SOL raised by reading the quote vault token account
   const fetchPoolSolRaised = useCallback(async (poolAddress: string) => {
     try {
       const { Connection, PublicKey } = await import('@solana/web3.js');
@@ -176,7 +176,7 @@ export default function TokenPage() {
 
       const connection = new Connection(SOLANA_RPC, 'confirmed');
 
-      // Read the pool account data directly
+      // Read the pool account data to extract vault addresses
       const accountInfo = await connection.getAccountInfo(poolPubkey);
       if (!accountInfo) {
         console.warn('Pool account not found');
@@ -186,57 +186,37 @@ export default function TokenPage() {
       const data = accountInfo.data;
       console.log('Pool account data length:', data.length);
 
-      // Meteora DBC pool structure - search for quote balance
-      // The pool has token balances stored internally. Based on Solscan showing
-      // 6.02 WSOL ($853.77), we need to find the right offset.
-      // Pool data is 424 bytes. Let's scan for likely u64 values that match ~6 SOL
+      // Meteora DBC VirtualPool structure:
+      // - discriminator: 8 bytes (offset 0)
+      // - config: Pubkey 32 bytes (offset 8)
+      // - creator: Pubkey 32 bytes (offset 40)
+      // - base_mint: Pubkey 32 bytes (offset 72)
+      // - quote_mint: Pubkey 32 bytes (offset 104)
+      // - base_vault: Pubkey 32 bytes (offset 136)
+      // - quote_vault: Pubkey 32 bytes (offset 168)
+      // ... more fields after
 
-      // Try common offsets for quote_reserve in DBC pools
-      const possibleOffsets = [200, 208, 216, 224, 232, 240, 248, 256, 264, 272, 280, 288, 296, 304, 312, 320];
+      // Extract quote_vault address (WSOL vault) at offset 168
+      if (data.length >= 200) {
+        const quoteVaultBytes = data.subarray(168, 200);
+        const quoteVault = new PublicKey(quoteVaultBytes);
+        console.log('Quote vault address:', quoteVault.toBase58());
 
-      for (const offset of possibleOffsets) {
-        if (data.length >= offset + 8) {
-          try {
-            const value = data.readBigUInt64LE(offset);
-            const solValue = Number(value) / LAMPORTS_PER_SOL;
-            // Log values between 0.1 and 100 SOL (reasonable range)
-            if (solValue > 0.1 && solValue < 100) {
-              console.log(`Offset ${offset}: ${solValue.toFixed(4)} SOL`);
-            }
-          } catch {
-            // Skip invalid reads
-          }
-        }
-      }
-
-      // Based on Meteora DBC VirtualPool layout, try offset 272 for quote_reserve
-      // (8 disc + 32*5 pubkeys + padding + reserves)
-      if (data.length >= 280) {
-        const quoteReserve = data.readBigUInt64LE(272);
-        const solBalance = Number(quoteReserve) / LAMPORTS_PER_SOL;
-        if (solBalance > 0.01) {
-          console.log('Quote reserve at offset 272:', solBalance, 'SOL');
+        // Fetch the WSOL token account balance
+        const vaultInfo = await connection.getAccountInfo(quoteVault);
+        if (vaultInfo) {
+          // SPL Token account structure: mint (32) + owner (32) + amount (8)
+          // Amount is at offset 64
+          const amount = vaultInfo.data.readBigUInt64LE(64);
+          const solBalance = Number(amount) / LAMPORTS_PER_SOL;
+          console.log('Quote vault WSOL balance:', solBalance, 'SOL');
           setLiveSolRaised(solBalance);
-          return;
+        } else {
+          console.warn('Quote vault account not found');
         }
+      } else {
+        console.warn('Pool data too short:', data.length);
       }
-
-      // Fallback: scan all u64s for a value close to expected ~6 SOL
-      for (let offset = 0; offset <= data.length - 8; offset += 8) {
-        try {
-          const value = data.readBigUInt64LE(offset);
-          const solValue = Number(value) / LAMPORTS_PER_SOL;
-          if (solValue >= 5.5 && solValue <= 7) {
-            console.log(`Found likely WSOL balance at offset ${offset}: ${solValue.toFixed(4)} SOL`);
-            setLiveSolRaised(solValue);
-            return;
-          }
-        } catch {
-          // Skip
-        }
-      }
-
-      console.warn('Could not find WSOL balance in pool data');
     } catch (err) {
       console.error('Failed to fetch pool SOL raised:', err);
       // Keep using stored value if fetch fails
