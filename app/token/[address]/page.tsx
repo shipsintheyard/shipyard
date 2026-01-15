@@ -163,7 +163,7 @@ export default function TokenPage() {
     }
   };
 
-  // Fetch live SOL raised from pool's quote vault
+  // Fetch live SOL raised by reading the pool account data
   const fetchPoolSolRaised = useCallback(async (poolAddress: string) => {
     try {
       const { Connection, PublicKey } = await import('@solana/web3.js');
@@ -179,21 +179,43 @@ export default function TokenPage() {
 
       const connection = new Connection(SOLANA_RPC, 'confirmed');
 
-      // For Meteora DBC, the quote vault is a PDA derived from:
-      // Seeds: ["token_vault", quote_mint, pool]
-      // Quote mint for SOL pools is Native Mint (wrapped SOL)
-      const DBC_PROGRAM_ID = new PublicKey('dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN');
+      // Read the pool account data to find the quote vault address
+      // The pool struct stores the quote_vault at a specific offset
+      const accountInfo = await connection.getAccountInfo(poolPubkey);
+      if (!accountInfo) {
+        console.warn('Pool account not found');
+        return;
+      }
+
+      // Meteora DBC Pool structure - quote_vault is at offset 72 (after discriminator + other fields)
+      // Discriminator: 8 bytes
+      // Config: 32 bytes (offset 8)
+      // Creator: 32 bytes (offset 40)
+      // Base mint: 32 bytes (offset 72) - but we need quote_vault which is further
+      // Let's try reading the quote reserve from pool state instead
+
+      // Alternative: Get token accounts owned by the pool for WSOL
       const NATIVE_MINT = new PublicKey('So11111111111111111111111111111111111111112');
+      const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 
-      const [quoteVault] = PublicKey.findProgramAddressSync(
-        [Buffer.from('token_vault'), NATIVE_MINT.toBuffer(), poolPubkey.toBuffer()],
-        DBC_PROGRAM_ID
-      );
+      // Find the pool's WSOL token account (quote vault)
+      const tokenAccounts = await connection.getTokenAccountsByOwner(poolPubkey, {
+        mint: NATIVE_MINT,
+        programId: TOKEN_PROGRAM_ID,
+      });
 
-      const balance = await connection.getBalance(quoteVault);
-      const solBalance = balance / LAMPORTS_PER_SOL;
-      console.log('Pool quote vault:', quoteVault.toBase58(), 'balance:', solBalance, 'SOL');
-      setLiveSolRaised(solBalance);
+      if (tokenAccounts.value.length > 0) {
+        // Parse token account data to get balance
+        const tokenAccountData = tokenAccounts.value[0].account.data;
+        // Token account balance is at offset 64 (after mint:32, owner:32)
+        const balance = tokenAccountData.readBigUInt64LE(64);
+        const solBalance = Number(balance) / LAMPORTS_PER_SOL;
+        console.log('Pool quote vault balance:', solBalance, 'SOL');
+        setLiveSolRaised(solBalance);
+      } else {
+        console.log('No WSOL token account found for pool');
+        setLiveSolRaised(0);
+      }
     } catch (err) {
       console.error('Failed to fetch pool SOL raised:', err);
       // Keep using stored value if fetch fails
