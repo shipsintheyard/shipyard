@@ -171,6 +171,8 @@ export default function TokenPage() {
       const { Connection, PublicKey } = await import('@solana/web3.js');
 
       const poolPubkey = new PublicKey(poolAddress);
+      // WSOL mint address (native SOL wrapped)
+      const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
 
       console.log('Fetching pool balance for:', poolAddress);
 
@@ -196,23 +198,49 @@ export default function TokenPage() {
       // - quote_vault: Pubkey 32 bytes (offset 168)
       // ... more fields after
 
-      // Extract quote_vault address (WSOL vault) at offset 168
       if (data.length >= 200) {
+        // Extract both vault addresses
+        const baseVaultBytes = data.subarray(136, 168);
         const quoteVaultBytes = data.subarray(168, 200);
+        const baseVault = new PublicKey(baseVaultBytes);
         const quoteVault = new PublicKey(quoteVaultBytes);
-        console.log('Quote vault address:', quoteVault.toBase58());
 
-        // Fetch the WSOL token account balance
-        const vaultInfo = await connection.getAccountInfo(quoteVault);
-        if (vaultInfo) {
-          // SPL Token account structure: mint (32) + owner (32) + amount (8)
-          // Amount is at offset 64
-          const amount = vaultInfo.data.readBigUInt64LE(64);
-          const solBalance = Number(amount) / LAMPORTS_PER_SOL;
-          console.log('Quote vault WSOL balance:', solBalance, 'SOL');
+        console.log('Base vault:', baseVault.toBase58());
+        console.log('Quote vault:', quoteVault.toBase58());
+
+        // Fetch both vault accounts to find the WSOL one
+        const [baseVaultInfo, quoteVaultInfo] = await Promise.all([
+          connection.getAccountInfo(baseVault),
+          connection.getAccountInfo(quoteVault),
+        ]);
+
+        // Check which vault holds WSOL by reading the mint (first 32 bytes of token account)
+        let solBalance = 0;
+
+        if (quoteVaultInfo && quoteVaultInfo.data.length >= 72) {
+          const quoteMint = new PublicKey(quoteVaultInfo.data.subarray(0, 32));
+          console.log('Quote vault mint:', quoteMint.toBase58());
+          if (quoteMint.equals(WSOL_MINT)) {
+            const amount = quoteVaultInfo.data.readBigUInt64LE(64);
+            solBalance = Number(amount) / LAMPORTS_PER_SOL;
+            console.log('Quote vault is WSOL, balance:', solBalance, 'SOL');
+          }
+        }
+
+        if (solBalance === 0 && baseVaultInfo && baseVaultInfo.data.length >= 72) {
+          const baseMint = new PublicKey(baseVaultInfo.data.subarray(0, 32));
+          console.log('Base vault mint:', baseMint.toBase58());
+          if (baseMint.equals(WSOL_MINT)) {
+            const amount = baseVaultInfo.data.readBigUInt64LE(64);
+            solBalance = Number(amount) / LAMPORTS_PER_SOL;
+            console.log('Base vault is WSOL, balance:', solBalance, 'SOL');
+          }
+        }
+
+        if (solBalance > 0) {
           setLiveSolRaised(solBalance);
         } else {
-          console.warn('Quote vault account not found');
+          console.warn('Could not find WSOL balance in either vault');
         }
       } else {
         console.warn('Pool data too short:', data.length);
