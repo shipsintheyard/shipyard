@@ -199,7 +199,8 @@ export default function TokenPage() {
             const solPriceUsd = tokenPriceUsd / tokenPriceSol;
 
             const mcSol = pair.fdv / solPriceUsd;
-            console.log('Market cap in SOL:', mcSol, 'SOL price USD:', solPriceUsd);
+            console.log('FDV USD:', pair.fdv, 'Token price SOL:', tokenPriceSol, 'Token price USD:', tokenPriceUsd);
+            console.log('SOL price USD:', solPriceUsd, 'Market cap in SOL:', mcSol);
 
             // Reverse our curve: MC = 27.48 * (415.49/27.48)^(sol/85)
             // sol = 85 * log(MC/27.48) / log(415.49/27.48)
@@ -207,13 +208,18 @@ export default function TokenPage() {
             const FINAL_MC = 415.49;
             const THRESHOLD = 85;
 
+            console.log('Comparing mcSol:', mcSol, 'vs INITIAL_MC:', INITIAL_MC);
+
             if (mcSol > INITIAL_MC) {
               const solRaised = THRESHOLD * Math.log(mcSol / INITIAL_MC) / Math.log(FINAL_MC / INITIAL_MC);
               console.log('Calculated SOL raised from MC:', solRaised);
               setLiveSolRaised(Math.max(0, Math.min(solRaised, THRESHOLD)));
             } else {
+              console.log('mcSol <= INITIAL_MC, setting liveSolRaised to 0');
               setLiveSolRaised(0);
             }
+          } else {
+            console.log('Missing fdv or priceNative:', pair.fdv, pair.priceNative);
           }
         }
       } else {
@@ -286,6 +292,7 @@ export default function TokenPage() {
   }
 
   // Use simulated SOL raised in sim mode, live on-chain balance if available, otherwise stored value
+  console.log('Rendering with liveSolRaised:', liveSolRaised, 'launch.solRaised:', launch.solRaised, 'simMode:', simMode);
   const effectiveSolRaised = simMode ? simSolRaised : (liveSolRaised ?? launch.solRaised);
   const effectiveMigrated = simMode ? simSolRaised >= MIGRATION_THRESHOLD : (effectiveSolRaised >= MIGRATION_THRESHOLD || launch.migrated);
 
