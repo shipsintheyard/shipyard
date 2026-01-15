@@ -102,7 +102,8 @@ export default function ShipyardPlatform() {
       }
     };
 
-    worker.postMessage({ suffix: 'SHIP', maxAttempts: 100_000_000, reportInterval: 50_000 });
+    // Note: Base58 doesn't have 'I' or 'O', so we use 'SHiP' (lowercase i is valid)
+    worker.postMessage({ suffix: 'SHiP', maxAttempts: 100_000_000, reportInterval: 50_000 });
   };
 
   // Cancel vanity grinding

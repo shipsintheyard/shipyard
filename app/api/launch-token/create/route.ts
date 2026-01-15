@@ -191,10 +191,10 @@ export async function POST(request: NextRequest) {
       baseMintKeypair = Keypair.fromSecretKey(Uint8Array.from(body.vanitySecretKey));
       isVanity = true;
 
-      // Verify it actually ends in SHIP
+      // Verify it actually ends in SHiP (base58 doesn't have 'I', so we use lowercase 'i')
       const address = baseMintKeypair.publicKey.toBase58();
-      if (!address.toUpperCase().endsWith('SHIP')) {
-        console.warn('Warning: Provided keypair does not end in SHIP:', address);
+      if (!address.toLowerCase().endsWith('ship')) {
+        console.warn('Warning: Provided keypair does not end in SHiP:', address);
       } else {
         console.log('Vanity address verified:', address);
       }
