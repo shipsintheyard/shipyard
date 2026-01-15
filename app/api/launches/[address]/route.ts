@@ -1,21 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
-import path from 'path';
+import { kv } from '@vercel/kv';
 import { Launch } from '../route';
 
 // ============================================================
 // SHIPYARD SINGLE LAUNCH API
 // ============================================================
 // GET /api/launches/[address] - Get a single launch by token mint
+// Uses Vercel KV for persistent storage
 // ============================================================
 
-const LAUNCHES_FILE = path.join(process.cwd(), 'data', 'launches.json');
+const LAUNCHES_KEY = 'shipyard:launches';
 
 async function getLaunches(): Promise<Launch[]> {
   try {
-    const data = await fs.readFile(LAUNCHES_FILE, 'utf-8');
-    return JSON.parse(data);
-  } catch {
+    const launches = await kv.get<Launch[]>(LAUNCHES_KEY);
+    return launches || [];
+  } catch (error) {
+    console.error('KV get error:', error);
     return [];
   }
 }
