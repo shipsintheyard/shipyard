@@ -7,16 +7,8 @@ import Link from 'next/link';
 const SOLANA_RPC = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://mainnet.helius-rpc.com/?api-key=1d8740dc-e5f4-421c-b823-e1bad1889eff';
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
-// Meteora DBC constants for pool derivation
-const DBC_PROGRAM_ID = 'dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN';
+// WSOL mint address for fetching pool balance
 const NATIVE_MINT = 'So11111111111111111111111111111111111111112';
-
-// Engine configs (must match create route)
-const ENGINE_CONFIGS: Record<number, string> = {
-  1: 'Ga4DCnyPHcxfp1k5FRbpn6PHhP9QXaLDczuMJL5RTN6U',  // Navigator
-  2: 'EBiqUqvwEx7k19KZrn8FDPaW8L6tDNmRn1zZG2SsS8VM', // Lighthouse
-  3: '8jFgQdWHcUbjzP3a4wXZXxHWqh1tvApbiQHHrXUynJcP',  // Supernova
-};
 
 interface Launch {
   id: string;
@@ -175,51 +167,38 @@ export default function TokenPage() {
     }
   };
 
-  // Fetch live SOL raised by reading the quote vault balance directly
-  const fetchPoolSolRaised = useCallback(async (tokenMint: string, engine: number) => {
+  // Fetch live SOL raised by reading the pool's WSOL token balance
+  const fetchPoolSolRaised = useCallback(async (poolAddress: string) => {
     try {
       const { Connection, PublicKey } = await import('@solana/web3.js');
+      const { TOKEN_PROGRAM_ID } = await import('@solana/spl-token');
 
-      // Derive pool PDA from token mint, WSOL, and engine config
-      const baseMint = new PublicKey(tokenMint);
-      const quoteMint = new PublicKey(NATIVE_MINT);
-      const config = new PublicKey(ENGINE_CONFIGS[engine] || ENGINE_CONFIGS[2]);
-      const programId = new PublicKey(DBC_PROGRAM_ID);
+      const poolPubkey = new PublicKey(poolAddress);
+      const wsolMint = new PublicKey(NATIVE_MINT);
 
-      // PDA seeds: ["pool", baseMint, quoteMint, config]
-      const [poolPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('pool'), baseMint.toBuffer(), quoteMint.toBuffer(), config.toBuffer()],
-        programId
-      );
-
-      console.log('Derived pool PDA:', poolPda.toBase58());
+      console.log('Fetching pool balance for:', poolAddress);
 
       const connection = new Connection(SOLANA_RPC, 'confirmed');
 
-      // Read the pool account to get quote_vault address
-      const accountInfo = await connection.getAccountInfo(poolPda);
-      if (!accountInfo) {
-        console.warn('Pool account not found at:', poolPda.toBase58());
-        return;
-      }
+      // Find WSOL token accounts owned by the pool
+      const tokenAccounts = await connection.getTokenAccountsByOwner(poolPubkey, {
+        mint: wsolMint,
+        programId: TOKEN_PROGRAM_ID,
+      });
 
-      const data = accountInfo.data;
-      console.log('Pool account data length:', data.length);
-
-      // Extract quote_vault pubkey from pool data
-      // Based on Meteora DBC structure, quote_vault is at offset 168 (after 5 pubkeys + discriminator)
-      if (data.length >= 200) {
-        const quoteVaultBytes = data.slice(168, 200);
-        const quoteVault = new PublicKey(quoteVaultBytes);
-        console.log('Quote vault address:', quoteVault.toBase58());
-
-        // Fetch the actual WSOL balance in the quote vault
-        const vaultBalance = await connection.getBalance(quoteVault);
-        const solBalance = vaultBalance / LAMPORTS_PER_SOL;
-        console.log('Quote vault SOL balance:', solBalance, 'SOL');
+      if (tokenAccounts.value.length > 0) {
+        // Parse the token account data to get balance
+        const accountData = tokenAccounts.value[0].account.data;
+        // Token account balance is at offset 64 (after mint and owner pubkeys)
+        const amount = accountData.readBigUInt64LE(64);
+        const solBalance = Number(amount) / LAMPORTS_PER_SOL;
+        console.log('Pool WSOL balance:', solBalance, 'SOL');
         setLiveSolRaised(solBalance);
       } else {
-        console.warn('Pool data too short:', data.length);
+        console.warn('No WSOL token accounts found for pool');
+        // Fallback: try getting SOL balance directly
+        const solBalance = await connection.getBalance(poolPubkey);
+        console.log('Pool SOL balance (native):', solBalance / LAMPORTS_PER_SOL, 'SOL');
       }
     } catch (err) {
       console.error('Failed to fetch pool SOL raised:', err);
@@ -234,13 +213,13 @@ export default function TokenPage() {
 
   // Fetch live SOL raised when launch is loaded
   useEffect(() => {
-    if (launch?.tokenMint && launch?.engine) {
-      fetchPoolSolRaised(launch.tokenMint, launch.engine);
+    if (launch?.poolAddress) {
+      fetchPoolSolRaised(launch.poolAddress);
       // Refresh every 30 seconds
-      const interval = setInterval(() => fetchPoolSolRaised(launch.tokenMint, launch.engine), 30000);
+      const interval = setInterval(() => fetchPoolSolRaised(launch.poolAddress), 30000);
       return () => clearInterval(interval);
     }
-  }, [launch?.tokenMint, launch?.engine, fetchPoolSolRaised]);
+  }, [launch?.poolAddress, fetchPoolSolRaised]);
 
   const shortenAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 
