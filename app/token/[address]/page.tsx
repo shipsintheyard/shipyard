@@ -2,6 +2,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+
+const SOLANA_RPC = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 
 interface Launch {
   id: string;
@@ -126,6 +129,9 @@ export default function TokenPage() {
   const [simMode, setSimMode] = useState(false);
   const [simSolRaised, setSimSolRaised] = useState(0);
 
+  // Live on-chain SOL raised
+  const [livePoolBalance, setLivePoolBalance] = useState<number | null>(null);
+
   const fetchLaunch = useCallback(async () => {
     try {
       const res = await fetch(`/api/launches/${address}`);
@@ -142,6 +148,20 @@ export default function TokenPage() {
       setLoading(false);
     }
   }, [address]);
+
+  // Fetch live pool balance from on-chain
+  const fetchPoolBalance = useCallback(async (poolAddress: string) => {
+    try {
+      const connection = new Connection(SOLANA_RPC, 'confirmed');
+      const poolPubkey = new PublicKey(poolAddress);
+      const balance = await connection.getBalance(poolPubkey);
+      const solBalance = balance / LAMPORTS_PER_SOL;
+      setLivePoolBalance(solBalance);
+    } catch (err) {
+      console.error('Failed to fetch pool balance:', err);
+      // Keep using stored value if on-chain fetch fails
+    }
+  }, []);
 
   const fetchSolPrice = async () => {
     try {
@@ -161,6 +181,16 @@ export default function TokenPage() {
     fetchLaunch();
     fetchSolPrice();
   }, [fetchLaunch]);
+
+  // Fetch pool balance when launch data is loaded
+  useEffect(() => {
+    if (launch?.poolAddress) {
+      fetchPoolBalance(launch.poolAddress);
+      // Refresh every 30 seconds
+      const interval = setInterval(() => fetchPoolBalance(launch.poolAddress), 30000);
+      return () => clearInterval(interval);
+    }
+  }, [launch?.poolAddress, fetchPoolBalance]);
 
   const shortenAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 
@@ -208,9 +238,9 @@ export default function TokenPage() {
     );
   }
 
-  // Use simulated SOL raised in sim mode, otherwise use actual
-  const effectiveSolRaised = simMode ? simSolRaised : launch.solRaised;
-  const effectiveMigrated = simMode ? simSolRaised >= MIGRATION_THRESHOLD : launch.migrated;
+  // Use simulated SOL raised in sim mode, live on-chain balance if available, otherwise stored value
+  const effectiveSolRaised = simMode ? simSolRaised : (livePoolBalance ?? launch.solRaised);
+  const effectiveMigrated = simMode ? simSolRaised >= MIGRATION_THRESHOLD : (effectiveSolRaised >= MIGRATION_THRESHOLD || launch.migrated);
 
   const curve = calculateCurvePosition(effectiveSolRaised);
   const engine = ENGINE_INFO[launch.engine];
