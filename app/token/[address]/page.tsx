@@ -167,55 +167,48 @@ export default function TokenPage() {
     }
   };
 
-  // Fetch live pool stats using Helius getTokenAccounts API
+  // Fetch live pool stats from DexScreener API
   const fetchPoolStats = useCallback(async (poolAddress: string, tokenMint: string) => {
     try {
-      const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+      console.log('Fetching pool stats from DexScreener for:', tokenMint);
 
-      console.log('Fetching pool stats for:', poolAddress);
-      console.log('Token mint:', tokenMint);
-
-      // Use Helius RPC to get token accounts for the pool
-      // This uses the DAS API which properly indexes token balances
-      const response = await fetch(SOLANA_RPC, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 'helius-test',
-          method: 'getTokenAccounts',
-          params: {
-            owner: poolAddress,
-          },
-        }),
-      });
-
+      const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenMint}`);
       const data = await response.json();
-      console.log('Helius getTokenAccounts response:', JSON.stringify(data, null, 2));
 
-      // Helius DAS API returns result.token_accounts or result.items or just result as array
-      const accounts = data.result?.token_accounts || data.result?.items || data.result || [];
-      console.log('Token accounts found:', accounts.length || 0);
+      console.log('DexScreener response:', data);
 
-      if (Array.isArray(accounts) && accounts.length > 0) {
-        for (const account of accounts) {
-          const mint = account.mint;
-          const amount = account.amount || account.tokenAmount?.amount || 0;
-          const decimals = account.decimals || account.tokenAmount?.decimals || 9;
-          const balance = Number(amount) / Math.pow(10, decimals);
+      if (data.pairs && data.pairs.length > 0) {
+        // Find the Meteora pair that matches our pool
+        const pair = data.pairs.find((p: { pairAddress: string }) => p.pairAddress === poolAddress) || data.pairs[0];
 
-          console.log('Token account:', account.address || account.pubkey, 'mint:', mint, 'balance:', balance);
+        if (pair) {
+          console.log('Found pair:', pair.pairAddress);
 
-          if (mint === WSOL_MINT) {
-            console.log('Found WSOL! Balance:', balance, 'SOL');
-            setLiveSolRaised(balance);
-          } else if (mint === tokenMint) {
-            console.log('Found token! Balance:', balance, 'tokens');
-            setLiveTokensInPool(balance);
+          // Extract liquidity (SOL in pool)
+          // DexScreener provides liquidity.quote which is the SOL side
+          if (pair.liquidity?.quote) {
+            const solInPool = pair.liquidity.quote;
+            console.log('SOL in pool (liquidity.quote):', solInPool);
+            setLiveSolRaised(solInPool);
+          } else if (pair.liquidity?.usd && pair.priceNative) {
+            // Calculate from USD liquidity / 2 / SOL price
+            // Liquidity is total, so divide by 2 for quote side
+            const solPrice = 1 / parseFloat(pair.priceNative) * parseFloat(pair.priceUsd);
+            const solInPool = (pair.liquidity.usd / 2) / solPrice;
+            console.log('Calculated SOL in pool:', solInPool);
+            setLiveSolRaised(solInPool);
           }
+
+          // FDV gives us market cap
+          if (pair.fdv) {
+            console.log('FDV (market cap):', pair.fdv);
+          }
+
+          // Calculate tokens sold from supply info if available
+          // For now, we can estimate from the bonding curve position
         }
       } else {
-        console.log('No token accounts in response, result was:', typeof data.result, data.result);
+        console.log('No pairs found for token');
       }
     } catch (err) {
       console.error('Failed to fetch pool stats:', err);
