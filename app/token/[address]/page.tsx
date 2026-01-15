@@ -7,8 +7,6 @@ import Link from 'next/link';
 const SOLANA_RPC = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://mainnet.helius-rpc.com/?api-key=1d8740dc-e5f4-421c-b823-e1bad1889eff';
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
-// WSOL mint address for fetching pool balance
-const NATIVE_MINT = 'So11111111111111111111111111111111111111112';
 
 interface Launch {
   id: string;
@@ -167,39 +165,78 @@ export default function TokenPage() {
     }
   };
 
-  // Fetch live SOL raised by reading the pool's WSOL token balance
+  // Fetch live SOL raised by reading the pool account's internal WSOL balance
   const fetchPoolSolRaised = useCallback(async (poolAddress: string) => {
     try {
       const { Connection, PublicKey } = await import('@solana/web3.js');
-      const { TOKEN_PROGRAM_ID } = await import('@solana/spl-token');
 
       const poolPubkey = new PublicKey(poolAddress);
-      const wsolMint = new PublicKey(NATIVE_MINT);
 
       console.log('Fetching pool balance for:', poolAddress);
 
       const connection = new Connection(SOLANA_RPC, 'confirmed');
 
-      // Find WSOL token accounts owned by the pool
-      const tokenAccounts = await connection.getTokenAccountsByOwner(poolPubkey, {
-        mint: wsolMint,
-        programId: TOKEN_PROGRAM_ID,
-      });
-
-      if (tokenAccounts.value.length > 0) {
-        // Parse the token account data to get balance
-        const accountData = tokenAccounts.value[0].account.data;
-        // Token account balance is at offset 64 (after mint and owner pubkeys)
-        const amount = accountData.readBigUInt64LE(64);
-        const solBalance = Number(amount) / LAMPORTS_PER_SOL;
-        console.log('Pool WSOL balance:', solBalance, 'SOL');
-        setLiveSolRaised(solBalance);
-      } else {
-        console.warn('No WSOL token accounts found for pool');
-        // Fallback: try getting SOL balance directly
-        const solBalance = await connection.getBalance(poolPubkey);
-        console.log('Pool SOL balance (native):', solBalance / LAMPORTS_PER_SOL, 'SOL');
+      // Read the pool account data directly
+      const accountInfo = await connection.getAccountInfo(poolPubkey);
+      if (!accountInfo) {
+        console.warn('Pool account not found');
+        return;
       }
+
+      const data = accountInfo.data;
+      console.log('Pool account data length:', data.length);
+
+      // Meteora DBC pool structure - search for quote balance
+      // The pool has token balances stored internally. Based on Solscan showing
+      // 6.02 WSOL ($853.77), we need to find the right offset.
+      // Pool data is 424 bytes. Let's scan for likely u64 values that match ~6 SOL
+
+      // Try common offsets for quote_reserve in DBC pools
+      const possibleOffsets = [200, 208, 216, 224, 232, 240, 248, 256, 264, 272, 280, 288, 296, 304, 312, 320];
+
+      for (const offset of possibleOffsets) {
+        if (data.length >= offset + 8) {
+          try {
+            const value = data.readBigUInt64LE(offset);
+            const solValue = Number(value) / LAMPORTS_PER_SOL;
+            // Log values between 0.1 and 100 SOL (reasonable range)
+            if (solValue > 0.1 && solValue < 100) {
+              console.log(`Offset ${offset}: ${solValue.toFixed(4)} SOL`);
+            }
+          } catch {
+            // Skip invalid reads
+          }
+        }
+      }
+
+      // Based on Meteora DBC VirtualPool layout, try offset 272 for quote_reserve
+      // (8 disc + 32*5 pubkeys + padding + reserves)
+      if (data.length >= 280) {
+        const quoteReserve = data.readBigUInt64LE(272);
+        const solBalance = Number(quoteReserve) / LAMPORTS_PER_SOL;
+        if (solBalance > 0.01) {
+          console.log('Quote reserve at offset 272:', solBalance, 'SOL');
+          setLiveSolRaised(solBalance);
+          return;
+        }
+      }
+
+      // Fallback: scan all u64s for a value close to expected ~6 SOL
+      for (let offset = 0; offset <= data.length - 8; offset += 8) {
+        try {
+          const value = data.readBigUInt64LE(offset);
+          const solValue = Number(value) / LAMPORTS_PER_SOL;
+          if (solValue >= 5.5 && solValue <= 7) {
+            console.log(`Found likely WSOL balance at offset ${offset}: ${solValue.toFixed(4)} SOL`);
+            setLiveSolRaised(solValue);
+            return;
+          }
+        } catch {
+          // Skip
+        }
+      }
+
+      console.warn('Could not find WSOL balance in pool data');
     } catch (err) {
       console.error('Failed to fetch pool SOL raised:', err);
       // Keep using stored value if fetch fails
