@@ -179,17 +179,20 @@ export default function TokenPage() {
 
       const connection = new Connection(SOLANA_RPC, 'confirmed');
 
-      // For Meteora DBC, the quote vault is a PDA derived from pool
-      // Seeds: ["quote_vault", pool_address]
+      // For Meteora DBC, the quote vault is a PDA derived from:
+      // Seeds: ["token_vault", quote_mint, pool]
+      // Quote mint for SOL pools is Native Mint (wrapped SOL)
       const DBC_PROGRAM_ID = new PublicKey('dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN');
+      const NATIVE_MINT = new PublicKey('So11111111111111111111111111111111111111112');
+
       const [quoteVault] = PublicKey.findProgramAddressSync(
-        [Buffer.from('quote_vault'), poolPubkey.toBuffer()],
+        [Buffer.from('token_vault'), NATIVE_MINT.toBuffer(), poolPubkey.toBuffer()],
         DBC_PROGRAM_ID
       );
 
       const balance = await connection.getBalance(quoteVault);
       const solBalance = balance / LAMPORTS_PER_SOL;
-      console.log('Pool quote vault balance:', solBalance, 'SOL');
+      console.log('Pool quote vault:', quoteVault.toBase58(), 'balance:', solBalance, 'SOL');
       setLiveSolRaised(solBalance);
     } catch (err) {
       console.error('Failed to fetch pool SOL raised:', err);
