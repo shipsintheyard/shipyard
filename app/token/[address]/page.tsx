@@ -167,15 +167,13 @@ export default function TokenPage() {
     }
   };
 
-  // Fetch live pool stats by deriving vault PDAs from pool address
+  // Fetch live pool stats by reading pool account and extracting vault pubkeys
   const fetchPoolStats = useCallback(async (poolAddress: string, tokenMint: string) => {
     try {
       const { Connection, PublicKey } = await import('@solana/web3.js');
 
       const poolPubkey = new PublicKey(poolAddress);
-      const tokenMintPubkey = new PublicKey(tokenMint);
-      const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
-      const DBC_PROGRAM_ID = new PublicKey('dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN');
+      const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 
       console.log('Fetching pool stats for:', poolAddress);
       console.log('Token mint:', tokenMint);
@@ -188,47 +186,60 @@ export default function TokenPage() {
       console.log('Pool SOL balance (fees):', feesCollected);
       setLiveFees(feesCollected);
 
-      // Derive vault PDAs - Meteora DBC uses "token_vault" seed with pool + mint
-      const [baseVault] = PublicKey.findProgramAddressSync(
-        [Buffer.from('token_vault'), poolPubkey.toBuffer(), tokenMintPubkey.toBuffer()],
-        DBC_PROGRAM_ID
-      );
-      const [quoteVault] = PublicKey.findProgramAddressSync(
-        [Buffer.from('token_vault'), poolPubkey.toBuffer(), WSOL_MINT.toBuffer()],
-        DBC_PROGRAM_ID
-      );
-
-      console.log('Derived base vault (token):', baseVault.toBase58());
-      console.log('Derived quote vault (WSOL):', quoteVault.toBase58());
-
-      // Fetch both vault accounts
-      const [baseVaultInfo, quoteVaultInfo] = await Promise.all([
-        connection.getParsedAccountInfo(baseVault),
-        connection.getParsedAccountInfo(quoteVault),
-      ]);
-
-      // Parse WSOL vault balance
-      if (quoteVaultInfo.value) {
-        const data = quoteVaultInfo.value.data;
-        if ('parsed' in data && data.parsed?.info?.tokenAmount) {
-          const solBalance = data.parsed.info.tokenAmount.uiAmount;
-          console.log('WSOL vault balance:', solBalance, 'SOL');
-          setLiveSolRaised(solBalance);
-        }
-      } else {
-        console.log('Quote vault not found at derived address');
+      // Read the pool account raw data
+      const poolInfo = await connection.getAccountInfo(poolPubkey);
+      if (!poolInfo) {
+        console.error('Pool account not found');
+        return;
       }
 
-      // Parse token vault balance
-      if (baseVaultInfo.value) {
-        const data = baseVaultInfo.value.data;
-        if ('parsed' in data && data.parsed?.info?.tokenAmount) {
-          const tokenBalance = data.parsed.info.tokenAmount.uiAmount;
-          console.log('Token vault balance:', tokenBalance, 'tokens');
-          setLiveTokensInPool(tokenBalance);
+      const data = poolInfo.data;
+      console.log('Pool data length:', data.length);
+
+      // Extract all 32-byte pubkeys from pool data and fetch them
+      // We'll look for token accounts (165 bytes) that hold WSOL or our token
+      const pubkeys: PublicKey[] = [];
+      for (let offset = 0; offset <= data.length - 32; offset += 8) {
+        try {
+          const bytes = data.subarray(offset, offset + 32);
+          const pk = new PublicKey(bytes);
+          const str = pk.toBase58();
+          // Skip system program, token program, and obviously invalid addresses
+          if (!str.startsWith('1111') && str.length === 44) {
+            pubkeys.push(pk);
+          }
+        } catch {
+          // Invalid pubkey
         }
-      } else {
-        console.log('Base vault not found at derived address');
+      }
+
+      // Deduplicate
+      const uniquePubkeys = [...new Set(pubkeys.map(p => p.toBase58()))].map(s => new PublicKey(s));
+      console.log('Found', uniquePubkeys.length, 'unique pubkeys in pool data');
+
+      // Fetch all accounts in batch
+      const accounts = await connection.getMultipleParsedAccounts(uniquePubkeys);
+
+      for (let i = 0; i < accounts.value.length; i++) {
+        const acc = accounts.value[i];
+        if (!acc) continue;
+
+        const accData = acc.data;
+        if ('parsed' in accData && accData.program === 'spl-token' && accData.parsed?.type === 'account') {
+          const info = accData.parsed.info;
+          const mint = info.mint;
+          const balance = info.tokenAmount?.uiAmount;
+
+          console.log('Token account:', uniquePubkeys[i].toBase58(), 'mint:', mint, 'balance:', balance);
+
+          if (mint === WSOL_MINT) {
+            console.log('Found WSOL vault! Balance:', balance, 'SOL');
+            setLiveSolRaised(balance);
+          } else if (mint === tokenMint) {
+            console.log('Found token vault! Balance:', balance, 'tokens');
+            setLiveTokensInPool(balance);
+          }
+        }
       }
     } catch (err) {
       console.error('Failed to fetch pool stats:', err);
