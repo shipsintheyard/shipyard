@@ -175,7 +175,7 @@ export default function TokenPage() {
     }
   };
 
-  // Fetch live SOL raised by deriving pool PDA and reading account data
+  // Fetch live SOL raised by reading the quote vault balance directly
   const fetchPoolSolRaised = useCallback(async (tokenMint: string, engine: number) => {
     try {
       const { Connection, PublicKey } = await import('@solana/web3.js');
@@ -196,7 +196,7 @@ export default function TokenPage() {
 
       const connection = new Connection(SOLANA_RPC, 'confirmed');
 
-      // Read the pool account data
+      // Read the pool account to get quote_vault address
       const accountInfo = await connection.getAccountInfo(poolPda);
       if (!accountInfo) {
         console.warn('Pool account not found at:', poolPda.toBase58());
@@ -206,22 +206,17 @@ export default function TokenPage() {
       const data = accountInfo.data;
       console.log('Pool account data length:', data.length);
 
-      // Meteora DBC VirtualPool structure (from IDL):
-      // - discriminator: 8 bytes
-      // - config: Pubkey (32 bytes) - offset 8
-      // - creator: Pubkey (32 bytes) - offset 40
-      // - base_mint: Pubkey (32 bytes) - offset 72
-      // - base_vault: Pubkey (32 bytes) - offset 104
-      // - quote_mint: Pubkey (32 bytes) - offset 136
-      // - quote_vault: Pubkey (32 bytes) - offset 168
-      // - base_reserve: u64 (8 bytes) - offset 200
-      // - quote_reserve: u64 (8 bytes) - offset 208
+      // Extract quote_vault pubkey from pool data
+      // Based on Meteora DBC structure, quote_vault is at offset 168 (after 5 pubkeys + discriminator)
+      if (data.length >= 200) {
+        const quoteVaultBytes = data.slice(168, 200);
+        const quoteVault = new PublicKey(quoteVaultBytes);
+        console.log('Quote vault address:', quoteVault.toBase58());
 
-      // Read quote_reserve directly from pool state
-      if (data.length >= 216) {
-        const quoteReserve = data.readBigUInt64LE(208);
-        const solBalance = Number(quoteReserve) / LAMPORTS_PER_SOL;
-        console.log('Pool quote reserve:', solBalance, 'SOL');
+        // Fetch the actual WSOL balance in the quote vault
+        const vaultBalance = await connection.getBalance(quoteVault);
+        const solBalance = vaultBalance / LAMPORTS_PER_SOL;
+        console.log('Quote vault SOL balance:', solBalance, 'SOL');
         setLiveSolRaised(solBalance);
       } else {
         console.warn('Pool data too short:', data.length);
