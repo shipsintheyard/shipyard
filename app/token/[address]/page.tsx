@@ -165,7 +165,7 @@ export default function TokenPage() {
     }
   };
 
-  // Fetch live SOL raised by reading the quote vault token account
+  // Fetch live SOL raised by scanning pool data for WSOL vault
   const fetchPoolSolRaised = useCallback(async (poolAddress: string) => {
     try {
       const { Connection, PublicKey } = await import('@solana/web3.js');
@@ -178,7 +178,7 @@ export default function TokenPage() {
 
       const connection = new Connection(SOLANA_RPC, 'confirmed');
 
-      // Read the pool account data to extract vault addresses
+      // Read the pool account data
       const accountInfo = await connection.getAccountInfo(poolPubkey);
       if (!accountInfo) {
         console.warn('Pool account not found');
@@ -188,63 +188,53 @@ export default function TokenPage() {
       const data = accountInfo.data;
       console.log('Pool account data length:', data.length);
 
-      // Meteora DBC VirtualPool structure:
-      // - discriminator: 8 bytes (offset 0)
-      // - config: Pubkey 32 bytes (offset 8)
-      // - creator: Pubkey 32 bytes (offset 40)
-      // - base_mint: Pubkey 32 bytes (offset 72)
-      // - quote_mint: Pubkey 32 bytes (offset 104)
-      // - base_vault: Pubkey 32 bytes (offset 136)
-      // - quote_vault: Pubkey 32 bytes (offset 168)
-      // ... more fields after
+      // Scan pool data for pubkeys and check if any are WSOL token accounts
+      // Pool structure varies, so we scan all 32-byte aligned offsets
+      const candidatePubkeys: { offset: number; pubkey: PublicKey }[] = [];
 
-      if (data.length >= 200) {
-        // Extract both vault addresses
-        const baseVaultBytes = data.subarray(136, 168);
-        const quoteVaultBytes = data.subarray(168, 200);
-        const baseVault = new PublicKey(baseVaultBytes);
-        const quoteVault = new PublicKey(quoteVaultBytes);
-
-        console.log('Base vault:', baseVault.toBase58());
-        console.log('Quote vault:', quoteVault.toBase58());
-
-        // Fetch both vault accounts to find the WSOL one
-        const [baseVaultInfo, quoteVaultInfo] = await Promise.all([
-          connection.getAccountInfo(baseVault),
-          connection.getAccountInfo(quoteVault),
-        ]);
-
-        // Check which vault holds WSOL by reading the mint (first 32 bytes of token account)
-        let solBalance = 0;
-
-        if (quoteVaultInfo && quoteVaultInfo.data.length >= 72) {
-          const quoteMint = new PublicKey(quoteVaultInfo.data.subarray(0, 32));
-          console.log('Quote vault mint:', quoteMint.toBase58());
-          if (quoteMint.equals(WSOL_MINT)) {
-            const amount = quoteVaultInfo.data.readBigUInt64LE(64);
-            solBalance = Number(amount) / LAMPORTS_PER_SOL;
-            console.log('Quote vault is WSOL, balance:', solBalance, 'SOL');
+      for (let offset = 8; offset <= data.length - 32; offset += 8) {
+        try {
+          const pubkeyBytes = data.subarray(offset, offset + 32);
+          const pubkey = new PublicKey(pubkeyBytes);
+          // Filter out obviously invalid addresses (all zeros, etc)
+          const str = pubkey.toBase58();
+          if (str !== '11111111111111111111111111111111' && !str.startsWith('1111111')) {
+            candidatePubkeys.push({ offset, pubkey });
           }
+        } catch {
+          // Invalid pubkey, skip
         }
-
-        if (solBalance === 0 && baseVaultInfo && baseVaultInfo.data.length >= 72) {
-          const baseMint = new PublicKey(baseVaultInfo.data.subarray(0, 32));
-          console.log('Base vault mint:', baseMint.toBase58());
-          if (baseMint.equals(WSOL_MINT)) {
-            const amount = baseVaultInfo.data.readBigUInt64LE(64);
-            solBalance = Number(amount) / LAMPORTS_PER_SOL;
-            console.log('Base vault is WSOL, balance:', solBalance, 'SOL');
-          }
-        }
-
-        if (solBalance > 0) {
-          setLiveSolRaised(solBalance);
-        } else {
-          console.warn('Could not find WSOL balance in either vault');
-        }
-      } else {
-        console.warn('Pool data too short:', data.length);
       }
+
+      console.log('Found', candidatePubkeys.length, 'candidate pubkeys in pool data');
+
+      // Batch fetch all candidates to find token accounts
+      const accountInfos = await connection.getMultipleAccountsInfo(
+        candidatePubkeys.map(c => c.pubkey)
+      );
+
+      // Find the WSOL token account
+      for (let i = 0; i < accountInfos.length; i++) {
+        const info = accountInfos[i];
+        if (info && info.data.length >= 72) {
+          // Check if this is a token account with WSOL mint
+          try {
+            const mint = new PublicKey(info.data.subarray(0, 32));
+            if (mint.equals(WSOL_MINT)) {
+              const amount = info.data.readBigUInt64LE(64);
+              const solBalance = Number(amount) / LAMPORTS_PER_SOL;
+              console.log(`Found WSOL vault at offset ${candidatePubkeys[i].offset}:`, candidatePubkeys[i].pubkey.toBase58());
+              console.log('WSOL balance:', solBalance, 'SOL');
+              setLiveSolRaised(solBalance);
+              return;
+            }
+          } catch {
+            // Not a valid token account
+          }
+        }
+      }
+
+      console.warn('Could not find WSOL vault in pool data');
     } catch (err) {
       console.error('Failed to fetch pool SOL raised:', err);
       // Keep using stored value if fetch fails
