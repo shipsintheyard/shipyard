@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Connection, PublicKey } from '@solana/web3.js';
-import { getAccount, getAssociatedTokenAddress } from '@solana/spl-token';
+import { getAccount } from '@solana/spl-token';
 
 // ============================================================
 // POOL STATS API - Get live on-chain pool data
@@ -33,8 +33,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    console.log('Fetching pool stats for:', poolAddress, 'token:', tokenMint);
-
     const connection = new Connection(SOLANA_RPC, 'confirmed');
     const poolPubkey = new PublicKey(poolAddress);
     const tokenMintPubkey = new PublicKey(tokenMint);
@@ -48,9 +46,6 @@ export async function GET(request: NextRequest) {
         { status: 404 }
       );
     }
-
-    console.log('Pool account owner:', poolAccount.owner.toBase58());
-    console.log('Pool data length:', poolAccount.data.length);
 
     // Parse the pool data to extract vault addresses
     // Meteora DBC pool layout has vaults at specific offsets
@@ -74,9 +69,6 @@ export async function GET(request: NextRequest) {
         DBC_PROGRAM_ID
       );
 
-      console.log('Derived base vault:', baseVault.toBase58());
-      console.log('Derived quote vault:', quoteVault.toBase58());
-
       // Try to read these vaults
       const baseVaultAccount = await connection.getAccountInfo(baseVault);
       const quoteVaultAccount = await connection.getAccountInfo(quoteVault);
@@ -92,14 +84,9 @@ export async function GET(request: NextRequest) {
 
         baseVaultAddress = baseVault.toBase58();
         quoteVaultAddress = quoteVault.toBase58();
-
-        console.log('Found vaults via PDA derivation');
-        console.log('Raw token amount:', baseTokenAccount.amount.toString());
-        console.log('Token balance after decimals:', tokenBalance);
-        console.log('SOL balance:', solBalance);
       }
-    } catch (e) {
-      console.log('PDA vault derivation failed, trying alternate method');
+    } catch {
+      // PDA vault derivation failed, will try alternate method
     }
 
     // Method 2: Scan pool data for pubkey patterns if PDAs didn't work
@@ -122,8 +109,6 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      console.log('Found', pubkeys.length, 'potential pubkeys in pool data');
-
       // Check each pubkey to see if it's a token account
       for (const pubkey of pubkeys.slice(0, 20)) { // Check first 20 to limit RPC calls
         try {
@@ -135,11 +120,9 @@ export async function GET(request: NextRequest) {
             if (mint === tokenMint) {
               tokenBalance = Number(tokenAccount.amount) / 1e6;
               baseVaultAddress = pubkey.toBase58();
-              console.log('Found token vault:', pubkey.toBase58(), 'balance:', tokenBalance);
             } else if (mint === WSOL_MINT.toBase58()) {
               solBalance = Number(tokenAccount.amount) / 1e9;
               quoteVaultAddress = pubkey.toBase58();
-              console.log('Found SOL vault:', pubkey.toBase58(), 'balance:', solBalance);
             }
           }
         } catch {
@@ -167,8 +150,6 @@ export async function GET(request: NextRequest) {
       estimatedSolRaised = MIGRATION_THRESHOLD * Math.pow(tokenProgress, 1 / 0.65);
     }
 
-    console.log('Final stats - tokensInPool:', tokensInPool, 'tokensSold:', tokensSold, 'solBalance:', solBalance);
-
     return NextResponse.json({
       success: true,
       pool: poolAddress,
@@ -192,7 +173,6 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('Pool stats error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

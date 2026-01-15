@@ -168,39 +168,29 @@ export default function TokenPage() {
   // Fetch live pool stats from our backend API (reads on-chain data)
   const fetchPoolStats = useCallback(async (poolAddress: string, tokenMint: string) => {
     try {
-      console.log('Fetching pool stats from backend for:', poolAddress);
-
       const response = await fetch(`/api/pool-stats/${poolAddress}?tokenMint=${tokenMint}`);
       const data = await response.json();
-
-      console.log('Pool stats response:', data);
 
       if (data.success) {
         // Use actual on-chain SOL balance
         if (data.balances.sol > 0) {
-          console.log('Setting SOL raised from on-chain:', data.balances.sol);
           setLiveSolRaised(data.balances.sol);
         } else if (data.stats.solRaised > 0) {
-          // Fallback to estimated if vault couldn't be read
-          console.log('Setting SOL raised from estimate:', data.stats.solRaised);
           setLiveSolRaised(data.stats.solRaised);
         }
 
         // Use actual token balance to calculate tokens sold
         if (data.balances.tokens > 0) {
-          console.log('Tokens in pool:', data.balances.tokens, 'Tokens sold:', data.stats.tokensSold);
           setLiveTokensInPool(data.balances.tokens);
         }
 
         // Also fetch market cap from DexScreener for accurate pricing
         await fetchMarketCapFromDexScreener(tokenMint);
       } else {
-        console.log('Pool stats fetch failed:', data.error);
         // Fallback to DexScreener for everything
         await fetchPoolStatsFromDexScreener(tokenMint);
       }
-    } catch (err) {
-      console.error('Failed to fetch pool stats:', err);
+    } catch {
       // Fallback to DexScreener
       await fetchPoolStatsFromDexScreener(tokenMint);
     }
@@ -215,19 +205,17 @@ export default function TokenPage() {
       if (data.pairs && data.pairs.length > 0) {
         const pair = data.pairs[0];
         if (pair.fdv) {
-          console.log('DexScreener FDV:', pair.fdv);
           setLiveMarketCapUsd(pair.fdv);
         }
       }
-    } catch (err) {
-      console.error('DexScreener market cap fetch failed:', err);
+    } catch {
+      // DexScreener fetch failed, will use calculated value
     }
   };
 
   // Fallback: Fetch from DexScreener if our API fails
   const fetchPoolStatsFromDexScreener = async (tokenMint: string) => {
     try {
-      console.log('Falling back to DexScreener for:', tokenMint);
       const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenMint}`);
       const data = await response.json();
 
@@ -253,8 +241,8 @@ export default function TokenPage() {
           }
         }
       }
-    } catch (err) {
-      console.error('DexScreener fallback failed:', err);
+    } catch {
+      // DexScreener fallback failed
     }
   };
 
@@ -320,7 +308,6 @@ export default function TokenPage() {
   }
 
   // Use simulated SOL raised in sim mode, live on-chain balance if available, otherwise stored value
-  console.log('Rendering with liveSolRaised:', liveSolRaised, 'liveTokensInPool:', liveTokensInPool, 'simMode:', simMode);
   const effectiveSolRaised = simMode ? simSolRaised : (liveSolRaised ?? launch.solRaised);
   const effectiveMigrated = simMode ? simSolRaised >= MIGRATION_THRESHOLD : (effectiveSolRaised >= MIGRATION_THRESHOLD || launch.migrated);
 
@@ -334,7 +321,6 @@ export default function TokenPage() {
     ? (() => {
         const percentInPool = liveTokensInPool / 1e10; // e.g., 817881912081 / 1e10 = 81.78%
         const soldPercent = Math.max(0, 100 - percentInPool);
-        console.log('Token calc: percentInPool=', percentInPool, 'soldPercent=', soldPercent, 'tokensSold=', (soldPercent / 100) * TOTAL_SUPPLY);
         return (soldPercent / 100) * TOTAL_SUPPLY;
       })()
     : curve.tokensSold;
