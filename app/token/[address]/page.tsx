@@ -3,8 +3,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 
-const SOLANA_RPC = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
-const LAMPORTS_PER_SOL = 1_000_000_000;
 
 interface Launch {
   id: string;
@@ -24,9 +22,9 @@ interface Launch {
 }
 
 const ENGINE_INFO: Record<number, { name: string; lp: number; burn: number; color: string }> = {
-  1: { name: 'Engine 1', lp: 80, burn: 20, color: '#88c0ff' },
-  2: { name: 'Engine 2', lp: 50, burn: 50, color: '#f97316' },
-  3: { name: 'Engine 3', lp: 25, burn: 75, color: '#a855f7' },
+  1: { name: 'Navigator', lp: 80, burn: 20, color: '#88c0ff' },
+  2: { name: 'Lighthouse', lp: 50, burn: 0, color: '#f97316' },
+  3: { name: 'Supernova', lp: 25, burn: 75, color: '#a855f7' },
 };
 
 // Bonding curve constants (pump.fun style)
@@ -129,8 +127,7 @@ export default function TokenPage() {
   const [simMode, setSimMode] = useState(false);
   const [simSolRaised, setSimSolRaised] = useState(0);
 
-  // Live on-chain SOL raised
-  const [livePoolBalance, setLivePoolBalance] = useState<number | null>(null);
+  // Note: Live on-chain stats removed for now - using KV stored values
 
   const fetchLaunch = useCallback(async () => {
     try {
@@ -148,31 +145,6 @@ export default function TokenPage() {
       setLoading(false);
     }
   }, [address]);
-
-  // Fetch live pool balance from on-chain
-  const fetchPoolBalance = useCallback(async (poolAddress: string) => {
-    try {
-      // Dynamically import to avoid SSR issues
-      const { Connection, PublicKey } = await import('@solana/web3.js');
-
-      // Validate pool address first
-      let poolPubkey;
-      try {
-        poolPubkey = new PublicKey(poolAddress);
-      } catch {
-        console.warn('Invalid pool address:', poolAddress);
-        return;
-      }
-
-      const connection = new Connection(SOLANA_RPC, 'confirmed');
-      const balance = await connection.getBalance(poolPubkey);
-      const solBalance = balance / LAMPORTS_PER_SOL;
-      setLivePoolBalance(solBalance);
-    } catch (err) {
-      console.error('Failed to fetch pool balance:', err);
-      // Keep using stored value if on-chain fetch fails
-    }
-  }, []);
 
   const fetchSolPrice = async () => {
     try {
@@ -192,16 +164,6 @@ export default function TokenPage() {
     fetchLaunch();
     fetchSolPrice();
   }, [fetchLaunch]);
-
-  // Fetch pool balance when launch data is loaded
-  useEffect(() => {
-    if (launch?.poolAddress) {
-      fetchPoolBalance(launch.poolAddress);
-      // Refresh every 30 seconds
-      const interval = setInterval(() => fetchPoolBalance(launch.poolAddress), 30000);
-      return () => clearInterval(interval);
-    }
-  }, [launch?.poolAddress, fetchPoolBalance]);
 
   const shortenAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 
@@ -250,7 +212,7 @@ export default function TokenPage() {
   }
 
   // Use simulated SOL raised in sim mode, live on-chain balance if available, otherwise stored value
-  const effectiveSolRaised = simMode ? simSolRaised : (livePoolBalance ?? launch.solRaised);
+  const effectiveSolRaised = simMode ? simSolRaised : launch.solRaised;
   const effectiveMigrated = simMode ? simSolRaised >= MIGRATION_THRESHOLD : (effectiveSolRaised >= MIGRATION_THRESHOLD || launch.migrated);
 
   const curve = calculateCurvePosition(effectiveSolRaised);
