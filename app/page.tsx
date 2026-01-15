@@ -1323,7 +1323,17 @@ export default function ShipyardPlatform() {
                       width: '120px',
                       height: '120px',
                       borderRadius: '50%',
-                      background: `conic-gradient(#88c0ff 0deg ${engines[selectedEngine].lp * 3.6}deg, #f97316 ${engines[selectedEngine].lp * 3.6}deg 360deg)`,
+                      background: (() => {
+                        const lp = engines[selectedEngine].lp;
+                        const burn = engines[selectedEngine].burn;
+                        const dev = engines[selectedEngine].dev || 0;
+                        const lpEnd = lp * 3.6;
+                        const burnEnd = lpEnd + burn * 3.6;
+                        if (dev > 0) {
+                          return `conic-gradient(#88c0ff 0deg ${lpEnd}deg, #f97316 ${lpEnd}deg ${burnEnd}deg, #4ade80 ${burnEnd}deg 360deg)`;
+                        }
+                        return `conic-gradient(#88c0ff 0deg ${lpEnd}deg, #f97316 ${lpEnd}deg 360deg)`;
+                      })(),
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -1339,8 +1349,17 @@ export default function ShipyardPlatform() {
                         justifyContent: 'center',
                         flexDirection: 'column'
                       }}>
-                        <span style={{ fontSize: '9px', color: '#4a5568' }}>DEV FEE</span>
-                        <span style={{ fontFamily: "'Outfit', sans-serif", fontSize: '24px', fontWeight: '700', color: '#7ee787' }}>0%</span>
+                        <span style={{ fontSize: '9px', color: '#4a5568' }}>
+                          {engines[selectedEngine].dev ? 'CREATOR' : 'DEV FEE'}
+                        </span>
+                        <span style={{
+                          fontFamily: "'Outfit', sans-serif",
+                          fontSize: '24px',
+                          fontWeight: '700',
+                          color: engines[selectedEngine].dev ? '#4ade80' : '#7ee787'
+                        }}>
+                          {engines[selectedEngine].dev || 0}%
+                        </span>
                       </div>
                     </div>
                     <div style={{ flex: 1 }}>
@@ -1359,7 +1378,7 @@ export default function ShipyardPlatform() {
                           }} />
                         </div>
                       </div>
-                      <div>
+                      <div style={{ marginBottom: engines[selectedEngine].dev ? '14px' : '0' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
                           <span style={{ fontSize: '11px', color: '#6e7b8b' }}>→ Buyback & Burn</span>
                           <span style={{ fontSize: '11px', color: '#f97316', fontWeight: '600' }}>{engines[selectedEngine].burn}%</span>
@@ -1373,6 +1392,22 @@ export default function ShipyardPlatform() {
                           }} />
                         </div>
                       </div>
+                      {engines[selectedEngine].dev && (
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                            <span style={{ fontSize: '11px', color: '#6e7b8b' }}>→ Creator Rewards</span>
+                            <span style={{ fontSize: '11px', color: '#4ade80', fontWeight: '600' }}>{engines[selectedEngine].dev}%</span>
+                          </div>
+                          <div style={{ height: '8px', background: 'rgba(74, 222, 128, 0.1)', borderRadius: '4px', overflow: 'hidden' }}>
+                            <div style={{
+                              width: `${engines[selectedEngine].dev}%`,
+                              height: '100%',
+                              background: 'linear-gradient(90deg, #4ade80, #22c55e)',
+                              borderRadius: '4px'
+                            }} />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 
