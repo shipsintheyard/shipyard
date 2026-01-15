@@ -24,10 +24,12 @@ async function getLaunches(): Promise<Launch[]> {
 // GET - Return a single launch by token mint address
 export async function GET(
   request: NextRequest,
-  { params }: { params: { address: string } }
+  context: { params: { address: string } }
 ) {
   try {
-    const { address } = params;
+    const address = context.params.address;
+
+    console.log('Looking up launch for address:', address);
 
     if (!address) {
       return NextResponse.json(
@@ -37,9 +39,13 @@ export async function GET(
     }
 
     const launches = await getLaunches();
+    console.log('Found', launches.length, 'launches in KV');
+
     const launch = launches.find(l => l.tokenMint === address);
 
     if (!launch) {
+      console.log('No launch found for:', address);
+      console.log('Available mints:', launches.map(l => l.tokenMint));
       return NextResponse.json(
         { success: false, error: 'Launch not found' },
         { status: 404 }
