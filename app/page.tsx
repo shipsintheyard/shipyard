@@ -117,13 +117,12 @@ export default function ShipyardPlatform() {
         }
       };
 
-      // RAFT - case sensitive for exact uppercase match
-      // Each worker gets a portion of the max attempts
+      // RAFT - case insensitive for fast matching (any case like RafT, rAFT, etc)
       worker.postMessage({
         suffix: 'RAFT',
-        maxAttempts: 200_000_000, // More attempts since case-sensitive is harder
+        maxAttempts: 100_000_000,
         reportInterval: 50_000,
-        caseSensitive: true
+        caseSensitive: false
       });
     }
 
@@ -1484,7 +1483,7 @@ export default function ShipyardPlatform() {
                           </span>
                         </div>
                         <div style={{ fontSize: '11px', color: '#6e7b8b' }}>
-                          Generate a token address ending in &quot;RAFT&quot; (takes 5-15 min)
+                          Generate a token address ending in &quot;RAFT&quot; (takes 1-3 min)
                         </div>
                       </div>
                       <button
@@ -1813,7 +1812,7 @@ export default function ShipyardPlatform() {
                           color: '#fbbf24',
                           textAlign: 'center'
                         }}>
-                          Finding a token address ending in <strong>RAFT</strong>... this takes 5-15 minutes. Please wait!
+                          Finding a token address ending in <strong>RAFT</strong>... this takes 1-3 minutes. Please wait!
                         </div>
                       )}
                       <p style={{ fontSize: '9px', color: '#4a5568', textAlign: 'center', marginTop: '10px' }}>
