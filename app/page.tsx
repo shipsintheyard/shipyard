@@ -423,14 +423,14 @@ export default function ShipyardPlatform() {
   };
 
   const tabs = [
-    { id: 'landing', label: 'Home' },
-    { id: 'raft', label: 'Raft' },
-    { id: 'trawler', label: 'Trawler' },
-    { id: 'sonar', label: 'Sonar' },
-    { id: 'bottles', label: 'Bottles' },
-    { id: 'dock', label: 'The Dock' },
-    { id: 'docs', label: 'Docs' },
-    { id: 'widgets', label: 'Widgets' }
+    { id: 'landing', label: 'Home', disabled: false },
+    { id: 'raft', label: 'Raft', disabled: false },
+    { id: 'trawler', label: 'Trawler', disabled: false },
+    { id: 'sonar', label: 'Sonar', disabled: true },
+    { id: 'bottles', label: 'Bottles', disabled: false },
+    { id: 'dock', label: 'The Dock', disabled: true },
+    { id: 'docs', label: 'Docs', disabled: false },
+    { id: 'widgets', label: 'Widgets', disabled: true }
   ];
 
   return (
@@ -572,14 +572,14 @@ export default function ShipyardPlatform() {
         </div>
 
         <nav style={{ display: 'flex', gap: '6px' }}>
-          {tabs.map(tab => (
+          {tabs.filter(tab => !tab.disabled).map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               style={{
                 padding: '10px 20px',
-                background: activeTab === tab.id 
-                  ? 'linear-gradient(135deg, #88c0ff 0%, #5a9fd4 100%)' 
+                background: activeTab === tab.id
+                  ? 'linear-gradient(135deg, #88c0ff 0%, #5a9fd4 100%)'
                   : 'transparent',
                 color: activeTab === tab.id ? '#0f1419' : '#6e7b8b',
                 border: activeTab === tab.id ? 'none' : '1px solid rgba(136, 192, 255, 0.2)',
@@ -2331,54 +2331,67 @@ export default function ShipyardPlatform() {
                       Engines
                     </h1>
                     <p style={{ fontSize: '14px', color: '#8b949e', lineHeight: 1.7, marginBottom: '32px' }}>
-                      Engines determine how trading fees are split. All engines have <strong style={{ color: '#7ee787' }}>0% dev extraction</strong> — the only choice is between LP growth and token burns.
+                      Engines determine how trading fees are split. Choose between LP growth, token burns, or creator rewards depending on your token&apos;s goals.
                     </p>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                       {[
-                        { 
-                          name: 'NAVIGATOR', 
-                          icon: '⭐', 
-                          lp: 80, 
-                          burn: 20, 
+                        {
+                          name: 'NAVIGATOR',
+                          icon: '⭐',
+                          lp: 80,
+                          burn: 20,
+                          dev: 0,
+                          color: '#88c0ff',
                           desc: 'Best for tokens that want deep liquidity and stability. 80% of fees go to LP, making your token harder to dump. 20% burns for steady deflation.',
                           best: 'Long-term projects, utility tokens'
                         },
-                        { 
-                          name: 'POLARIS', 
-                          icon: '✦', 
-                          lp: 70, 
-                          burn: 30, 
-                          desc: 'Balanced approach. Good LP growth with meaningful burns. Most versatile option.',
-                          best: 'Community tokens, memecoins with utility'
+                        {
+                          name: 'LIGHTHOUSE',
+                          icon: '🏮',
+                          lp: 50,
+                          burn: 0,
+                          dev: 50,
+                          color: '#f97316',
+                          desc: 'Creator rewards engine. 50% of fees go to LP for liquidity growth, 50% go to the creator wallet as ongoing rewards. No burns.',
+                          best: 'Creators who want sustainable income from their token'
                         },
-                        { 
-                          name: 'SUPERNOVA', 
-                          icon: '☄️', 
-                          lp: 50, 
-                          burn: 50, 
-                          desc: 'Maximum deflation. Half of all fees burn tokens, creating strong deflationary pressure. LP still grows but slower.',
+                        {
+                          name: 'SUPERNOVA',
+                          icon: '☄️',
+                          lp: 25,
+                          burn: 75,
+                          dev: 0,
+                          color: '#a855f7',
+                          desc: 'Maximum deflation. 75% of all fees burn tokens, creating extreme deflationary pressure. 25% still goes to LP for baseline liquidity.',
                           best: 'Pure memecoins, deflationary narratives'
                         },
                       ].map((engine, i) => (
                         <div key={i} style={{
                           padding: '24px',
                           background: 'rgba(15, 20, 25, 0.8)',
-                          border: '1px solid rgba(136, 192, 255, 0.1)',
+                          border: `1px solid ${engine.color}33`,
                           borderRadius: '12px'
                         }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                             <span style={{ fontSize: '28px' }}>{engine.icon}</span>
-                            <span style={{ fontFamily: "'Outfit', sans-serif", fontSize: '18px', fontWeight: '600', color: '#fff' }}>
+                            <span style={{ fontFamily: "'Outfit', sans-serif", fontSize: '18px', fontWeight: '600', color: engine.color }}>
                               {engine.name}
                             </span>
                             <div style={{ display: 'flex', gap: '8px', marginLeft: 'auto' }}>
                               <span style={{ padding: '4px 10px', background: 'rgba(136, 192, 255, 0.1)', borderRadius: '4px', fontSize: '11px', color: '#88c0ff' }}>
                                 {engine.lp}% LP
                               </span>
-                              <span style={{ padding: '4px 10px', background: 'rgba(249, 115, 22, 0.1)', borderRadius: '4px', fontSize: '11px', color: '#f97316' }}>
-                                {engine.burn}% BURN
-                              </span>
+                              {engine.burn > 0 && (
+                                <span style={{ padding: '4px 10px', background: 'rgba(249, 115, 22, 0.1)', borderRadius: '4px', fontSize: '11px', color: '#f97316' }}>
+                                  {engine.burn}% BURN
+                                </span>
+                              )}
+                              {engine.dev > 0 && (
+                                <span style={{ padding: '4px 10px', background: 'rgba(126, 231, 135, 0.1)', borderRadius: '4px', fontSize: '11px', color: '#7ee787' }}>
+                                  {engine.dev}% CREATOR
+                                </span>
+                              )}
                             </div>
                           </div>
                           <p style={{ fontSize: '13px', color: '#8b949e', lineHeight: 1.6, marginBottom: '12px' }}>
@@ -2391,15 +2404,15 @@ export default function ShipyardPlatform() {
                       ))}
                     </div>
 
-                    <div style={{ 
-                      marginTop: '24px', 
-                      padding: '16px', 
-                      background: 'rgba(126, 231, 135, 0.1)', 
-                      border: '1px solid rgba(126, 231, 135, 0.2)', 
-                      borderRadius: '8px' 
+                    <div style={{
+                      marginTop: '24px',
+                      padding: '16px',
+                      background: 'rgba(136, 192, 255, 0.1)',
+                      border: '1px solid rgba(136, 192, 255, 0.2)',
+                      borderRadius: '8px'
                     }}>
-                      <p style={{ fontSize: '13px', color: '#7ee787', margin: 0 }}>
-                        ✓ All engines: 0% dev extraction. You cannot take fees for yourself. This is enforced at the protocol level.
+                      <p style={{ fontSize: '13px', color: '#88c0ff', margin: 0 }}>
+                        <strong>Note:</strong> Navigator and Supernova have 0% creator fees. Lighthouse enables 50% creator rewards for sustainable income. All engines lock LP forever.
                       </p>
                     </div>
                   </div>
