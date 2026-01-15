@@ -70,6 +70,14 @@ export default function ShipyardPlatform() {
     const worker = new Worker('/vanity-worker.js');
     setVanityWorker(worker);
 
+    worker.onerror = (e) => {
+      console.error('Worker error:', e);
+      setIsGrinding(false);
+      worker.terminate();
+      setVanityWorker(null);
+      alert('Vanity worker failed to load: ' + (e.message || 'Unknown error'));
+    };
+
     worker.onmessage = (e) => {
       const { type, ...data } = e.data;
 
@@ -81,11 +89,16 @@ export default function ShipyardPlatform() {
         setIsGrinding(false);
         worker.terminate();
         setVanityWorker(null);
-      } else if (type === 'maxed' || type === 'error') {
+      } else if (type === 'maxed') {
         setIsGrinding(false);
         worker.terminate();
         setVanityWorker(null);
-        alert('Failed to find vanity address. Try again or disable vanity.');
+        alert('Failed to find vanity address after 100M attempts. Try again or disable vanity.');
+      } else if (type === 'error') {
+        setIsGrinding(false);
+        worker.terminate();
+        setVanityWorker(null);
+        alert('Vanity grind error: ' + (data.error || 'Unknown error'));
       }
     };
 
