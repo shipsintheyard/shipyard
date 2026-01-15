@@ -163,7 +163,7 @@ export default function TokenPage() {
     }
   };
 
-  // Fetch live SOL raised by reading the pool account data
+  // Fetch live SOL raised by reading the pool account data directly
   const fetchPoolSolRaised = useCallback(async (poolAddress: string) => {
     try {
       const { Connection, PublicKey } = await import('@solana/web3.js');
@@ -179,42 +179,35 @@ export default function TokenPage() {
 
       const connection = new Connection(SOLANA_RPC, 'confirmed');
 
-      // Read the pool account data to find the quote vault address
-      // The pool struct stores the quote_vault at a specific offset
+      // Read the pool account data
       const accountInfo = await connection.getAccountInfo(poolPubkey);
       if (!accountInfo) {
         console.warn('Pool account not found');
         return;
       }
 
-      // Meteora DBC Pool structure - quote_vault is at offset 72 (after discriminator + other fields)
-      // Discriminator: 8 bytes
-      // Config: 32 bytes (offset 8)
-      // Creator: 32 bytes (offset 40)
-      // Base mint: 32 bytes (offset 72) - but we need quote_vault which is further
-      // Let's try reading the quote reserve from pool state instead
+      const data = accountInfo.data;
+      console.log('Pool account data length:', data.length);
 
-      // Alternative: Get token accounts owned by the pool for WSOL
-      const NATIVE_MINT = new PublicKey('So11111111111111111111111111111111111111112');
-      const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+      // Meteora DBC VirtualPool structure (from IDL):
+      // - discriminator: 8 bytes
+      // - config: Pubkey (32 bytes) - offset 8
+      // - creator: Pubkey (32 bytes) - offset 40
+      // - base_mint: Pubkey (32 bytes) - offset 72
+      // - base_vault: Pubkey (32 bytes) - offset 104
+      // - quote_mint: Pubkey (32 bytes) - offset 136
+      // - quote_vault: Pubkey (32 bytes) - offset 168
+      // - base_reserve: u64 (8 bytes) - offset 200
+      // - quote_reserve: u64 (8 bytes) - offset 208
 
-      // Find the pool's WSOL token account (quote vault)
-      const tokenAccounts = await connection.getTokenAccountsByOwner(poolPubkey, {
-        mint: NATIVE_MINT,
-        programId: TOKEN_PROGRAM_ID,
-      });
-
-      if (tokenAccounts.value.length > 0) {
-        // Parse token account data to get balance
-        const tokenAccountData = tokenAccounts.value[0].account.data;
-        // Token account balance is at offset 64 (after mint:32, owner:32)
-        const balance = tokenAccountData.readBigUInt64LE(64);
-        const solBalance = Number(balance) / LAMPORTS_PER_SOL;
-        console.log('Pool quote vault balance:', solBalance, 'SOL');
+      // Read quote_reserve directly from pool state
+      if (data.length >= 216) {
+        const quoteReserve = data.readBigUInt64LE(208);
+        const solBalance = Number(quoteReserve) / LAMPORTS_PER_SOL;
+        console.log('Pool quote reserve:', solBalance, 'SOL');
         setLiveSolRaised(solBalance);
       } else {
-        console.log('No WSOL token account found for pool');
-        setLiveSolRaised(0);
+        console.warn('Pool data too short:', data.length);
       }
     } catch (err) {
       console.error('Failed to fetch pool SOL raised:', err);
