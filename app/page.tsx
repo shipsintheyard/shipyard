@@ -1780,7 +1780,7 @@ export default function ShipyardPlatform() {
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                           <span style={{ fontSize: '12px', color: '#6e7b8b' }}>Raft Fee</span>
-                          <span style={{ fontSize: '13px', color: '#fff' }}>2.00 SOL</span>
+                          <span style={{ fontSize: '13px', color: '#fff' }}>0.25 SOL</span>
                         </div>
                         {devBuyEnabled && devBuyAmount > 0 && (
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
@@ -1807,7 +1807,7 @@ export default function ShipyardPlatform() {
                             fontWeight: '700',
                             color: '#88c0ff'
                           }}>
-                            {(2.01 + (devBuyEnabled ? devBuyAmount : 0)).toFixed(2)} SOL
+                            {(0.26 + (devBuyEnabled ? devBuyAmount : 0)).toFixed(2)} SOL
                           </span>
                         </div>
                       </div>
