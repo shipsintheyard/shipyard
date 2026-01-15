@@ -303,9 +303,10 @@ export default function TokenPage() {
   const curve = calculateCurvePosition(effectiveSolRaised);
 
   // Use actual token balance from pool if available (more accurate than deriving from SOL)
-  // liveTokensInPool is the actual token count (e.g., 818000000 for 818M tokens)
+  // liveTokensInPool is the actual token count in the vault
+  // Tokens sold = Total supply - Tokens in pool
   const actualTokensSold = liveTokensInPool !== null && !simMode
-    ? CURVE_TOKENS - liveTokensInPool
+    ? Math.max(0, TOTAL_SUPPLY - liveTokensInPool)
     : curve.tokensSold;
   const engine = ENGINE_INFO[launch.engine];
 
