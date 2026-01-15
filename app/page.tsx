@@ -754,7 +754,7 @@ export default function ShipyardPlatform() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
                   {[
-                    { num: '01', title: 'PAY LAUNCH FEE', desc: '0.01 SOL flat. No ongoing fees. No extraction.', icon: '⚓' },
+                    { num: '01', title: 'PAY LAUNCH FEE', desc: '0.25 SOL flat. No ongoing fees. No extraction.', icon: '⚓' },
                     { num: '02', title: 'PICK YOUR SPLIT', desc: 'Choose how fees compound: more LP or more burns.', icon: '⚖️' },
                     { num: '03', title: 'STAY AFLOAT', desc: 'Launch with locked LP, 0% extraction, auto-compound.', icon: '🛟' }
                   ].map((step, i) => (
@@ -890,7 +890,7 @@ export default function ShipyardPlatform() {
                 READY TO STAY AFLOAT?
               </h2>
               <p style={{ fontSize: '15px', color: '#6e7b8b', marginBottom: '35px' }}>
-                0.01 SOL. Zero extraction. Your token floats.
+                0.25 SOL. Zero extraction. Your token floats.
               </p>
               <button
                 onClick={() => setActiveTab('raft')}
@@ -2224,7 +2224,7 @@ export default function ShipyardPlatform() {
                         {
                           step: '01',
                           title: 'Pay the Launch Fee',
-                          desc: '0.01 SOL flat fee to launch. This is your only cost — no hidden fees, no ongoing extraction. The fee filters out low-effort rugs and funds development.'
+                          desc: '0.25 SOL flat fee to launch. This is your only cost — no hidden fees, no ongoing extraction. The fee filters out low-effort rugs and funds development.'
                         },
                         {
                           step: '02',
@@ -2445,7 +2445,7 @@ export default function ShipyardPlatform() {
                         DOCK FEE
                       </div>
                       <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: '48px', fontWeight: '700', color: '#88c0ff', marginBottom: '8px' }}>
-                        0.01 SOL
+                        0.25 SOL
                       </div>
                       <div style={{ fontSize: '14px', color: '#8b949e' }}>
                         One-time payment to launch
@@ -2592,7 +2592,7 @@ export default function ShipyardPlatform() {
                           a: "The Shipyard uses Meteora's audited DBC program. We don't have custom smart contracts — we just configure Meteora's existing infrastructure."
                         },
                         {
-                          q: "What happens to the 0.01 SOL dock fee?",
+                          q: "What happens to the 0.25 SOL dock fee?",
                           a: "It goes to The Shipyard treasury to fund development, hosting, and the compound bot infrastructure."
                         },
                         {

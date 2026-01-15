@@ -51,8 +51,8 @@ const SHIPYARD_KEYPAIR = SHIPYARD_PRIVATE_KEY
   : Keypair.generate(); // Fallback for build time only
 const SHIPYARD_WALLET = SHIPYARD_KEYPAIR.publicKey;
 
-// Launch fee (reduced to 0.01 for testing, change to 2 for production)
-const LAUNCH_FEE_SOL = 0.01;
+// Launch fee
+const LAUNCH_FEE_SOL = 0.25;
 
 // Dev buy limits
 const MAX_DEV_BUY_SOL = 1; // ~6.6% of supply at launch price

@@ -30,8 +30,8 @@ const FEE_CLAIMER_WALLET = SHIPYARD_WALLET;
 // Default engine config (Navigator - 80% LP, 20% Burn)
 const DEFAULT_CONFIG = '8E4GRoXQLUuV5HpnRD1hwTNrNR2kF9thoazChc5GUNE4';
 
-// Launch fee in SOL (reduced to 0.01 for testing, change to 2 for production)
-const LAUNCH_FEE_SOL = 0.01;
+// Launch fee in SOL
+const LAUNCH_FEE_SOL = 0.25;
 
 // Dev buy limits
 // At initial MC of 27.48 SOL, 5% of 1B supply costs ~1.37 SOL
