@@ -132,6 +132,7 @@ export default function TokenPage() {
   // Live on-chain stats from pool
   const [liveSolRaised, setLiveSolRaised] = useState<number | null>(null);
   const [liveTokensInPool, setLiveTokensInPool] = useState<number | null>(null);
+  const [liveMarketCapUsd, setLiveMarketCapUsd] = useState<number | null>(null);
 
   const fetchLaunch = useCallback(async () => {
     try {
@@ -190,9 +191,12 @@ export default function TokenPage() {
           console.log('Tokens in pool:', data.balances.tokens, 'Tokens sold:', data.stats.tokensSold);
           setLiveTokensInPool(data.balances.tokens);
         }
+
+        // Also fetch market cap from DexScreener for accurate pricing
+        await fetchMarketCapFromDexScreener(tokenMint);
       } else {
         console.log('Pool stats fetch failed:', data.error);
-        // Fallback to DexScreener
+        // Fallback to DexScreener for everything
         await fetchPoolStatsFromDexScreener(tokenMint);
       }
     } catch (err) {
@@ -201,6 +205,24 @@ export default function TokenPage() {
       await fetchPoolStatsFromDexScreener(tokenMint);
     }
   }, []);
+
+  // Fetch just the market cap from DexScreener
+  const fetchMarketCapFromDexScreener = async (tokenMint: string) => {
+    try {
+      const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenMint}`);
+      const data = await response.json();
+
+      if (data.pairs && data.pairs.length > 0) {
+        const pair = data.pairs[0];
+        if (pair.fdv) {
+          console.log('DexScreener FDV:', pair.fdv);
+          setLiveMarketCapUsd(pair.fdv);
+        }
+      }
+    } catch (err) {
+      console.error('DexScreener market cap fetch failed:', err);
+    }
+  };
 
   // Fallback: Fetch from DexScreener if our API fails
   const fetchPoolStatsFromDexScreener = async (tokenMint: string) => {
@@ -212,6 +234,9 @@ export default function TokenPage() {
       if (data.pairs && data.pairs.length > 0) {
         const pair = data.pairs[0];
         if (pair.fdv && pair.priceNative) {
+          // Set the market cap directly from DexScreener
+          setLiveMarketCapUsd(pair.fdv);
+
           const tokenPriceSol = parseFloat(pair.priceNative);
           const tokenPriceUsd = parseFloat(pair.priceUsd);
           const solPriceUsd = tokenPriceUsd / tokenPriceSol;
@@ -315,9 +340,10 @@ export default function TokenPage() {
     : curve.tokensSold;
   const engine = ENGINE_INFO[launch.engine];
 
-  // Calculate USD values
-  const mcUsd = solPrice ? curve.currentMcSol * solPrice : null;
-  const pricePerTokenUsd = solPrice ? curve.pricePerToken * solPrice : null;
+  // Calculate USD values - prefer live market cap from DexScreener
+  const mcUsd = liveMarketCapUsd ?? (solPrice ? curve.currentMcSol * solPrice : null);
+  const mcSol = mcUsd && solPrice ? mcUsd / solPrice : curve.currentMcSol;
+  const pricePerTokenUsd = mcUsd ? mcUsd / TOTAL_SUPPLY : (solPrice ? curve.pricePerToken * solPrice : null);
 
   return (
     <div style={{
@@ -598,11 +624,11 @@ export default function TokenPage() {
               }}>
                 <div style={{ fontSize: '10px', color: '#4a5568', marginBottom: '4px' }}>MARKET CAP</div>
                 <div style={{ fontSize: '18px', fontWeight: '700', color: '#fff' }}>
-                  {mcUsd ? formatUsd(mcUsd) : `${curve.currentMcSol.toFixed(1)} SOL`}
+                  {mcUsd ? formatUsd(mcUsd) : `${mcSol.toFixed(1)} SOL`}
                 </div>
                 {mcUsd && (
                   <div style={{ fontSize: '10px', color: '#6e7b8b' }}>
-                    {curve.currentMcSol.toFixed(1)} SOL
+                    {mcSol.toFixed(1)} SOL
                   </div>
                 )}
               </div>
