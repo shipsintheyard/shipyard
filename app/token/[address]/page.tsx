@@ -303,10 +303,14 @@ export default function TokenPage() {
   const curve = calculateCurvePosition(effectiveSolRaised);
 
   // Use actual token balance from pool if available (more accurate than deriving from SOL)
-  // liveTokensInPool is the actual token count in the vault
-  // Tokens sold = Total supply - Tokens in pool
+  // liveTokensInPool comes as raw value with decimals (e.g., 817881912081 for 81.78%)
+  // Divide by 1e10 to get percentage in pool, then calculate sold
   const actualTokensSold = liveTokensInPool !== null && !simMode
-    ? Math.max(0, TOTAL_SUPPLY - liveTokensInPool)
+    ? (() => {
+        const percentInPool = liveTokensInPool / 1e10; // e.g., 817881912081 / 1e10 = 81.78%
+        const soldPercent = Math.max(0, 100 - percentInPool);
+        return (soldPercent / 100) * TOTAL_SUPPLY;
+      })()
     : curve.tokensSold;
   const engine = ENGINE_INFO[launch.engine];
 
