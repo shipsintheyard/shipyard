@@ -28,7 +28,7 @@ if (typeof solanaWeb3 === 'undefined') {
   }
 
   self.onmessage = function(e) {
-    const { suffix, maxAttempts = 100_000_000, reportInterval = 10_000 } = e.data;
+    const { suffix, maxAttempts = 100_000_000, reportInterval = 10_000, caseSensitive = true } = e.data;
 
     if (!suffix || !isValidBase58Suffix(suffix)) {
       self.postMessage({
@@ -38,8 +38,6 @@ if (typeof solanaWeb3 === 'undefined') {
       return;
     }
 
-    // Use lowercase for comparison (base58 has lowercase 'i' but not uppercase 'I')
-    const targetSuffix = suffix.toLowerCase();
     let attempts = 0;
     const startTime = Date.now();
 
@@ -49,8 +47,12 @@ if (typeof solanaWeb3 === 'undefined') {
       const keypair = Keypair.generate();
       const address = keypair.publicKey.toBase58();
 
-      // Check if address ends with target suffix (case insensitive)
-      if (address.toLowerCase().endsWith(targetSuffix)) {
+      // Check if address ends with target suffix
+      const matches = caseSensitive
+        ? address.endsWith(suffix)
+        : address.toLowerCase().endsWith(suffix.toLowerCase());
+
+      if (matches) {
         const elapsed = (Date.now() - startTime) / 1000;
 
         // Convert secret key to array for transfer

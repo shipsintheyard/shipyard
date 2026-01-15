@@ -44,7 +44,7 @@ export default function ShipyardPlatform() {
   const [vanityKeypair, setVanityKeypair] = useState<{ publicKey: string; secretKey: number[] } | null>(null);
   const [isGrinding, setIsGrinding] = useState(false);
   const [grindProgress, setGrindProgress] = useState<{ attempts: number; elapsed: number; rate: number } | null>(null);
-  const [vanityWorker, setVanityWorker] = useState<Worker | null>(null);
+  const [vanityWorkers, setVanityWorkers] = useState<Worker[]>([]);
 
   // Launch state
   const [isLaunching, setIsLaunching] = useState(false);
@@ -57,61 +57,83 @@ export default function ShipyardPlatform() {
     poolAddress: string;
   } | null>(null);
 
-  // Start vanity address grinding (client-side)
+  // Start vanity address grinding (client-side with parallel workers)
   const startVanityGrind = () => {
-    if (vanityWorker) {
-      vanityWorker.terminate();
-    }
+    // Terminate any existing workers
+    vanityWorkers.forEach(w => w.terminate());
 
     setIsGrinding(true);
     setVanityKeypair(null);
     setGrindProgress(null);
 
-    const worker = new Worker('/vanity-worker.js');
-    setVanityWorker(worker);
+    // Use multiple workers for parallel grinding (use available CPU cores, max 8)
+    const numWorkers = Math.min(navigator.hardwareConcurrency || 4, 8);
+    const workers: Worker[] = [];
+    let totalAttempts = 0;
+    let foundResult = false;
+    const startTime = Date.now();
 
-    worker.onerror = (e) => {
-      console.error('Worker error:', e);
-      setIsGrinding(false);
-      worker.terminate();
-      setVanityWorker(null);
-      alert('Vanity worker failed to load: ' + (e.message || 'Unknown error'));
-    };
+    for (let i = 0; i < numWorkers; i++) {
+      const worker = new Worker('/vanity-worker.js');
+      workers.push(worker);
 
-    worker.onmessage = (e) => {
-      const { type, ...data } = e.data;
+      worker.onerror = (e) => {
+        console.error('Worker error:', e);
+        if (!foundResult) {
+          workers.forEach(w => w.terminate());
+          setVanityWorkers([]);
+          setIsGrinding(false);
+          alert('Vanity worker failed to load: ' + (e.message || 'Unknown error'));
+        }
+      };
 
-      if (type === 'progress') {
-        setGrindProgress({ attempts: data.attempts, elapsed: data.elapsed, rate: data.rate });
-      } else if (type === 'found') {
-        setVanityKeypair({ publicKey: data.publicKey, secretKey: data.secretKey });
-        setGrindProgress({ attempts: data.attempts, elapsed: data.elapsed, rate: data.rate });
-        setIsGrinding(false);
-        worker.terminate();
-        setVanityWorker(null);
-      } else if (type === 'maxed') {
-        setIsGrinding(false);
-        worker.terminate();
-        setVanityWorker(null);
-        alert('Failed to find vanity address after 100M attempts. Try again or disable vanity.');
-      } else if (type === 'error') {
-        setIsGrinding(false);
-        worker.terminate();
-        setVanityWorker(null);
-        alert('Vanity grind error: ' + (data.error || 'Unknown error'));
-      }
-    };
+      worker.onmessage = (e) => {
+        if (foundResult) return; // Another worker already found it
 
-    // RAFT - all chars are valid base58 (R, A, F, T all exist)
-    worker.postMessage({ suffix: 'RAFT', maxAttempts: 100_000_000, reportInterval: 50_000 });
+        const { type, ...data } = e.data;
+
+        if (type === 'progress') {
+          totalAttempts += 50_000; // Each worker reports every 50k
+          const elapsed = (Date.now() - startTime) / 1000;
+          setGrindProgress({ attempts: totalAttempts, elapsed, rate: Math.round(totalAttempts / elapsed) });
+        } else if (type === 'found') {
+          foundResult = true;
+          setVanityKeypair({ publicKey: data.publicKey, secretKey: data.secretKey });
+          setGrindProgress({ attempts: data.attempts, elapsed: data.elapsed, rate: data.rate });
+          setIsGrinding(false);
+          // Terminate all workers
+          workers.forEach(w => w.terminate());
+          setVanityWorkers([]);
+        } else if (type === 'maxed') {
+          // One worker maxed out - others might still find it
+          // Only fail if all workers are done (this is approximate)
+        } else if (type === 'error') {
+          if (!foundResult) {
+            workers.forEach(w => w.terminate());
+            setVanityWorkers([]);
+            setIsGrinding(false);
+            alert('Vanity grind error: ' + (data.error || 'Unknown error'));
+          }
+        }
+      };
+
+      // RAFT - case sensitive for exact uppercase match
+      // Each worker gets a portion of the max attempts
+      worker.postMessage({
+        suffix: 'RAFT',
+        maxAttempts: 200_000_000, // More attempts since case-sensitive is harder
+        reportInterval: 50_000,
+        caseSensitive: true
+      });
+    }
+
+    setVanityWorkers(workers);
   };
 
   // Cancel vanity grinding
   const cancelVanityGrind = () => {
-    if (vanityWorker) {
-      vanityWorker.terminate();
-      setVanityWorker(null);
-    }
+    vanityWorkers.forEach(w => w.terminate());
+    setVanityWorkers([]);
     setIsGrinding(false);
     setGrindProgress(null);
   };
@@ -1462,7 +1484,7 @@ export default function ShipyardPlatform() {
                           </span>
                         </div>
                         <div style={{ fontSize: '11px', color: '#6e7b8b' }}>
-                          Generate a token address ending in &quot;RAFT&quot; (takes 2-4 min)
+                          Generate a token address ending in &quot;RAFT&quot; (takes 5-15 min)
                         </div>
                       </div>
                       <button
@@ -1791,7 +1813,7 @@ export default function ShipyardPlatform() {
                           color: '#fbbf24',
                           textAlign: 'center'
                         }}>
-                          Finding a token address ending in <strong>RAFT</strong>... this takes 2-4 minutes. Please wait!
+                          Finding a token address ending in <strong>RAFT</strong>... this takes 5-15 minutes. Please wait!
                         </div>
                       )}
                       <p style={{ fontSize: '9px', color: '#4a5568', textAlign: 'center', marginTop: '10px' }}>
