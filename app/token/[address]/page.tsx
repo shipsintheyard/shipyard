@@ -2,9 +2,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 
 const SOLANA_RPC = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+const LAMPORTS_PER_SOL = 1_000_000_000;
 
 interface Launch {
   id: string;
@@ -152,8 +152,19 @@ export default function TokenPage() {
   // Fetch live pool balance from on-chain
   const fetchPoolBalance = useCallback(async (poolAddress: string) => {
     try {
+      // Dynamically import to avoid SSR issues
+      const { Connection, PublicKey } = await import('@solana/web3.js');
+
+      // Validate pool address first
+      let poolPubkey;
+      try {
+        poolPubkey = new PublicKey(poolAddress);
+      } catch {
+        console.warn('Invalid pool address:', poolAddress);
+        return;
+      }
+
       const connection = new Connection(SOLANA_RPC, 'confirmed');
-      const poolPubkey = new PublicKey(poolAddress);
       const balance = await connection.getBalance(poolPubkey);
       const solBalance = balance / LAMPORTS_PER_SOL;
       setLivePoolBalance(solBalance);
