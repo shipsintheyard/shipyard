@@ -309,6 +309,7 @@ export default function TokenPage() {
     ? (() => {
         const percentInPool = liveTokensInPool / 1e10; // e.g., 817881912081 / 1e10 = 81.78%
         const soldPercent = Math.max(0, 100 - percentInPool);
+        console.log('Token calc: percentInPool=', percentInPool, 'soldPercent=', soldPercent, 'tokensSold=', (soldPercent / 100) * TOTAL_SUPPLY);
         return (soldPercent / 100) * TOTAL_SUPPLY;
       })()
     : curve.tokensSold;
