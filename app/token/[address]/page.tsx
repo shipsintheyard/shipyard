@@ -191,16 +191,20 @@ export default function TokenPage() {
       });
 
       const data = await response.json();
-      console.log('Helius getTokenAccounts response:', data);
+      console.log('Helius getTokenAccounts response:', JSON.stringify(data, null, 2));
 
-      if (data.result?.token_accounts) {
-        for (const account of data.result.token_accounts) {
+      // Helius DAS API returns result.token_accounts or result.items or just result as array
+      const accounts = data.result?.token_accounts || data.result?.items || data.result || [];
+      console.log('Token accounts found:', accounts.length || 0);
+
+      if (Array.isArray(accounts) && accounts.length > 0) {
+        for (const account of accounts) {
           const mint = account.mint;
-          const amount = account.amount;
-          const decimals = account.decimals || 9;
-          const balance = amount / Math.pow(10, decimals);
+          const amount = account.amount || account.tokenAmount?.amount || 0;
+          const decimals = account.decimals || account.tokenAmount?.decimals || 9;
+          const balance = Number(amount) / Math.pow(10, decimals);
 
-          console.log('Token account:', account.address, 'mint:', mint, 'balance:', balance);
+          console.log('Token account:', account.address || account.pubkey, 'mint:', mint, 'balance:', balance);
 
           if (mint === WSOL_MINT) {
             console.log('Found WSOL! Balance:', balance, 'SOL');
@@ -211,12 +215,7 @@ export default function TokenPage() {
           }
         }
       } else {
-        console.log('No token accounts found, trying standard RPC...');
-        // Fallback to standard getBalance for fees
-        const { Connection, PublicKey } = await import('@solana/web3.js');
-        const connection = new Connection(SOLANA_RPC, 'confirmed');
-        const poolBalance = await connection.getBalance(new PublicKey(poolAddress));
-        setLiveFees(poolBalance / LAMPORTS_PER_SOL);
+        console.log('No token accounts in response, result was:', typeof data.result, data.result);
       }
     } catch (err) {
       console.error('Failed to fetch pool stats:', err);
