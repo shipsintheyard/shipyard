@@ -19,7 +19,7 @@ import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } f
 const SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
 
 // Shipyard wallet - receives launch fees and trading fees (MAINNET)
-const SHIPYARD_WALLET = '96u4qqbZc7MHmw8aujr4vSCaxSWyZ1EpenQ7detv5S6J';
+const SHIPYARD_WALLET = '4PmtUd3UfdJPyQw3hBHaQqKK9dK4FczHe7Ut7CjcC2Sn';
 
 // Launch fee wallet - receives launch fees (Shipyard operations)
 const LAUNCH_FEE_WALLET = SHIPYARD_WALLET;
