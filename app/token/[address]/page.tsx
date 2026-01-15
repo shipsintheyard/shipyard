@@ -167,16 +167,15 @@ export default function TokenPage() {
     }
   };
 
-  // Fetch live pool stats: SOL raised, tokens in pool, fees
+  // Fetch live pool stats by deriving vault PDAs from pool address
   const fetchPoolStats = useCallback(async (poolAddress: string, tokenMint: string) => {
     try {
       const { Connection, PublicKey } = await import('@solana/web3.js');
-      const { TOKEN_PROGRAM_ID } = await import('@solana/spl-token');
 
       const poolPubkey = new PublicKey(poolAddress);
       const tokenMintPubkey = new PublicKey(tokenMint);
-      // WSOL mint address (native SOL wrapped)
       const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
+      const DBC_PROGRAM_ID = new PublicKey('dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN');
 
       console.log('Fetching pool stats for:', poolAddress);
       console.log('Token mint:', tokenMint);
@@ -189,35 +188,50 @@ export default function TokenPage() {
       console.log('Pool SOL balance (fees):', feesCollected);
       setLiveFees(feesCollected);
 
-      // Get all token accounts where the pool is the owner
-      // This finds the WSOL and token vaults associated with this pool
-      const tokenAccounts = await connection.getParsedTokenAccountsByOwner(poolPubkey, {
-        programId: TOKEN_PROGRAM_ID,
-      });
+      // Derive vault PDAs - Meteora DBC uses "token_vault" seed with pool + mint
+      const [baseVault] = PublicKey.findProgramAddressSync(
+        [Buffer.from('token_vault'), poolPubkey.toBuffer(), tokenMintPubkey.toBuffer()],
+        DBC_PROGRAM_ID
+      );
+      const [quoteVault] = PublicKey.findProgramAddressSync(
+        [Buffer.from('token_vault'), poolPubkey.toBuffer(), WSOL_MINT.toBuffer()],
+        DBC_PROGRAM_ID
+      );
 
-      console.log('Found', tokenAccounts.value.length, 'token accounts owned by pool');
+      console.log('Derived base vault (token):', baseVault.toBase58());
+      console.log('Derived quote vault (WSOL):', quoteVault.toBase58());
 
-      for (const { account, pubkey } of tokenAccounts.value) {
-        const parsed = account.data.parsed;
-        if (parsed && parsed.info) {
-          const mint = parsed.info.mint;
-          const amount = parsed.info.tokenAmount;
-          console.log('Token account:', pubkey.toBase58(), 'mint:', mint, 'balance:', amount.uiAmount);
+      // Fetch both vault accounts
+      const [baseVaultInfo, quoteVaultInfo] = await Promise.all([
+        connection.getParsedAccountInfo(baseVault),
+        connection.getParsedAccountInfo(quoteVault),
+      ]);
 
-          if (mint === WSOL_MINT.toBase58()) {
-            // This is the WSOL vault - SOL raised
-            console.log('Found WSOL vault! Balance:', amount.uiAmount, 'SOL');
-            setLiveSolRaised(amount.uiAmount);
-          } else if (mint === tokenMintPubkey.toBase58()) {
-            // This is the token vault - tokens remaining in pool
-            console.log('Found token vault! Balance:', amount.uiAmount, 'tokens');
-            setLiveTokensInPool(amount.uiAmount);
-          }
+      // Parse WSOL vault balance
+      if (quoteVaultInfo.value) {
+        const data = quoteVaultInfo.value.data;
+        if ('parsed' in data && data.parsed?.info?.tokenAmount) {
+          const solBalance = data.parsed.info.tokenAmount.uiAmount;
+          console.log('WSOL vault balance:', solBalance, 'SOL');
+          setLiveSolRaised(solBalance);
         }
+      } else {
+        console.log('Quote vault not found at derived address');
+      }
+
+      // Parse token vault balance
+      if (baseVaultInfo.value) {
+        const data = baseVaultInfo.value.data;
+        if ('parsed' in data && data.parsed?.info?.tokenAmount) {
+          const tokenBalance = data.parsed.info.tokenAmount.uiAmount;
+          console.log('Token vault balance:', tokenBalance, 'tokens');
+          setLiveTokensInPool(tokenBalance);
+        }
+      } else {
+        console.log('Base vault not found at derived address');
       }
     } catch (err) {
       console.error('Failed to fetch pool stats:', err);
-      // Keep using stored values if fetch fails
     }
   }, []);
 
