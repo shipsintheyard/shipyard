@@ -3,6 +3,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 
+const SOLANA_RPC = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+const LAMPORTS_PER_SOL = 1_000_000_000;
 
 interface Launch {
   id: string;
@@ -127,7 +129,8 @@ export default function TokenPage() {
   const [simMode, setSimMode] = useState(false);
   const [simSolRaised, setSimSolRaised] = useState(0);
 
-  // Note: Live on-chain stats removed for now - using KV stored values
+  // Live on-chain SOL raised from pool's quote vault
+  const [livesolRaised, setLiveSolRaised] = useState<number | null>(null);
 
   const fetchLaunch = useCallback(async () => {
     try {
@@ -160,10 +163,54 @@ export default function TokenPage() {
     }
   };
 
+  // Fetch live SOL raised from pool's quote vault
+  const fetchPoolSolRaised = useCallback(async (poolAddress: string) => {
+    try {
+      const { Connection, PublicKey } = await import('@solana/web3.js');
+
+      // Validate pool address
+      let poolPubkey;
+      try {
+        poolPubkey = new PublicKey(poolAddress);
+      } catch {
+        console.warn('Invalid pool address:', poolAddress);
+        return;
+      }
+
+      const connection = new Connection(SOLANA_RPC, 'confirmed');
+
+      // For Meteora DBC, the quote vault is a PDA derived from pool
+      // Seeds: ["quote_vault", pool_address]
+      const DBC_PROGRAM_ID = new PublicKey('dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN');
+      const [quoteVault] = PublicKey.findProgramAddressSync(
+        [Buffer.from('quote_vault'), poolPubkey.toBuffer()],
+        DBC_PROGRAM_ID
+      );
+
+      const balance = await connection.getBalance(quoteVault);
+      const solBalance = balance / LAMPORTS_PER_SOL;
+      console.log('Pool quote vault balance:', solBalance, 'SOL');
+      setLiveSolRaised(solBalance);
+    } catch (err) {
+      console.error('Failed to fetch pool SOL raised:', err);
+      // Keep using stored value if fetch fails
+    }
+  }, []);
+
   useEffect(() => {
     fetchLaunch();
     fetchSolPrice();
   }, [fetchLaunch]);
+
+  // Fetch live SOL raised when launch is loaded
+  useEffect(() => {
+    if (launch?.poolAddress) {
+      fetchPoolSolRaised(launch.poolAddress);
+      // Refresh every 30 seconds
+      const interval = setInterval(() => fetchPoolSolRaised(launch.poolAddress), 30000);
+      return () => clearInterval(interval);
+    }
+  }, [launch?.poolAddress, fetchPoolSolRaised]);
 
   const shortenAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 
@@ -212,7 +259,7 @@ export default function TokenPage() {
   }
 
   // Use simulated SOL raised in sim mode, live on-chain balance if available, otherwise stored value
-  const effectiveSolRaised = simMode ? simSolRaised : launch.solRaised;
+  const effectiveSolRaised = simMode ? simSolRaised : (livesolRaised ?? launch.solRaised);
   const effectiveMigrated = simMode ? simSolRaised >= MIGRATION_THRESHOLD : (effectiveSolRaised >= MIGRATION_THRESHOLD || launch.migrated);
 
   const curve = calculateCurvePosition(effectiveSolRaised);
