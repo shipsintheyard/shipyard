@@ -131,8 +131,10 @@ export default function TokenPage() {
   const [simMode, setSimMode] = useState(false);
   const [simSolRaised, setSimSolRaised] = useState(0);
 
-  // Live on-chain SOL raised from pool's quote vault
-  const [livesolRaised, setLiveSolRaised] = useState<number | null>(null);
+  // Live on-chain stats from pool
+  const [liveSolRaised, setLiveSolRaised] = useState<number | null>(null);
+  const [liveTokensInPool, setLiveTokensInPool] = useState<number | null>(null);
+  const [liveFees, setLiveFees] = useState<number | null>(null);
 
   const fetchLaunch = useCallback(async () => {
     try {
@@ -165,79 +167,57 @@ export default function TokenPage() {
     }
   };
 
-  // Fetch live SOL raised by scanning pool data for WSOL vault
-  const fetchPoolSolRaised = useCallback(async (poolAddress: string) => {
+  // Fetch live pool stats: SOL raised, tokens in pool, fees
+  const fetchPoolStats = useCallback(async (poolAddress: string, tokenMint: string) => {
     try {
       const { Connection, PublicKey } = await import('@solana/web3.js');
+      const { TOKEN_PROGRAM_ID } = await import('@solana/spl-token');
 
       const poolPubkey = new PublicKey(poolAddress);
+      const tokenMintPubkey = new PublicKey(tokenMint);
       // WSOL mint address (native SOL wrapped)
       const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
 
-      console.log('Fetching pool balance for:', poolAddress);
+      console.log('Fetching pool stats for:', poolAddress);
+      console.log('Token mint:', tokenMint);
 
       const connection = new Connection(SOLANA_RPC, 'confirmed');
 
-      // Read the pool account data
-      const accountInfo = await connection.getAccountInfo(poolPubkey);
-      if (!accountInfo) {
-        console.warn('Pool account not found');
-        return;
-      }
+      // Get pool account SOL balance (fees)
+      const poolBalance = await connection.getBalance(poolPubkey);
+      const feesCollected = poolBalance / LAMPORTS_PER_SOL;
+      console.log('Pool SOL balance (fees):', feesCollected);
+      setLiveFees(feesCollected);
 
-      const data = accountInfo.data;
-      console.log('Pool account data length:', data.length);
+      // Get all token accounts where the pool is the owner
+      // This finds the WSOL and token vaults associated with this pool
+      const tokenAccounts = await connection.getParsedTokenAccountsByOwner(poolPubkey, {
+        programId: TOKEN_PROGRAM_ID,
+      });
 
-      // Scan pool data for pubkeys and check if any are WSOL token accounts
-      // Pool structure varies, so we scan all 32-byte aligned offsets
-      const candidatePubkeys: { offset: number; pubkey: PublicKey }[] = [];
+      console.log('Found', tokenAccounts.value.length, 'token accounts owned by pool');
 
-      for (let offset = 8; offset <= data.length - 32; offset += 8) {
-        try {
-          const pubkeyBytes = data.subarray(offset, offset + 32);
-          const pubkey = new PublicKey(pubkeyBytes);
-          // Filter out obviously invalid addresses (all zeros, etc)
-          const str = pubkey.toBase58();
-          if (str !== '11111111111111111111111111111111' && !str.startsWith('1111111')) {
-            candidatePubkeys.push({ offset, pubkey });
-          }
-        } catch {
-          // Invalid pubkey, skip
-        }
-      }
+      for (const { account, pubkey } of tokenAccounts.value) {
+        const parsed = account.data.parsed;
+        if (parsed && parsed.info) {
+          const mint = parsed.info.mint;
+          const amount = parsed.info.tokenAmount;
+          console.log('Token account:', pubkey.toBase58(), 'mint:', mint, 'balance:', amount.uiAmount);
 
-      console.log('Found', candidatePubkeys.length, 'candidate pubkeys in pool data');
-
-      // Batch fetch all candidates to find token accounts
-      const accountInfos = await connection.getMultipleAccountsInfo(
-        candidatePubkeys.map(c => c.pubkey)
-      );
-
-      // Find the WSOL token account
-      for (let i = 0; i < accountInfos.length; i++) {
-        const info = accountInfos[i];
-        if (info && info.data.length >= 72) {
-          // Check if this is a token account with WSOL mint
-          try {
-            const mint = new PublicKey(info.data.subarray(0, 32));
-            if (mint.equals(WSOL_MINT)) {
-              const amount = info.data.readBigUInt64LE(64);
-              const solBalance = Number(amount) / LAMPORTS_PER_SOL;
-              console.log(`Found WSOL vault at offset ${candidatePubkeys[i].offset}:`, candidatePubkeys[i].pubkey.toBase58());
-              console.log('WSOL balance:', solBalance, 'SOL');
-              setLiveSolRaised(solBalance);
-              return;
-            }
-          } catch {
-            // Not a valid token account
+          if (mint === WSOL_MINT.toBase58()) {
+            // This is the WSOL vault - SOL raised
+            console.log('Found WSOL vault! Balance:', amount.uiAmount, 'SOL');
+            setLiveSolRaised(amount.uiAmount);
+          } else if (mint === tokenMintPubkey.toBase58()) {
+            // This is the token vault - tokens remaining in pool
+            console.log('Found token vault! Balance:', amount.uiAmount, 'tokens');
+            setLiveTokensInPool(amount.uiAmount);
           }
         }
       }
-
-      console.warn('Could not find WSOL vault in pool data');
     } catch (err) {
-      console.error('Failed to fetch pool SOL raised:', err);
-      // Keep using stored value if fetch fails
+      console.error('Failed to fetch pool stats:', err);
+      // Keep using stored values if fetch fails
     }
   }, []);
 
@@ -246,15 +226,15 @@ export default function TokenPage() {
     fetchSolPrice();
   }, [fetchLaunch]);
 
-  // Fetch live SOL raised when launch is loaded
+  // Fetch live pool stats when launch is loaded
   useEffect(() => {
-    if (launch?.poolAddress) {
-      fetchPoolSolRaised(launch.poolAddress);
+    if (launch?.poolAddress && launch?.tokenMint) {
+      fetchPoolStats(launch.poolAddress, launch.tokenMint);
       // Refresh every 30 seconds
-      const interval = setInterval(() => fetchPoolSolRaised(launch.poolAddress), 30000);
+      const interval = setInterval(() => fetchPoolStats(launch.poolAddress, launch.tokenMint), 30000);
       return () => clearInterval(interval);
     }
-  }, [launch?.poolAddress, fetchPoolSolRaised]);
+  }, [launch?.poolAddress, launch?.tokenMint, fetchPoolStats]);
 
   const shortenAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 
@@ -303,7 +283,7 @@ export default function TokenPage() {
   }
 
   // Use simulated SOL raised in sim mode, live on-chain balance if available, otherwise stored value
-  const effectiveSolRaised = simMode ? simSolRaised : (livesolRaised ?? launch.solRaised);
+  const effectiveSolRaised = simMode ? simSolRaised : (liveSolRaised ?? launch.solRaised);
   const effectiveMigrated = simMode ? simSolRaised >= MIGRATION_THRESHOLD : (effectiveSolRaised >= MIGRATION_THRESHOLD || launch.migrated);
 
   const curve = calculateCurvePosition(effectiveSolRaised);
