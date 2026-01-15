@@ -277,10 +277,31 @@ export default function ShipyardPlatform() {
       const feeSignature = await connection.sendRawTransaction(signedFeeTx.serialize());
       console.log('Fee tx sent:', feeSignature);
 
-      // Wait for confirmation
+      // Wait for confirmation with timeout handling
       setLaunchStatus('Confirming fee payment...');
       console.log('Waiting for fee confirmation...');
-      await connection.confirmTransaction(feeSignature, 'confirmed');
+
+      // Use getSignatureStatus with polling instead of confirmTransaction for reliability
+      let confirmed = false;
+      for (let i = 0; i < 30; i++) {
+        const status = await connection.getSignatureStatus(feeSignature);
+        if (status?.value?.confirmationStatus === 'confirmed' || status?.value?.confirmationStatus === 'finalized') {
+          confirmed = true;
+          break;
+        }
+        if (status?.value?.err) {
+          throw new Error('Fee transaction failed on-chain');
+        }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+
+      if (!confirmed) {
+        // Check one more time - transaction might have succeeded
+        const finalStatus = await connection.getSignatureStatus(feeSignature);
+        if (!finalStatus?.value || finalStatus?.value?.err) {
+          throw new Error('Transaction was not confirmed in 30 seconds. Check signature: ' + feeSignature);
+        }
+      }
       console.log('Fee payment confirmed!');
 
       // Step 3: Create pool (Shipyard creates it server-side)
