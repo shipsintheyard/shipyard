@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
-import path from 'path';
+import { kv } from '@vercel/kv';
 
 // ============================================================
 // SHIPYARD LAUNCH HISTORY API
 // ============================================================
 // GET /api/launches - Get all launches
 // POST /api/launches - Record a new launch (called after pool creation)
+//
+// Uses Vercel KV for persistent storage across serverless invocations
 // ============================================================
 
-const LAUNCHES_FILE = path.join(process.cwd(), 'data', 'launches.json');
+const LAUNCHES_KEY = 'shipyard:launches';
 
 export interface Launch {
   id: string;
@@ -31,35 +32,30 @@ export interface Launch {
   txSignature?: string;
   // Buyback-burn tracking (for supernova engine)
   buybackBurnEnabled: boolean;
-  buybackBurnPercent: number; // e.g., 20 for 20%
+  buybackBurnPercent: number;
   buybackBurnExecuted: boolean;
   buybackBurnTxSignature?: string;
-  buybackBurnAmount?: number; // SOL used for buyback
-  tokensBurned?: number; // Tokens burned
-}
-
-async function ensureDataDir() {
-  const dataDir = path.join(process.cwd(), 'data');
-  try {
-    await fs.access(dataDir);
-  } catch {
-    await fs.mkdir(dataDir, { recursive: true });
-  }
+  buybackBurnAmount?: number;
+  tokensBurned?: number;
 }
 
 async function getLaunches(): Promise<Launch[]> {
   try {
-    await ensureDataDir();
-    const data = await fs.readFile(LAUNCHES_FILE, 'utf-8');
-    return JSON.parse(data);
-  } catch {
+    const launches = await kv.get<Launch[]>(LAUNCHES_KEY);
+    return launches || [];
+  } catch (error) {
+    console.error('KV get error:', error);
     return [];
   }
 }
 
 async function saveLaunches(launches: Launch[]) {
-  await ensureDataDir();
-  await fs.writeFile(LAUNCHES_FILE, JSON.stringify(launches, null, 2));
+  try {
+    await kv.set(LAUNCHES_KEY, launches);
+  } catch (error) {
+    console.error('KV set error:', error);
+    throw error;
+  }
 }
 
 // GET - Return all launches
@@ -126,7 +122,7 @@ export async function POST(request: NextRequest) {
     const isBuybackBurn = engineName === 'supernova';
 
     const newLaunch: Launch = {
-      id: `launch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `launch_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
       tokenMint: body.tokenMint,
       poolAddress: body.poolAddress,
       name: body.name,
@@ -144,7 +140,7 @@ export async function POST(request: NextRequest) {
       txSignature: body.txSignature,
       // Buyback-burn fields
       buybackBurnEnabled: isBuybackBurn,
-      buybackBurnPercent: isBuybackBurn ? 20 : 0, // 20% for supernova
+      buybackBurnPercent: isBuybackBurn ? 20 : 0,
       buybackBurnExecuted: false,
     };
 
