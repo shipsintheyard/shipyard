@@ -201,7 +201,7 @@ export default function TokenPage() {
       }}>
         <div style={{ fontSize: '48px' }}>🚢</div>
         <div>{error || 'Token not found'}</div>
-        <Link href="/?dev=1" style={{ color: '#88c0ff', textDecoration: 'none' }}>
+        <Link href="/" style={{ color: '#88c0ff', textDecoration: 'none' }}>
           ← Back to Shipyard
         </Link>
       </div>
@@ -238,7 +238,7 @@ export default function TokenPage() {
         alignItems: 'center',
         justifyContent: 'space-between',
       }}>
-        <Link href="/?dev=1" style={{ color: '#6e7b8b', textDecoration: 'none', fontSize: '13px' }}>
+        <Link href="/" style={{ color: '#6e7b8b', textDecoration: 'none', fontSize: '13px' }}>
           ← Back to Shipyard
         </Link>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

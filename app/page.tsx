@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { Connection, Transaction, LAMPORTS_PER_SOL } from '@solana/web3.js';
@@ -14,6 +14,7 @@ export default function ShipyardPlatform() {
   const { publicKey, connected, disconnect, signTransaction, sendTransaction } = useWallet();
   const { setVisible } = useWalletModal();
   const searchParams = useSearchParams();
+  const router = useRouter();
 
   // Check for ?dev=1 to enable dev mode (bypasses any redirects, shows full UI)
   const isDevMode = searchParams.get('dev') === '1';
@@ -2720,7 +2721,7 @@ export default function ShipyardPlatform() {
               <button
                 onClick={() => {
                   setLaunchSuccess(false);
-                  setActiveTab('dock');
+                  router.push(`/token/${launchedToken.address}`);
                 }}
                 style={{
                   flex: 1,
@@ -2735,7 +2736,7 @@ export default function ShipyardPlatform() {
                   cursor: 'pointer'
                 }}
               >
-                VIEW IN DOCK
+                VIEW TOKEN
               </button>
               <button
                 onClick={() => {
