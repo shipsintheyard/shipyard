@@ -1458,11 +1458,11 @@ export default function ShipyardPlatform() {
                             color: '#fbbf24',
                             fontWeight: '600'
                           }}>
-                            SHIP
+                            RAFT
                           </span>
                         </div>
                         <div style={{ fontSize: '11px', color: '#6e7b8b' }}>
-                          Generate a token address ending in &quot;SHIP&quot; (takes 2-4 min)
+                          Generate a token address ending in &quot;RAFT&quot; (takes 2-4 min)
                         </div>
                       </div>
                       <button
@@ -1520,7 +1520,7 @@ export default function ShipyardPlatform() {
                           }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                               <div style={{ fontSize: '12px', color: '#fbbf24', fontWeight: '600' }}>
-                                ⏳ Grinding for ...SHIP
+                                ⏳ Grinding for ...RAFT
                               </div>
                               <button
                                 onClick={cancelVanityGrind}
@@ -1617,7 +1617,7 @@ export default function ShipyardPlatform() {
                             color: '#fbbf24',
                             marginTop: '12px'
                           }}>
-                            Your token address will end in <strong>...SHIP</strong>. Grind happens in your browser - no payment until you&apos;re ready!
+                            Your token address will end in <strong>...RAFT</strong>. Grind happens in your browser - no payment until you&apos;re ready!
                           </div>
                         )}
                       </div>
@@ -1791,7 +1791,7 @@ export default function ShipyardPlatform() {
                           color: '#fbbf24',
                           textAlign: 'center'
                         }}>
-                          Finding a token address ending in <strong>SHIP</strong>... this takes 2-4 minutes. Please wait!
+                          Finding a token address ending in <strong>RAFT</strong>... this takes 2-4 minutes. Please wait!
                         </div>
                       )}
                       <p style={{ fontSize: '9px', color: '#4a5568', textAlign: 'center', marginTop: '10px' }}>
