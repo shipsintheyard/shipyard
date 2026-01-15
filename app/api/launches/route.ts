@@ -86,6 +86,34 @@ export async function GET() {
   }
 }
 
+// DELETE - Clear all launches (admin only, requires ?confirm=yes)
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const confirm = searchParams.get('confirm');
+
+    if (confirm !== 'yes') {
+      return NextResponse.json(
+        { success: false, error: 'Add ?confirm=yes to confirm deletion' },
+        { status: 400 }
+      );
+    }
+
+    await kv.del(LAUNCHES_KEY);
+
+    return NextResponse.json({
+      success: true,
+      message: 'All launches cleared',
+    });
+  } catch (error) {
+    console.error('Delete launches error:', error);
+    return NextResponse.json(
+      { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    );
+  }
+}
+
 // POST - Record a new launch
 export async function POST(request: NextRequest) {
   try {
