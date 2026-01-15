@@ -183,29 +183,38 @@ export default function TokenPage() {
 
         if (pair) {
           console.log('Found pair:', pair.pairAddress);
+          console.log('FDV:', pair.fdv, 'priceNative:', pair.priceNative);
 
-          // Extract liquidity (SOL in pool)
-          // DexScreener provides liquidity.quote which is the SOL side
-          if (pair.liquidity?.quote) {
-            const solInPool = pair.liquidity.quote;
-            console.log('SOL in pool (liquidity.quote):', solInPool);
-            setLiveSolRaised(solInPool);
-          } else if (pair.liquidity?.usd && pair.priceNative) {
-            // Calculate from USD liquidity / 2 / SOL price
-            // Liquidity is total, so divide by 2 for quote side
-            const solPrice = 1 / parseFloat(pair.priceNative) * parseFloat(pair.priceUsd);
-            const solInPool = (pair.liquidity.usd / 2) / solPrice;
-            console.log('Calculated SOL in pool:', solInPool);
-            setLiveSolRaised(solInPool);
+          // DexScreener gives us FDV (market cap in USD)
+          // We need to convert to SOL raised for our bonding curve
+          // Our curve: MC starts at 27.48 SOL, ends at 415.49 SOL at 85 SOL raised
+          // FDV in USD / SOL price = MC in SOL
+          // Then reverse the curve formula to get SOL raised
+
+          if (pair.fdv && pair.priceNative) {
+            // priceNative is token price in SOL
+            // MC in SOL = FDV_USD / (priceUsd / priceNative)
+            const tokenPriceSol = parseFloat(pair.priceNative);
+            const tokenPriceUsd = parseFloat(pair.priceUsd);
+            const solPriceUsd = tokenPriceUsd / tokenPriceSol;
+
+            const mcSol = pair.fdv / solPriceUsd;
+            console.log('Market cap in SOL:', mcSol, 'SOL price USD:', solPriceUsd);
+
+            // Reverse our curve: MC = 27.48 * (415.49/27.48)^(sol/85)
+            // sol = 85 * log(MC/27.48) / log(415.49/27.48)
+            const INITIAL_MC = 27.48;
+            const FINAL_MC = 415.49;
+            const THRESHOLD = 85;
+
+            if (mcSol > INITIAL_MC) {
+              const solRaised = THRESHOLD * Math.log(mcSol / INITIAL_MC) / Math.log(FINAL_MC / INITIAL_MC);
+              console.log('Calculated SOL raised from MC:', solRaised);
+              setLiveSolRaised(Math.max(0, Math.min(solRaised, THRESHOLD)));
+            } else {
+              setLiveSolRaised(0);
+            }
           }
-
-          // FDV gives us market cap
-          if (pair.fdv) {
-            console.log('FDV (market cap):', pair.fdv);
-          }
-
-          // Calculate tokens sold from supply info if available
-          // For now, we can estimate from the bonding curve position
         }
       } else {
         console.log('No pairs found for token');
