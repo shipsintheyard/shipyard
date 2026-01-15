@@ -102,8 +102,8 @@ export default function ShipyardPlatform() {
       }
     };
 
-    // Note: Base58 doesn't have 'I' or 'O', so we use 'SHiP' (lowercase i is valid)
-    worker.postMessage({ suffix: 'SHiP', maxAttempts: 100_000_000, reportInterval: 50_000 });
+    // RAFT - all chars are valid base58 (R, A, F, T all exist)
+    worker.postMessage({ suffix: 'RAFT', maxAttempts: 100_000_000, reportInterval: 50_000 });
   };
 
   // Cancel vanity grinding
