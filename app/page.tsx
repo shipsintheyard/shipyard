@@ -798,7 +798,7 @@ export default function ShipyardPlatform() {
               }}>
                 {[
                   { value: platformStats.totalLaunches.toString(), label: 'VESSELS SHIPPED', color: '#88c0ff' },
-                  { value: platformStats.totalSolRaised.toFixed(2), label: 'SOL COMPOUNDED', color: '#88c0ff' },
+                  { value: platformStats.totalSolRaised.toFixed(2), label: 'FEES SAVED', color: '#88c0ff' },
                   { value: '∞', label: 'LP LOCKED', color: '#a8d4ff' },
                   { value: '0%', label: 'DEV EXTRACTION', color: '#7ee787' }
                 ].map((stat, i) => (
