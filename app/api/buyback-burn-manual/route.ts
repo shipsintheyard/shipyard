@@ -11,7 +11,10 @@ import {
   getAssociatedTokenAddress,
   createBurnInstruction,
   TOKEN_PROGRAM_ID,
+  getAccount,
 } from '@solana/spl-token';
+import { DynamicBondingCurveClient } from '@meteora-ag/dynamic-bonding-curve-sdk';
+import BN from 'bn.js';
 import bs58 from 'bs58';
 
 // CORS headers for cross-origin requests
@@ -22,20 +25,15 @@ const corsHeaders = {
 };
 
 // ============================================================
-// MANUAL BUYBACK & BURN
+// MANUAL BUYBACK & BURN (using Meteora DBC)
 // ============================================================
 // POST /api/buyback-burn-manual
 //
 // Manually execute buyback + burn with a specified SOL amount
-// Use this when fees were claimed but buyback wasn't triggered
+// Uses Meteora DBC pool directly instead of Jupiter
 // ============================================================
 
 const SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
-
-// Jupiter API - using lite-api which is more reliable from serverless
-const JUPITER_QUOTE_API = 'https://lite-api.jup.ag/v6/quote';
-const JUPITER_SWAP_API = 'https://lite-api.jup.ag/v6/swap';
-const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
 
 function getShipyardKeypair(): Keypair | null {
   const key = process.env.SHIPYARD_PRIVATE_KEY;
@@ -63,6 +61,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (!body.poolAddress) {
+      return NextResponse.json(
+        { success: false, error: 'poolAddress is required' },
+        { status: 400, headers: corsHeaders }
+      );
+    }
+
     if (!body.solAmount || body.solAmount <= 0) {
       return NextResponse.json(
         { success: false, error: 'solAmount is required (in SOL)' },
@@ -79,17 +84,20 @@ export async function POST(request: NextRequest) {
     }
 
     const connection = new Connection(SOLANA_RPC, 'confirmed');
+    const client = DynamicBondingCurveClient.create(connection, 'confirmed');
+
     const tokenMint = body.tokenMint;
+    const poolAddress = new PublicKey(body.poolAddress);
     const solAmount = parseFloat(body.solAmount);
     const lamports = Math.floor(solAmount * LAMPORTS_PER_SOL);
 
-    console.log('=== MANUAL BUYBACK + BURN ===');
+    console.log('=== MANUAL BUYBACK + BURN (Meteora DBC) ===');
     console.log('Token:', tokenMint);
+    console.log('Pool:', body.poolAddress);
     console.log('SOL Amount:', solAmount);
     console.log('Lamports:', lamports);
-    console.log('RPC:', SOLANA_RPC.substring(0, 50) + '...');
 
-    // Check wallet balance
+    // Step 1: Check wallet balance
     console.log('Step 1: Checking balance...');
     let balance: number;
     try {
@@ -102,161 +110,129 @@ export async function POST(request: NextRequest) {
         { status: 500, headers: corsHeaders }
       );
     }
-    if (balance < lamports + 10000000) { // +0.01 for fees
+
+    if (balance < lamports + 10000000) {
       return NextResponse.json(
         { success: false, error: `Insufficient balance. Have ${balance / LAMPORTS_PER_SOL} SOL, need ${solAmount + 0.01} SOL` },
         { status: 400, headers: corsHeaders }
       );
     }
 
-    // Step 2: Get Jupiter quote (with retry)
-    console.log('Step 2: Getting Jupiter quote...');
-    const quoteParams = new URLSearchParams({
-      inputMint: WSOL_MINT.toBase58(),
-      outputMint: tokenMint,
-      amount: lamports.toString(),
-      slippageBps: '100',
-    });
+    // Step 2: Get token balance before swap
+    console.log('Step 2: Getting token balance before swap...');
+    const tokenMintPubkey = new PublicKey(tokenMint);
+    const tokenAccount = await getAssociatedTokenAddress(tokenMintPubkey, SHIPYARD_KEYPAIR.publicKey);
 
-    let quote;
-    let quoteAttempts = 0;
-    const maxQuoteAttempts = 3;
-
-    while (quoteAttempts < maxQuoteAttempts) {
-      quoteAttempts++;
-      try {
-        console.log(`Quote attempt ${quoteAttempts}/${maxQuoteAttempts}...`);
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
-
-        const quoteRes = await fetch(`${JUPITER_QUOTE_API}?${quoteParams}`, {
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        if (!quoteRes.ok) {
-          const error = await quoteRes.text();
-          console.error(`Quote attempt ${quoteAttempts} failed:`, error);
-          if (quoteAttempts === maxQuoteAttempts) {
-            return NextResponse.json(
-              { success: false, error: `Jupiter quote failed after ${maxQuoteAttempts} attempts: ${error}` },
-              { status: 500, headers: corsHeaders }
-            );
-          }
-          await new Promise(r => setTimeout(r, 1000)); // Wait 1s before retry
-          continue;
-        }
-        quote = await quoteRes.json();
-        console.log('Quote received. Expected tokens:', quote.outAmount);
-        break; // Success, exit retry loop
-      } catch (quoteError) {
-        console.error(`Quote attempt ${quoteAttempts} error:`, quoteError);
-        if (quoteAttempts === maxQuoteAttempts) {
-          return NextResponse.json(
-            { success: false, error: `Jupiter quote fetch failed after ${maxQuoteAttempts} attempts: ${quoteError instanceof Error ? quoteError.message : 'Unknown'}` },
-            { status: 500, headers: corsHeaders }
-          );
-        }
-        await new Promise(r => setTimeout(r, 1000)); // Wait 1s before retry
-      }
+    let tokenBalanceBefore = BigInt(0);
+    try {
+      const accountInfo = await getAccount(connection, tokenAccount);
+      tokenBalanceBefore = accountInfo.amount;
+      console.log('Token balance before:', tokenBalanceBefore.toString());
+    } catch {
+      console.log('No existing token account, will be created');
     }
 
-    // Step 3: Get swap transaction
-    console.log('Step 3: Building swap transaction...');
-    let swapData;
+    // Step 3: Execute swap on Meteora DBC (buy tokens with SOL)
+    console.log('Step 3: Executing swap on Meteora DBC...');
     try {
-      const swapRes = await fetch(JUPITER_SWAP_API, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          quoteResponse: quote,
-          userPublicKey: SHIPYARD_KEYPAIR.publicKey.toBase58(),
-          wrapAndUnwrapSol: true,
-          dynamicComputeUnitLimit: true,
-          prioritizationFeeLamports: 'auto',
-        }),
+      // Get pool state
+      const poolState = await client.state.getPool(poolAddress);
+      console.log('Pool found, base mint:', poolState.baseMint.toBase58());
+
+      // Build swap transaction (buy base token with quote/SOL)
+      // inAmount is SOL (quote), we want to receive tokens (base)
+      const swapTx = await client.swap.swapQuoteToBase({
+        payer: SHIPYARD_KEYPAIR.publicKey,
+        pool: poolAddress,
+        amountIn: new BN(lamports),
+        minimumAmountOut: new BN(0), // Accept any amount (we'll check after)
+        referralTokenAccount: undefined,
       });
 
-      if (!swapRes.ok) {
-        const error = await swapRes.text();
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+      swapTx.recentBlockhash = blockhash;
+      swapTx.lastValidBlockHeight = lastValidBlockHeight;
+      swapTx.feePayer = SHIPYARD_KEYPAIR.publicKey;
+
+      const swapSignature = await sendAndConfirmTransaction(
+        connection,
+        swapTx,
+        [SHIPYARD_KEYPAIR],
+        { commitment: 'confirmed' }
+      );
+
+      console.log('Swap complete! Signature:', swapSignature);
+
+      // Step 4: Wait and get tokens received
+      console.log('Step 4: Checking tokens received...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      let tokensReceived = BigInt(0);
+      try {
+        const accountInfoAfter = await getAccount(connection, tokenAccount);
+        tokensReceived = accountInfoAfter.amount - tokenBalanceBefore;
+        console.log('Tokens received:', tokensReceived.toString());
+      } catch (e) {
+        console.error('Failed to get token balance after swap:', e);
         return NextResponse.json(
-          { success: false, error: `Jupiter swap build failed: ${error}` },
+          { success: false, error: 'Swap succeeded but failed to get token balance' },
           { status: 500, headers: corsHeaders }
         );
       }
-      swapData = await swapRes.json();
-      console.log('Swap transaction built');
-    } catch (swapBuildError) {
-      console.error('Jupiter swap build fetch failed:', swapBuildError);
+
+      if (tokensReceived <= BigInt(0)) {
+        return NextResponse.json(
+          { success: false, error: 'No tokens received from swap' },
+          { status: 500, headers: corsHeaders }
+        );
+      }
+
+      // Step 5: Burn the tokens
+      console.log('Step 5: Burning tokens...');
+      const burnIx = createBurnInstruction(
+        tokenAccount,
+        tokenMintPubkey,
+        SHIPYARD_KEYPAIR.publicKey,
+        tokensReceived,
+        [],
+        TOKEN_PROGRAM_ID
+      );
+
+      const burnTx = new Transaction().add(burnIx);
+      const { blockhash: burnBlockhash, lastValidBlockHeight: burnHeight } = await connection.getLatestBlockhash();
+      burnTx.recentBlockhash = burnBlockhash;
+      burnTx.lastValidBlockHeight = burnHeight;
+      burnTx.feePayer = SHIPYARD_KEYPAIR.publicKey;
+
+      const burnSignature = await sendAndConfirmTransaction(
+        connection,
+        burnTx,
+        [SHIPYARD_KEYPAIR],
+        { commitment: 'confirmed' }
+      );
+
+      console.log('Burn complete! Signature:', burnSignature);
+      console.log('=== BUYBACK + BURN COMPLETE ===');
+
+      return NextResponse.json({
+        success: true,
+        message: 'Buyback and burn complete!',
+        solUsed: solAmount,
+        tokensBurned: tokensReceived.toString(),
+        swapSignature,
+        burnSignature,
+        swapExplorer: `https://solscan.io/tx/${swapSignature}`,
+        burnExplorer: `https://solscan.io/tx/${burnSignature}`,
+      }, { headers: corsHeaders });
+
+    } catch (swapError) {
+      console.error('Meteora swap failed:', swapError);
       return NextResponse.json(
-        { success: false, error: `Jupiter swap build fetch failed: ${swapBuildError instanceof Error ? swapBuildError.message : 'Unknown'}` },
+        { success: false, error: `Meteora swap failed: ${swapError instanceof Error ? swapError.message : 'Unknown'}` },
         { status: 500, headers: corsHeaders }
       );
     }
 
-    const swapTx = Transaction.from(Buffer.from(swapData.swapTransaction, 'base64'));
-
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-    swapTx.recentBlockhash = blockhash;
-    swapTx.lastValidBlockHeight = lastValidBlockHeight;
-
-    swapTx.sign(SHIPYARD_KEYPAIR);
-
-    // Step 3: Execute swap
-    console.log('Executing swap...');
-    const swapSignature = await connection.sendRawTransaction(swapTx.serialize(), {
-      skipPreflight: false,
-      preflightCommitment: 'confirmed',
-    });
-
-    await connection.confirmTransaction(swapSignature, 'confirmed');
-    console.log('Swap complete! Signature:', swapSignature);
-
-    const tokensReceived = parseInt(quote.outAmount);
-
-    // Step 4: Wait for token account to update
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    // Step 5: Burn the tokens
-    console.log('Burning tokens...');
-    const tokenMintPubkey = new PublicKey(tokenMint);
-    const tokenAccount = await getAssociatedTokenAddress(tokenMintPubkey, SHIPYARD_KEYPAIR.publicKey);
-
-    const burnIx = createBurnInstruction(
-      tokenAccount,
-      tokenMintPubkey,
-      SHIPYARD_KEYPAIR.publicKey,
-      tokensReceived,
-      [],
-      TOKEN_PROGRAM_ID
-    );
-
-    const burnTx = new Transaction().add(burnIx);
-    const { blockhash: burnBlockhash, lastValidBlockHeight: burnHeight } = await connection.getLatestBlockhash();
-    burnTx.recentBlockhash = burnBlockhash;
-    burnTx.lastValidBlockHeight = burnHeight;
-    burnTx.feePayer = SHIPYARD_KEYPAIR.publicKey;
-
-    const burnSignature = await sendAndConfirmTransaction(
-      connection,
-      burnTx,
-      [SHIPYARD_KEYPAIR],
-      { commitment: 'confirmed' }
-    );
-
-    console.log('Burn complete! Signature:', burnSignature);
-    console.log('=== BUYBACK + BURN COMPLETE ===');
-
-    return NextResponse.json({
-      success: true,
-      message: 'Buyback and burn complete!',
-      solUsed: solAmount,
-      tokensBurned: tokensReceived,
-      swapSignature,
-      burnSignature,
-      swapExplorer: `https://solscan.io/tx/${swapSignature}`,
-      burnExplorer: `https://solscan.io/tx/${burnSignature}`,
-    }, { headers: corsHeaders });
   } catch (error) {
     console.error('Buyback-burn error:', error);
     return NextResponse.json(
