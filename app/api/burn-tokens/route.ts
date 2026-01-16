@@ -57,18 +57,23 @@ export async function POST(request: NextRequest) {
     const connection = new Connection(SOLANA_RPC, 'confirmed');
     const tokenMintPubkey = new PublicKey(tokenMint);
 
-    // Detect token program
+    console.log('Burn request for mint:', tokenMint);
+    console.log('Shipyard wallet:', SHIPYARD_KEYPAIR.publicKey.toBase58());
+
+    // Detect token program - try both Token and Token-2022
+    let tokenProgramId = TOKEN_PROGRAM_ID;
     const mintAccountInfo = await connection.getAccountInfo(tokenMintPubkey);
-    if (!mintAccountInfo) {
-      return NextResponse.json(
-        { success: false, error: 'Token mint not found' },
-        { status: 404 }
-      );
+    if (mintAccountInfo) {
+      tokenProgramId = mintAccountInfo.owner.equals(TOKEN_2022_PROGRAM_ID)
+        ? TOKEN_2022_PROGRAM_ID
+        : TOKEN_PROGRAM_ID;
+    } else {
+      // Mint not found with getAccountInfo, try Token-2022 explicitly
+      console.log('Mint not found via getAccountInfo, trying Token-2022...');
+      tokenProgramId = TOKEN_2022_PROGRAM_ID;
     }
 
-    const tokenProgramId = mintAccountInfo.owner.equals(TOKEN_2022_PROGRAM_ID)
-      ? TOKEN_2022_PROGRAM_ID
-      : TOKEN_PROGRAM_ID;
+    console.log('Using token program:', tokenProgramId.toBase58());
 
     // Get token account
     const tokenAccount = await getAssociatedTokenAddress(
