@@ -32,6 +32,9 @@ const BASELINE_BURNS: BurnEntry[] = [
   },
 ];
 
+// Known fees collected (lamports) - tracked from flywheel executions
+const BASELINE_FEES_LAMPORTS = 142000000; // 0.142 SOL
+
 // Cache for stats (refreshes every 5 minutes)
 let cachedStats: {
   feesCollectedLamports: number;
@@ -135,11 +138,15 @@ function buildResponse(burns: BurnEntry[], cached: boolean) {
     signature: burn.signature,
   }));
 
+  // Use baseline fees (we track burns on-chain but fees are recorded at execution time)
+  const feesCollectedLamports = BASELINE_FEES_LAMPORTS;
+  const feesCollectedSol = feesCollectedLamports / LAMPORTS_PER_SOL;
+
   return NextResponse.json({
     success: true,
     totals: {
-      feesCollectedSol: 0,
-      feesCollectedLamports: 0,
+      feesCollectedSol,
+      feesCollectedLamports,
       tokensBurned: totalTokensBurned.toString(),
       lpCompoundedSol: 0,
       lpCompoundedLamports: 0,

@@ -146,6 +146,7 @@ async function getLaunches(): Promise<Launch[]> {
 /**
  * Claim trading fees from a pool
  * Uses claimPartnerTradingFee2 which doesn't require tempWSolAcc
+ * Loops until all fees are claimed (handles batch limits)
  */
 async function claimFees(
   client: DynamicBondingCurveClient,
@@ -170,38 +171,78 @@ async function claimFees(
       };
     }
 
-    // Check balance before
+    // Check balance before all claims
     const balanceBefore = await connection.getBalance(keypair.publicKey);
-
-    // Claim max fees - use claimPartnerTradingFee2 which doesn't require tempWSolAcc
     const maxAmount = new BN('18446744073709551615');
 
-    const transaction = await client.partner.claimPartnerTradingFee2({
-      feeClaimer: keypair.publicKey,
-      payer: keypair.publicKey,
-      pool: poolAddress,
-      maxBaseAmount: maxAmount,
-      maxQuoteAmount: maxAmount,
-      receiver: keypair.publicKey,
-    });
+    let lastSignature: string | undefined;
+    let totalFeesThisRound = 0;
+    let batchCount = 0;
+    const maxBatches = 10; // Safety limit
 
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-    transaction.recentBlockhash = blockhash;
-    transaction.lastValidBlockHeight = lastValidBlockHeight;
-    transaction.feePayer = keypair.publicKey;
+    // Loop to claim all fees in batches
+    while (batchCount < maxBatches) {
+      batchCount++;
+      const batchBalanceBefore = await connection.getBalance(keypair.publicKey);
 
-    const signature = await sendAndConfirmTransaction(
-      connection,
-      transaction,
-      [keypair],
-      { commitment: 'confirmed' }
-    );
+      try {
+        const transaction = await client.partner.claimPartnerTradingFee2({
+          feeClaimer: keypair.publicKey,
+          payer: keypair.publicKey,
+          pool: poolAddress,
+          maxBaseAmount: maxAmount,
+          maxQuoteAmount: maxAmount,
+          receiver: keypair.publicKey,
+        });
 
-    // Check balance after
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+        transaction.recentBlockhash = blockhash;
+        transaction.lastValidBlockHeight = lastValidBlockHeight;
+        transaction.feePayer = keypair.publicKey;
+
+        lastSignature = await sendAndConfirmTransaction(
+          connection,
+          transaction,
+          [keypair],
+          { commitment: 'confirmed' }
+        );
+
+        // Check how much we got this batch
+        const batchBalanceAfter = await connection.getBalance(keypair.publicKey);
+        const batchFees = Math.max(0, batchBalanceAfter - batchBalanceBefore);
+
+        console.log(`Claim batch ${batchCount}: received ${batchFees / LAMPORTS_PER_SOL} SOL`);
+
+        // If we got nothing this batch, we're done
+        if (batchFees <= 0) {
+          console.log('No more fees to claim');
+          break;
+        }
+
+        totalFeesThisRound += batchFees;
+
+        // Small delay between batches
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } catch (e) {
+        // If the claim fails (e.g., no more fees), break out
+        const errorMsg = e instanceof Error ? e.message : 'Unknown error';
+        if (errorMsg.includes('insufficient') || errorMsg.includes('0x0')) {
+          console.log('No more fees to claim (transaction would fail)');
+          break;
+        }
+        throw e;
+      }
+    }
+
+    // Calculate total fees received
     const balanceAfter = await connection.getBalance(keypair.publicKey);
     const feesReceived = Math.max(0, balanceAfter - balanceBefore);
 
-    return { success: true, signature, feesReceived };
+    if (batchCount > 1) {
+      console.log(`Claimed fees in ${batchCount} batches, total: ${feesReceived / LAMPORTS_PER_SOL} SOL`);
+    }
+
+    return { success: true, signature: lastSignature, feesReceived };
   } catch (error) {
     return {
       success: false,
