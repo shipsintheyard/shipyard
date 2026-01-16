@@ -75,24 +75,49 @@ export async function POST(request: NextRequest) {
 
     console.log('Using token program:', tokenProgramId.toBase58());
 
-    // Get token account
-    const tokenAccount = await getAssociatedTokenAddress(
+    // Try to find token account - check both Token and Token-2022 ATAs
+    let tokenAccount: PublicKey;
+    let balance: bigint = BigInt(0);
+    let actualTokenProgramId = tokenProgramId;
+
+    // First try with detected program
+    tokenAccount = await getAssociatedTokenAddress(
       tokenMintPubkey,
       SHIPYARD_KEYPAIR.publicKey,
       false,
       tokenProgramId
     );
+    console.log('Trying token account:', tokenAccount.toBase58());
 
-    // Get current balance
-    let balance: bigint;
     try {
       const accountInfo = await getAccount(connection, tokenAccount, 'confirmed', tokenProgramId);
       balance = accountInfo.amount;
-    } catch {
-      return NextResponse.json(
-        { success: false, error: 'No token account found or zero balance' },
-        { status: 404 }
+      console.log('Found balance with', tokenProgramId.equals(TOKEN_2022_PROGRAM_ID) ? 'Token-2022' : 'Token', ':', balance.toString());
+    } catch (e) {
+      console.log('Not found with primary program, trying alternate...');
+
+      // Try the other program
+      const altProgramId = tokenProgramId.equals(TOKEN_2022_PROGRAM_ID) ? TOKEN_PROGRAM_ID : TOKEN_2022_PROGRAM_ID;
+      const altTokenAccount = await getAssociatedTokenAddress(
+        tokenMintPubkey,
+        SHIPYARD_KEYPAIR.publicKey,
+        false,
+        altProgramId
       );
+      console.log('Trying alternate token account:', altTokenAccount.toBase58());
+
+      try {
+        const accountInfo = await getAccount(connection, altTokenAccount, 'confirmed', altProgramId);
+        balance = accountInfo.amount;
+        tokenAccount = altTokenAccount;
+        actualTokenProgramId = altProgramId;
+        console.log('Found balance with alternate program:', balance.toString());
+      } catch {
+        return NextResponse.json(
+          { success: false, error: 'No token account found with either Token or Token-2022 program' },
+          { status: 404 }
+        );
+      }
     }
 
     if (balance <= BigInt(0)) {
@@ -104,14 +129,14 @@ export async function POST(request: NextRequest) {
 
     console.log(`Burning ${balance.toString()} tokens of mint ${tokenMint}`);
 
-    // Create burn instruction
+    // Create burn instruction using the actual program where we found the tokens
     const burnIx = createBurnInstruction(
       tokenAccount,
       tokenMintPubkey,
       SHIPYARD_KEYPAIR.publicKey,
       balance,
       [],
-      tokenProgramId
+      actualTokenProgramId
     );
 
     const transaction = new Transaction().add(burnIx);
