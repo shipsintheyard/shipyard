@@ -12,6 +12,8 @@ import {
   getAssociatedTokenAddress,
   createBurnInstruction,
   TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
+  getAccount,
 } from '@solana/spl-token';
 import BN from 'bn.js';
 import bs58 from 'bs58';
@@ -30,7 +32,7 @@ import path from 'path';
 //    - Navigator (80% LP / 20% Burn)
 //    - Lighthouse (50% LP / 50% Creator - no burn)
 //    - Supernova (25% LP / 75% Burn)
-// 4. Executes buyback via Jupiter and burns tokens
+// 4. Executes buyback via Meteora DBC pool and burns tokens
 //
 // Call this via Vercel Cron or external scheduler
 // ============================================================
@@ -40,11 +42,6 @@ const LAUNCHES_FILE = path.join(process.cwd(), 'data', 'launches.json');
 
 // Cron secret for security (set in Vercel env)
 const CRON_SECRET = process.env.CRON_SECRET;
-
-// Jupiter API
-const JUPITER_QUOTE_API = 'https://quote-api.jup.ag/v6/quote';
-const JUPITER_SWAP_API = 'https://quote-api.jup.ag/v6/swap';
-const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
 
 function getShipyardKeypair(): Keypair | null {
   const key = process.env.SHIPYARD_PRIVATE_KEY;
@@ -85,7 +82,7 @@ interface FlywheelResult {
   feesClaimed: number;
   feesClaimedSol: number;
   burnAmount: number;
-  tokensBurned: number;
+  tokensBurned: string; // Changed to string for bigint serialization
   claimSignature?: string;
   buybackSignature?: string;
   burnSignature?: string;
@@ -160,75 +157,88 @@ async function claimFees(
 }
 
 /**
- * Execute buyback via Jupiter
+ * Execute buyback via Meteora DBC pool (swap SOL for tokens)
  */
 async function executeBuyback(
+  client: DynamicBondingCurveClient,
   connection: Connection,
-  tokenMint: string,
+  poolAddress: PublicKey,
+  tokenMint: PublicKey,
   amountLamports: number,
   keypair: Keypair
-): Promise<{ success: boolean; signature?: string; tokensReceived: number; error?: string }> {
+): Promise<{ success: boolean; signature?: string; tokensReceived: bigint; tokenProgramId: PublicKey; error?: string }> {
   try {
     if (amountLamports < 1000000) { // Min 0.001 SOL
-      return { success: false, tokensReceived: 0, error: 'Amount too small' };
+      return { success: false, tokensReceived: BigInt(0), tokenProgramId: TOKEN_PROGRAM_ID, error: 'Amount too small' };
     }
 
-    // Get Jupiter quote
-    const quoteParams = new URLSearchParams({
-      inputMint: WSOL_MINT.toBase58(),
-      outputMint: tokenMint,
-      amount: amountLamports.toString(),
-      slippageBps: '100',
+    // Detect token program (Token vs Token-2022)
+    const mintAccountInfo = await connection.getAccountInfo(tokenMint);
+    const tokenProgramId = mintAccountInfo?.owner.equals(TOKEN_2022_PROGRAM_ID)
+      ? TOKEN_2022_PROGRAM_ID
+      : TOKEN_PROGRAM_ID;
+
+    // Get token account
+    const tokenAccount = await getAssociatedTokenAddress(
+      tokenMint,
+      keypair.publicKey,
+      false,
+      tokenProgramId
+    );
+
+    // Get balance before swap
+    let tokenBalanceBefore = BigInt(0);
+    try {
+      const accountInfo = await getAccount(connection, tokenAccount, 'confirmed', tokenProgramId);
+      tokenBalanceBefore = accountInfo.amount;
+    } catch {
+      // Account doesn't exist yet, will be created by swap
+    }
+
+    // Execute swap on Meteora DBC (buy tokens with SOL)
+    const swapTx = await client.pool.swap({
+      owner: keypair.publicKey,
+      pool: poolAddress,
+      amountIn: new BN(amountLamports),
+      minimumAmountOut: new BN(0),
+      swapBaseForQuote: false, // false = buy base token with quote (SOL)
+      referralTokenAccount: null,
     });
-
-    const quoteRes = await fetch(`${JUPITER_QUOTE_API}?${quoteParams}`);
-    if (!quoteRes.ok) {
-      return { success: false, tokensReceived: 0, error: 'Jupiter quote failed' };
-    }
-    const quote = await quoteRes.json();
-
-    // Get swap transaction
-    const swapRes = await fetch(JUPITER_SWAP_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        quoteResponse: quote,
-        userPublicKey: keypair.publicKey.toBase58(),
-        wrapAndUnwrapSol: true,
-        dynamicComputeUnitLimit: true,
-        prioritizationFeeLamports: 'auto',
-      }),
-    });
-
-    if (!swapRes.ok) {
-      return { success: false, tokensReceived: 0, error: 'Jupiter swap failed' };
-    }
-
-    const swapData = await swapRes.json();
-    const transaction = Transaction.from(Buffer.from(swapData.swapTransaction, 'base64'));
 
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-    transaction.recentBlockhash = blockhash;
-    transaction.lastValidBlockHeight = lastValidBlockHeight;
+    swapTx.recentBlockhash = blockhash;
+    swapTx.lastValidBlockHeight = lastValidBlockHeight;
+    swapTx.feePayer = keypair.publicKey;
 
-    transaction.sign(keypair);
+    const signature = await sendAndConfirmTransaction(
+      connection,
+      swapTx,
+      [keypair],
+      { commitment: 'confirmed' }
+    );
 
-    const signature = await connection.sendRawTransaction(transaction.serialize(), {
-      skipPreflight: false,
-      preflightCommitment: 'confirmed',
-    });
+    // Wait and get tokens received
+    await new Promise(resolve => setTimeout(resolve, 2000));
 
-    await connection.confirmTransaction(signature, 'confirmed');
+    let tokensReceived = BigInt(0);
+    try {
+      const accountInfoAfter = await getAccount(connection, tokenAccount, 'confirmed', tokenProgramId);
+      tokensReceived = accountInfoAfter.amount - tokenBalanceBefore;
+    } catch (e) {
+      return { success: false, tokensReceived: BigInt(0), tokenProgramId, error: 'Swap succeeded but failed to get token balance' };
+    }
 
     return {
       success: true,
       signature,
-      tokensReceived: parseInt(quote.outAmount),
+      tokensReceived,
+      tokenProgramId,
     };
   } catch (error) {
     return {
       success: false,
-      tokensReceived: 0,
+      tokensReceived: BigInt(0),
+      tokenProgramId: TOKEN_PROGRAM_ID,
       error: error instanceof Error ? error.message : 'Unknown error',
     };
   }
@@ -240,15 +250,21 @@ async function executeBuyback(
 async function burnTokens(
   connection: Connection,
   tokenMint: PublicKey,
-  amount: number,
-  keypair: Keypair
+  amount: bigint,
+  keypair: Keypair,
+  tokenProgramId: PublicKey
 ): Promise<{ success: boolean; signature?: string; error?: string }> {
   try {
-    if (amount <= 0) {
+    if (amount <= BigInt(0)) {
       return { success: false, error: 'No amount' };
     }
 
-    const tokenAccount = await getAssociatedTokenAddress(tokenMint, keypair.publicKey);
+    const tokenAccount = await getAssociatedTokenAddress(
+      tokenMint,
+      keypair.publicKey,
+      false,
+      tokenProgramId
+    );
 
     const burnIx = createBurnInstruction(
       tokenAccount,
@@ -256,7 +272,7 @@ async function burnTokens(
       keypair.publicKey,
       amount,
       [],
-      TOKEN_PROGRAM_ID
+      tokenProgramId
     );
 
     const transaction = new Transaction().add(burnIx);
@@ -298,7 +314,7 @@ async function processPool(
     feesClaimed: 0,
     feesClaimedSol: 0,
     burnAmount: 0,
-    tokensBurned: 0,
+    tokensBurned: '0',
   };
 
   try {
@@ -342,10 +358,15 @@ async function processPool(
     result.burnAmount = Math.floor(result.feesClaimed * (burnPercent / 100));
     console.log(`Burn amount: ${result.burnAmount / LAMPORTS_PER_SOL} SOL (${burnPercent}%)`);
 
-    // Step 3: Execute buyback
+    // Step 3: Execute buyback via Meteora DBC
+    const poolAddress = new PublicKey(launch.poolAddress);
+    const tokenMint = new PublicKey(launch.tokenMint);
+
     const buybackResult = await executeBuyback(
+      client,
       connection,
-      launch.tokenMint,
+      poolAddress,
+      tokenMint,
       result.burnAmount,
       keypair
     );
@@ -357,19 +378,17 @@ async function processPool(
     }
 
     result.buybackSignature = buybackResult.signature;
-    result.tokensBurned = buybackResult.tokensReceived;
+    result.tokensBurned = buybackResult.tokensReceived.toString();
 
     console.log(`Bought ${result.tokensBurned} tokens`);
 
     // Step 4: Burn tokens
-    // Wait for token account to update
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
     const burnResult = await burnTokens(
       connection,
-      new PublicKey(launch.tokenMint),
-      result.tokensBurned,
-      keypair
+      tokenMint,
+      buybackResult.tokensReceived,
+      keypair,
+      buybackResult.tokenProgramId
     );
 
     if (!burnResult.success) {
@@ -448,7 +467,7 @@ export async function GET(request: NextRequest) {
 
     // Summary
     const totalFeesClaimed = results.reduce((sum, r) => sum + r.feesClaimed, 0);
-    const totalBurned = results.reduce((sum, r) => sum + r.tokensBurned, 0);
+    const totalBurned = results.reduce((sum, r) => sum + BigInt(r.tokensBurned), BigInt(0));
     const successCount = results.filter(r => !r.error).length;
 
     console.log(`\n========================================`);
@@ -464,7 +483,7 @@ export async function GET(request: NextRequest) {
         poolsProcessed: results.length,
         successCount,
         totalFeesClaimedSol: totalFeesClaimed / LAMPORTS_PER_SOL,
-        totalTokensBurned: totalBurned,
+        totalTokensBurned: totalBurned.toString(),
       },
       results,
     });
