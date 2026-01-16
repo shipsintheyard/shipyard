@@ -2027,14 +2027,14 @@ export default function ShipyardPlatform() {
                 fontWeight: 'bold'
               }}>✓</div>
               <span style={{ fontSize: '11px', color: '#88c0ff', letterSpacing: '1px' }}>SEAWORTHY CERTIFIED</span>
-              <span style={{ fontSize: '10px', color: '#4a5568' }}>0% extraction • LP locked • auto-compound</span>
+              <span style={{ fontSize: '10px', color: '#4a5568' }}>0% extraction • LP locked • buyback + burn</span>
             </div>
 
             {/* Stats */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', marginBottom: '28px' }}>
               {[
-                { label: 'TOTAL COMPOUNDED', value: `${flywheelStats.totals.feesCollectedSol.toFixed(2)} SOL`, sub: `${flywheelStats.totals.executionCount} executions`, color: '#88c0ff' },
-                { label: 'LP ADDED', value: `${flywheelStats.totals.lpCompoundedSol.toFixed(2)} SOL`, sub: 'from fee split', color: '#88c0ff' },
+                { label: 'FEES SAVED', value: `${flywheelStats.totals.feesCollectedSol.toFixed(2)} SOL`, sub: `${flywheelStats.totals.executionCount} executions`, color: '#7ee787' },
+                { label: 'BUYBACK VALUE', value: `${flywheelStats.totals.lpCompoundedSol.toFixed(2)} SOL`, sub: 'reinvested', color: '#88c0ff' },
                 { label: 'TOKENS BURNED', value: BigInt(flywheelStats.totals.tokensBurned) > 1000000n ? `${(Number(flywheelStats.totals.tokensBurned) / 1000000).toFixed(1)}M` : Number(flywheelStats.totals.tokensBurned).toLocaleString(), sub: 'buyback + burn', color: '#f97316' },
                 { label: 'LP DEPTH', value: '$--', sub: 'coming soon', color: '#7ee787' }
               ].map((stat, i) => (
@@ -2083,7 +2083,7 @@ export default function ShipyardPlatform() {
                         fontSize: '16px'
                       }}>⭐</div>
                       <div>
-                        <div style={{ fontSize: '13px', color: '#fff', fontWeight: '600' }}>{entry.amount} compounded</div>
+                        <div style={{ fontSize: '13px', color: '#fff', fontWeight: '600' }}>{entry.amount} saved</div>
                         <div style={{ fontSize: '10px', color: '#4a5568' }}>{entry.time} • ${entry.symbol}</div>
                       </div>
                     </div>
