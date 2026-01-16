@@ -14,6 +14,13 @@ import {
 } from '@solana/spl-token';
 import bs58 from 'bs58';
 
+// CORS headers for cross-origin requests
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
 // ============================================================
 // MANUAL BUYBACK & BURN
 // ============================================================
@@ -25,14 +32,24 @@ import bs58 from 'bs58';
 
 const SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 
-const SHIPYARD_PRIVATE_KEY = process.env.SHIPYARD_PRIVATE_KEY;
-const SHIPYARD_KEYPAIR = SHIPYARD_PRIVATE_KEY
-  ? Keypair.fromSecretKey(bs58.decode(SHIPYARD_PRIVATE_KEY))
-  : null;
-
 const JUPITER_QUOTE_API = 'https://quote-api.jup.ag/v6/quote';
 const JUPITER_SWAP_API = 'https://quote-api.jup.ag/v6/swap';
 const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
+
+function getShipyardKeypair(): Keypair | null {
+  const key = process.env.SHIPYARD_PRIVATE_KEY;
+  if (!key) return null;
+  try {
+    return Keypair.fromSecretKey(bs58.decode(key));
+  } catch {
+    return null;
+  }
+}
+
+// Handle CORS preflight
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders });
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -41,21 +58,22 @@ export async function POST(request: NextRequest) {
     if (!body.tokenMint) {
       return NextResponse.json(
         { success: false, error: 'tokenMint is required' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       );
     }
 
     if (!body.solAmount || body.solAmount <= 0) {
       return NextResponse.json(
         { success: false, error: 'solAmount is required (in SOL)' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       );
     }
 
+    const SHIPYARD_KEYPAIR = getShipyardKeypair();
     if (!SHIPYARD_KEYPAIR) {
       return NextResponse.json(
-        { success: false, error: 'SHIPYARD_PRIVATE_KEY not configured' },
-        { status: 500 }
+        { success: false, error: 'SHIPYARD_PRIVATE_KEY not configured or invalid' },
+        { status: 500, headers: corsHeaders }
       );
     }
 
@@ -74,7 +92,7 @@ export async function POST(request: NextRequest) {
     if (balance < lamports + 10000000) { // +0.01 for fees
       return NextResponse.json(
         { success: false, error: `Insufficient balance. Have ${balance / LAMPORTS_PER_SOL} SOL, need ${solAmount + 0.01} SOL` },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       );
     }
 
@@ -92,7 +110,7 @@ export async function POST(request: NextRequest) {
       const error = await quoteRes.text();
       return NextResponse.json(
         { success: false, error: `Jupiter quote failed: ${error}` },
-        { status: 500 }
+        { status: 500, headers: corsHeaders }
       );
     }
     const quote = await quoteRes.json();
@@ -116,7 +134,7 @@ export async function POST(request: NextRequest) {
       const error = await swapRes.text();
       return NextResponse.json(
         { success: false, error: `Jupiter swap failed: ${error}` },
-        { status: 500 }
+        { status: 500, headers: corsHeaders }
       );
     }
 
@@ -183,12 +201,12 @@ export async function POST(request: NextRequest) {
       burnSignature,
       swapExplorer: `https://solscan.io/tx/${swapSignature}`,
       burnExplorer: `https://solscan.io/tx/${burnSignature}`,
-    });
+    }, { headers: corsHeaders });
   } catch (error) {
     console.error('Buyback-burn error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
+      { status: 500, headers: corsHeaders }
     );
   }
 }
