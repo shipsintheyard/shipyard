@@ -927,7 +927,7 @@ export default function ShipyardPlatform() {
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '18px' }}>
                     {[
-                      { check: '0% dev extraction', desc: 'Money stays in the game' },
+                      { check: '0% extraction', desc: 'Money stays in the game' },
                       { check: '100% LP locked forever', desc: 'No rugs. Period.' },
                       { check: 'Immutable metadata', desc: "Can't change name or mint more" },
                       { check: 'Auto-compound forever', desc: 'Fees → LP + Burns, on autopilot' }
@@ -2027,7 +2027,7 @@ export default function ShipyardPlatform() {
                 fontWeight: 'bold'
               }}>✓</div>
               <span style={{ fontSize: '11px', color: '#88c0ff', letterSpacing: '1px' }}>SEAWORTHY CERTIFIED</span>
-              <span style={{ fontSize: '10px', color: '#4a5568' }}>0% dev • LP locked • auto-compound</span>
+              <span style={{ fontSize: '10px', color: '#4a5568' }}>0% extraction • LP locked • auto-compound</span>
             </div>
 
             {/* Stats */}
@@ -2137,7 +2137,7 @@ export default function ShipyardPlatform() {
                     <div style={{ width: '22px', height: '22px', background: 'linear-gradient(135deg, #88c0ff, #5a9fd4)', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0f1419', fontSize: '11px', fontWeight: 'bold' }}>✓</div>
                     <div>
                       <div style={{ fontSize: '10px', color: '#88c0ff' }}>SEAWORTHY</div>
-                      <div style={{ fontSize: '9px', color: '#4a5568' }}>0% dev • locked LP</div>
+                      <div style={{ fontSize: '9px', color: '#4a5568' }}>0% extraction • locked LP</div>
                     </div>
                   </div>
                 ), code: '<script src="shipyard.xyz/badge.js" data-token="STAR" />' },
@@ -2276,7 +2276,7 @@ export default function ShipyardPlatform() {
                       </h3>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                         {[
-                          { icon: '🔒', text: '0% dev extraction' },
+                          { icon: '🔒', text: '0% extraction' },
                           { icon: '♾️', text: '100% LP locked forever' },
                           { icon: '🛡️', text: 'Immutable metadata' },
                           { icon: '⚡', text: 'Auto-compounding fees' },
@@ -2332,7 +2332,7 @@ export default function ShipyardPlatform() {
                         {
                           step: '02',
                           title: 'Choose Your Split',
-                          desc: 'Select how trading fees get reinvested — more LP (liquidity) or more burns (deflation). All options have 0% dev extraction.'
+                          desc: 'Select how trading fees get reinvested — more LP (liquidity) or more burns (deflation). All options have 0% extraction.'
                         },
                         {
                           step: '03',
@@ -2500,7 +2500,7 @@ export default function ShipyardPlatform() {
                         <div style={{ width: '24px', height: '24px', background: 'linear-gradient(135deg, #88c0ff, #5a9fd4)', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0f1419', fontSize: '14px', fontWeight: 'bold' }}>✓</div>
                         <div>
                           <div style={{ fontSize: '12px', color: '#88c0ff', fontWeight: '600' }}>SEAWORTHY CERTIFIED</div>
-                          <div style={{ fontSize: '10px', color: '#6e7b8b' }}>0% dev extraction • LP locked forever</div>
+                          <div style={{ fontSize: '10px', color: '#6e7b8b' }}>0% extraction • LP locked forever</div>
                         </div>
                       </div>
                       <p style={{ fontSize: '13px', color: '#8b949e' }}>
