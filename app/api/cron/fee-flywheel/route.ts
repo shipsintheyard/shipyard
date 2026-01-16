@@ -272,15 +272,34 @@ async function executeBuyback(
       { commitment: 'confirmed' }
     );
 
-    // Wait and get tokens received
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
+    // Wait and get tokens received with retries
     let tokensReceived = BigInt(0);
-    try {
-      const accountInfoAfter = await getAccount(connection, tokenAccount, 'confirmed', tokenProgramId);
-      tokensReceived = accountInfoAfter.amount - tokenBalanceBefore;
-    } catch (e) {
-      return { success: false, tokensReceived: BigInt(0), tokenProgramId, error: 'Swap succeeded but failed to get token balance' };
+    let retries = 5;
+
+    while (retries > 0) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      try {
+        const accountInfoAfter = await getAccount(connection, tokenAccount, 'confirmed', tokenProgramId);
+        tokensReceived = accountInfoAfter.amount - tokenBalanceBefore;
+        if (tokensReceived > BigInt(0)) {
+          break;
+        }
+        console.log(`Token balance check retry ${6 - retries}/5, balance: ${accountInfoAfter.amount.toString()}`);
+      } catch (e) {
+        console.log(`Token account fetch retry ${6 - retries}/5, error:`, e instanceof Error ? e.message : 'unknown');
+      }
+      retries--;
+    }
+
+    if (tokensReceived <= BigInt(0)) {
+      // Last attempt - check if maybe the account just has tokens now (first swap)
+      try {
+        const finalCheck = await getAccount(connection, tokenAccount, 'finalized', tokenProgramId);
+        tokensReceived = finalCheck.amount; // If this is a new account, all tokens are from this swap
+        console.log(`Final check found balance: ${tokensReceived.toString()}`);
+      } catch {
+        return { success: false, signature, tokensReceived: BigInt(0), tokenProgramId, error: 'Swap succeeded but failed to get token balance after retries' };
+      }
     }
 
     return {
