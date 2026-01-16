@@ -86,9 +86,21 @@ export async function POST(request: NextRequest) {
     console.log('Token:', tokenMint);
     console.log('SOL Amount:', solAmount);
     console.log('Lamports:', lamports);
+    console.log('RPC:', SOLANA_RPC.substring(0, 50) + '...');
 
     // Check wallet balance
-    const balance = await connection.getBalance(SHIPYARD_KEYPAIR.publicKey);
+    console.log('Step 1: Checking balance...');
+    let balance: number;
+    try {
+      balance = await connection.getBalance(SHIPYARD_KEYPAIR.publicKey);
+      console.log('Balance:', balance / LAMPORTS_PER_SOL, 'SOL');
+    } catch (rpcError) {
+      console.error('RPC getBalance failed:', rpcError);
+      return NextResponse.json(
+        { success: false, error: `RPC connection failed: ${rpcError instanceof Error ? rpcError.message : 'Unknown'}` },
+        { status: 500, headers: corsHeaders }
+      );
+    }
     if (balance < lamports + 10000000) { // +0.01 for fees
       return NextResponse.json(
         { success: false, error: `Insufficient balance. Have ${balance / LAMPORTS_PER_SOL} SOL, need ${solAmount + 0.01} SOL` },
@@ -96,8 +108,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Step 1: Get Jupiter quote
-    console.log('Getting Jupiter quote...');
+    // Step 2: Get Jupiter quote
+    console.log('Step 2: Getting Jupiter quote...');
     const quoteParams = new URLSearchParams({
       inputMint: WSOL_MINT.toBase58(),
       outputMint: tokenMint,
@@ -105,40 +117,59 @@ export async function POST(request: NextRequest) {
       slippageBps: '100',
     });
 
-    const quoteRes = await fetch(`${JUPITER_QUOTE_API}?${quoteParams}`);
-    if (!quoteRes.ok) {
-      const error = await quoteRes.text();
+    let quote;
+    try {
+      const quoteRes = await fetch(`${JUPITER_QUOTE_API}?${quoteParams}`);
+      if (!quoteRes.ok) {
+        const error = await quoteRes.text();
+        return NextResponse.json(
+          { success: false, error: `Jupiter quote failed: ${error}` },
+          { status: 500, headers: corsHeaders }
+        );
+      }
+      quote = await quoteRes.json();
+      console.log('Quote received. Expected tokens:', quote.outAmount);
+    } catch (quoteError) {
+      console.error('Jupiter quote fetch failed:', quoteError);
       return NextResponse.json(
-        { success: false, error: `Jupiter quote failed: ${error}` },
-        { status: 500, headers: corsHeaders }
-      );
-    }
-    const quote = await quoteRes.json();
-    console.log('Quote received. Expected tokens:', quote.outAmount);
-
-    // Step 2: Get swap transaction
-    console.log('Building swap transaction...');
-    const swapRes = await fetch(JUPITER_SWAP_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        quoteResponse: quote,
-        userPublicKey: SHIPYARD_KEYPAIR.publicKey.toBase58(),
-        wrapAndUnwrapSol: true,
-        dynamicComputeUnitLimit: true,
-        prioritizationFeeLamports: 'auto',
-      }),
-    });
-
-    if (!swapRes.ok) {
-      const error = await swapRes.text();
-      return NextResponse.json(
-        { success: false, error: `Jupiter swap failed: ${error}` },
+        { success: false, error: `Jupiter quote fetch failed: ${quoteError instanceof Error ? quoteError.message : 'Unknown'}` },
         { status: 500, headers: corsHeaders }
       );
     }
 
-    const swapData = await swapRes.json();
+    // Step 3: Get swap transaction
+    console.log('Step 3: Building swap transaction...');
+    let swapData;
+    try {
+      const swapRes = await fetch(JUPITER_SWAP_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          quoteResponse: quote,
+          userPublicKey: SHIPYARD_KEYPAIR.publicKey.toBase58(),
+          wrapAndUnwrapSol: true,
+          dynamicComputeUnitLimit: true,
+          prioritizationFeeLamports: 'auto',
+        }),
+      });
+
+      if (!swapRes.ok) {
+        const error = await swapRes.text();
+        return NextResponse.json(
+          { success: false, error: `Jupiter swap build failed: ${error}` },
+          { status: 500, headers: corsHeaders }
+        );
+      }
+      swapData = await swapRes.json();
+      console.log('Swap transaction built');
+    } catch (swapBuildError) {
+      console.error('Jupiter swap build fetch failed:', swapBuildError);
+      return NextResponse.json(
+        { success: false, error: `Jupiter swap build fetch failed: ${swapBuildError instanceof Error ? swapBuildError.message : 'Unknown'}` },
+        { status: 500, headers: corsHeaders }
+      );
+    }
+
     const swapTx = Transaction.from(Buffer.from(swapData.swapTransaction, 'base64'));
 
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
