@@ -160,14 +160,17 @@ function buildResponse(burns: BurnEntry[], cached: boolean) {
 
 export async function GET() {
   try {
-    // Check cache
+    // Check cache first - avoids RPC calls entirely if cache is fresh
     if (cachedStats && Date.now() - cachedStats.lastUpdated < CACHE_TTL) {
       return buildResponse(cachedStats.burns, true);
     }
 
     // Try to fetch fresh stats from blockchain
+    let burns: BurnEntry[] = [];
+    let usedBaseline = true;
+
     try {
-      const burns = await fetchBurnsFromBlockchain();
+      burns = await fetchBurnsFromBlockchain();
 
       // Only update cache if we got results
       if (burns.length > 0) {
@@ -177,24 +180,27 @@ export async function GET() {
         }
 
         cachedStats = {
-          feesCollectedLamports: 0,
+          feesCollectedLamports: BASELINE_FEES_LAMPORTS,
           tokensBurned: totalTokensBurned.toString(),
           executionCount: burns.length,
           lastUpdated: Date.now(),
           burns,
         };
-
-        return buildResponse(burns, false);
+        usedBaseline = false;
       }
     } catch (rpcError) {
       console.error('RPC error, using baseline:', rpcError);
     }
 
-    // Fallback to baseline if RPC fails or returns nothing
-    return buildResponse(BASELINE_BURNS, true);
+    // Use baseline if RPC failed or returned nothing
+    if (usedBaseline || burns.length === 0) {
+      burns = BASELINE_BURNS;
+    }
+
+    return buildResponse(burns, usedBaseline);
   } catch (error) {
-    console.error('Failed to get flywheel stats:', error);
-    // Return baseline on any error
+    // Ultimate fallback - always return valid response with baseline data
+    console.error('Unexpected error in flywheel-stats:', error);
     return buildResponse(BASELINE_BURNS, true);
   }
 }
