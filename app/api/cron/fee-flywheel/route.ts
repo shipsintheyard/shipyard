@@ -145,6 +145,7 @@ async function getLaunches(): Promise<Launch[]> {
 
 /**
  * Claim trading fees from a pool
+ * Uses claimPartnerTradingFee2 which doesn't require tempWSolAcc
  */
 async function claimFees(
   client: DynamicBondingCurveClient,
@@ -157,17 +158,26 @@ async function claimFees(
     const configState = await client.state.getPoolConfig(poolState.config);
 
     if (!configState.feeClaimer) {
-      return { success: false, feesReceived: 0, error: 'No fee claimer' };
+      return { success: false, feesReceived: 0, error: 'No fee claimer configured' };
+    }
+
+    // Verify we are the fee claimer
+    if (!configState.feeClaimer.equals(keypair.publicKey)) {
+      return {
+        success: false,
+        feesReceived: 0,
+        error: `Fee claimer mismatch: expected ${keypair.publicKey.toBase58()}, got ${configState.feeClaimer.toBase58()}`
+      };
     }
 
     // Check balance before
     const balanceBefore = await connection.getBalance(keypair.publicKey);
 
-    // Claim max fees
+    // Claim max fees - use claimPartnerTradingFee2 which doesn't require tempWSolAcc
     const maxAmount = new BN('18446744073709551615');
 
-    const transaction = await client.partner.claimPartnerTradingFee({
-      feeClaimer: configState.feeClaimer,
+    const transaction = await client.partner.claimPartnerTradingFee2({
+      feeClaimer: keypair.publicKey,
       payer: keypair.publicKey,
       pool: poolAddress,
       maxBaseAmount: maxAmount,
