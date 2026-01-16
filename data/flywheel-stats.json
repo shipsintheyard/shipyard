@@ -1,8 +1,32 @@
 {
-  "totalFeesCollectedLamports": 0,
-  "totalTokensBurned": "0",
+  "totalFeesCollectedLamports": 142000000,
+  "totalTokensBurned": "2297910217205736",
   "totalLpCompoundedLamports": 0,
-  "executionCount": 0,
-  "lastExecution": null,
-  "history": []
+  "executionCount": 2,
+  "lastExecution": "2026-01-15T00:00:00.000Z",
+  "history": [
+    {
+      "timestamp": "2026-01-15T00:00:00.000Z",
+      "pool": "EKfF4KDd5JdcvKTQEJ4EbqQvwqo8GJB8MKj7S3YKRvXq",
+      "symbol": "BOOTY",
+      "engine": "supernova",
+      "feesClaimedLamports": 134000000,
+      "feesClaimedSol": 0.134,
+      "lpCompoundedLamports": 0,
+      "burnAmountLamports": 134000000,
+      "tokensBurned": "2297910217205736",
+      "burnSignature": "3kht71McZTLpaJKG6nBS4GueAUxNpgrh6JC3uaDtPkkjzYP8Scskh4RAprHYrCZ8GYD8MRWTYMzq3eHZJM1tZwpV"
+    },
+    {
+      "timestamp": "2026-01-14T23:00:00.000Z",
+      "pool": "EKfF4KDd5JdcvKTQEJ4EbqQvwqo8GJB8MKj7S3YKRvXq",
+      "symbol": "BOOTY",
+      "engine": "supernova",
+      "feesClaimedLamports": 8000000,
+      "feesClaimedSol": 0.008,
+      "lpCompoundedLamports": 0,
+      "burnAmountLamports": 0,
+      "tokensBurned": "0"
+    }
+  ]
 }
