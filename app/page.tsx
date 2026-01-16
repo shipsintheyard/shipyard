@@ -61,6 +61,28 @@ export default function ShipyardPlatform() {
   // Platform stats (fetched from launches API)
   const [platformStats, setPlatformStats] = useState({ totalLaunches: 0, totalSolRaised: 0 });
 
+  // Flywheel stats (fetched from flywheel-stats API)
+  const [flywheelStats, setFlywheelStats] = useState<{
+    totals: {
+      feesCollectedSol: number;
+      tokensBurned: string;
+      lpCompoundedSol: number;
+      executionCount: number;
+    };
+    recentActivity: Array<{
+      time: string;
+      symbol: string;
+      amount: string;
+      lp: string;
+      burn: string;
+      tx: string;
+      burnSignature?: string;
+    }>;
+  }>({
+    totals: { feesCollectedSol: 0, tokensBurned: '0', lpCompoundedSol: 0, executionCount: 0 },
+    recentActivity: [],
+  });
+
   // Fetch platform stats on mount
   useEffect(() => {
     const fetchStats = async () => {
@@ -78,6 +100,25 @@ export default function ShipyardPlatform() {
       }
     };
     fetchStats();
+  }, []);
+
+  // Fetch flywheel stats on mount
+  useEffect(() => {
+    const fetchFlywheelStats = async () => {
+      try {
+        const res = await fetch('/api/flywheel-stats');
+        const data = await res.json();
+        if (data.success) {
+          setFlywheelStats({
+            totals: data.totals,
+            recentActivity: data.recentActivity || [],
+          });
+        }
+      } catch {
+        // Keep default stats on error
+      }
+    };
+    fetchFlywheelStats();
   }, []);
 
   // Start vanity address grinding (client-side with parallel workers)
@@ -1992,10 +2033,10 @@ export default function ShipyardPlatform() {
             {/* Stats */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', marginBottom: '28px' }}>
               {[
-                { label: 'TOTAL COMPOUNDED', value: '24.5 SOL', sub: '+3.2 today', color: '#88c0ff' },
-                { label: 'LP ADDED', value: '19.6 SOL', sub: '80% of fees', color: '#88c0ff' },
-                { label: 'TOKENS BURNED', value: '2.4M', sub: '~4.9 SOL value', color: '#f97316' },
-                { label: 'LP DEPTH', value: '$127K', sub: '+34% since launch', color: '#7ee787' }
+                { label: 'TOTAL COMPOUNDED', value: `${flywheelStats.totals.feesCollectedSol.toFixed(2)} SOL`, sub: `${flywheelStats.totals.executionCount} executions`, color: '#88c0ff' },
+                { label: 'LP ADDED', value: `${flywheelStats.totals.lpCompoundedSol.toFixed(2)} SOL`, sub: 'from fee split', color: '#88c0ff' },
+                { label: 'TOKENS BURNED', value: BigInt(flywheelStats.totals.tokensBurned) > 1000000n ? `${(Number(flywheelStats.totals.tokensBurned) / 1000000).toFixed(1)}M` : Number(flywheelStats.totals.tokensBurned).toLocaleString(), sub: 'buyback + burn', color: '#f97316' },
+                { label: 'LP DEPTH', value: '$--', sub: 'coming soon', color: '#7ee787' }
               ].map((stat, i) => (
                 <div key={i} style={{
                   padding: '22px',
@@ -2018,46 +2059,64 @@ export default function ShipyardPlatform() {
               borderRadius: '12px'
             }}>
               <div style={{ fontSize: '9px', color: '#88c0ff', letterSpacing: '2px', marginBottom: '18px' }}>ENGINE LOG</div>
-              {[
-                { time: '2h ago', amount: '0.85 SOL', lp: '0.68', burn: '0.17', tx: '4xK...9f2' },
-                { time: '6h ago', amount: '0.70.01 SOL', lp: '0.58', burn: '0.14', tx: '7mP...3a1' },
-                { time: '14h ago', amount: '0.91 SOL', lp: '0.73', burn: '0.18', tx: '2nR...8k4' },
-              ].map((entry, i) => (
-                <div key={i} style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '14px',
-                  background: 'rgba(10, 14, 18, 0.6)',
-                  borderRadius: '8px',
-                  marginBottom: '8px',
-                  border: '1px solid rgba(136, 192, 255, 0.08)'
+              {flywheelStats.recentActivity.length > 0 ? (
+                flywheelStats.recentActivity.map((entry, i) => (
+                  <div key={i} style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '14px',
+                    background: 'rgba(10, 14, 18, 0.6)',
+                    borderRadius: '8px',
+                    marginBottom: '8px',
+                    border: '1px solid rgba(136, 192, 255, 0.08)'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                      <div style={{
+                        width: '36px',
+                        height: '36px',
+                        background: 'rgba(136, 192, 255, 0.1)',
+                        borderRadius: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '16px'
+                      }}>⭐</div>
+                      <div>
+                        <div style={{ fontSize: '13px', color: '#fff', fontWeight: '600' }}>{entry.amount} compounded</div>
+                        <div style={{ fontSize: '10px', color: '#4a5568' }}>{entry.time} • ${entry.symbol}</div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '10px', color: '#88c0ff' }}>+{entry.lp} LP</div>
+                        <div style={{ fontSize: '10px', color: '#f97316' }}>🔥 {entry.burn}</div>
+                      </div>
+                      {entry.burnSignature ? (
+                        <a
+                          href={`https://solscan.io/tx/${entry.burnSignature}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ fontSize: '9px', color: '#4a5568', textDecoration: 'none' }}
+                        >
+                          {entry.tx} ↗
+                        </a>
+                      ) : (
+                        <span style={{ fontSize: '9px', color: '#4a5568' }}>{entry.tx}</span>
+                      )}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div style={{
+                  padding: '20px',
+                  textAlign: 'center',
+                  color: '#4a5568',
+                  fontSize: '12px'
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                    <div style={{
-                      width: '36px',
-                      height: '36px',
-                      background: 'rgba(136, 192, 255, 0.1)',
-                      borderRadius: '8px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '16px'
-                    }}>⭐</div>
-                    <div>
-                      <div style={{ fontSize: '13px', color: '#fff', fontWeight: '600' }}>{entry.amount} compounded</div>
-                      <div style={{ fontSize: '10px', color: '#4a5568' }}>{entry.time}</div>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '10px', color: '#88c0ff' }}>+{entry.lp} LP</div>
-                      <div style={{ fontSize: '10px', color: '#f97316' }}>🔥 {entry.burn}</div>
-                    </div>
-                    <span style={{ fontSize: '9px', color: '#4a5568' }}>{entry.tx} ↗</span>
-                  </div>
+                  No flywheel activity yet. Stats will appear here when fees are claimed and burned.
                 </div>
-              ))}
+              )}
             </div>
           </div>
         )}

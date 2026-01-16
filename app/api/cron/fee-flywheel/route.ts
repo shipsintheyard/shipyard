@@ -39,6 +39,7 @@ import path from 'path';
 
 const SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 const LAUNCHES_FILE = path.join(process.cwd(), 'data', 'launches.json');
+const FLYWHEEL_STATS_FILE = path.join(process.cwd(), 'data', 'flywheel-stats.json');
 
 // Cron secret for security (set in Vercel env)
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -73,6 +74,50 @@ interface Launch {
   engineName: 'navigator' | 'lighthouse' | 'supernova';
   migrated: boolean;
   [key: string]: unknown;
+}
+
+interface FlywheelHistoryEntry {
+  timestamp: string;
+  pool: string;
+  symbol: string;
+  engine: string;
+  feesClaimedLamports: number;
+  feesClaimedSol: number;
+  lpCompoundedLamports: number;
+  burnAmountLamports: number;
+  tokensBurned: string;
+  claimSignature?: string;
+  buybackSignature?: string;
+  burnSignature?: string;
+}
+
+interface FlywheelStats {
+  totalFeesCollectedLamports: number;
+  totalTokensBurned: string;
+  totalLpCompoundedLamports: number;
+  executionCount: number;
+  lastExecution: string | null;
+  history: FlywheelHistoryEntry[];
+}
+
+async function getFlywheelStats(): Promise<FlywheelStats> {
+  try {
+    const data = await fs.readFile(FLYWHEEL_STATS_FILE, 'utf-8');
+    return JSON.parse(data);
+  } catch {
+    return {
+      totalFeesCollectedLamports: 0,
+      totalTokensBurned: '0',
+      totalLpCompoundedLamports: 0,
+      executionCount: 0,
+      lastExecution: null,
+      history: [],
+    };
+  }
+}
+
+async function saveFlywheelStats(stats: FlywheelStats): Promise<void> {
+  await fs.writeFile(FLYWHEEL_STATS_FILE, JSON.stringify(stats, null, 2));
 }
 
 interface FlywheelResult {
@@ -468,6 +513,7 @@ export async function GET(request: NextRequest) {
     // Summary
     const totalFeesClaimed = results.reduce((sum, r) => sum + r.feesClaimed, 0);
     const totalBurned = results.reduce((sum, r) => sum + BigInt(r.tokensBurned), BigInt(0));
+    const totalLpCompounded = results.reduce((sum, r) => sum + (r.feesClaimed - r.burnAmount), 0);
     const successCount = results.filter(r => !r.error).length;
 
     console.log(`\n========================================`);
@@ -477,12 +523,56 @@ export async function GET(request: NextRequest) {
     console.log(`Total fees claimed: ${totalFeesClaimed / LAMPORTS_PER_SOL} SOL`);
     console.log(`========================================\n`);
 
+    // Save stats to persistent storage
+    if (successCount > 0) {
+      try {
+        const stats = await getFlywheelStats();
+        const now = new Date().toISOString();
+
+        // Add history entries for successful results
+        for (const result of results) {
+          if (!result.error && result.feesClaimed > 0) {
+            stats.history.unshift({
+              timestamp: now,
+              pool: result.pool,
+              symbol: result.symbol,
+              engine: result.engine,
+              feesClaimedLamports: result.feesClaimed,
+              feesClaimedSol: result.feesClaimedSol,
+              lpCompoundedLamports: result.feesClaimed - result.burnAmount,
+              burnAmountLamports: result.burnAmount,
+              tokensBurned: result.tokensBurned,
+              claimSignature: result.claimSignature,
+              buybackSignature: result.buybackSignature,
+              burnSignature: result.burnSignature,
+            });
+          }
+        }
+
+        // Keep only last 100 history entries
+        stats.history = stats.history.slice(0, 100);
+
+        // Update totals
+        stats.totalFeesCollectedLamports += totalFeesClaimed;
+        stats.totalTokensBurned = (BigInt(stats.totalTokensBurned) + totalBurned).toString();
+        stats.totalLpCompoundedLamports += totalLpCompounded;
+        stats.executionCount += 1;
+        stats.lastExecution = now;
+
+        await saveFlywheelStats(stats);
+        console.log('Flywheel stats saved');
+      } catch (e) {
+        console.error('Failed to save flywheel stats:', e);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       summary: {
         poolsProcessed: results.length,
         successCount,
         totalFeesClaimedSol: totalFeesClaimed / LAMPORTS_PER_SOL,
+        totalLpCompoundedSol: totalLpCompounded / LAMPORTS_PER_SOL,
         totalTokensBurned: totalBurned.toString(),
       },
       results,
@@ -531,6 +621,44 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await processPool(client, connection, launch, SHIPYARD_KEYPAIR);
+
+    // Save stats for successful executions
+    if (!result.error && result.feesClaimed > 0) {
+      try {
+        const stats = await getFlywheelStats();
+        const now = new Date().toISOString();
+
+        stats.history.unshift({
+          timestamp: now,
+          pool: result.pool,
+          symbol: result.symbol,
+          engine: result.engine,
+          feesClaimedLamports: result.feesClaimed,
+          feesClaimedSol: result.feesClaimedSol,
+          lpCompoundedLamports: result.feesClaimed - result.burnAmount,
+          burnAmountLamports: result.burnAmount,
+          tokensBurned: result.tokensBurned,
+          claimSignature: result.claimSignature,
+          buybackSignature: result.buybackSignature,
+          burnSignature: result.burnSignature,
+        });
+
+        // Keep only last 100 history entries
+        stats.history = stats.history.slice(0, 100);
+
+        // Update totals
+        stats.totalFeesCollectedLamports += result.feesClaimed;
+        stats.totalTokensBurned = (BigInt(stats.totalTokensBurned) + BigInt(result.tokensBurned)).toString();
+        stats.totalLpCompoundedLamports += (result.feesClaimed - result.burnAmount);
+        stats.executionCount += 1;
+        stats.lastExecution = now;
+
+        await saveFlywheelStats(stats);
+        console.log('Flywheel stats saved');
+      } catch (e) {
+        console.error('Failed to save flywheel stats:', e);
+      }
+    }
 
     return NextResponse.json({
       success: !result.error,
