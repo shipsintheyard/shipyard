@@ -140,13 +140,14 @@ export async function POST(request: NextRequest) {
       console.log('Pool found, base mint:', poolState.baseMint.toBase58());
 
       // Build swap transaction (buy base token with quote/SOL)
-      // inAmount is SOL (quote), we want to receive tokens (base)
-      const swapTx = await client.swap.swapQuoteToBase({
-        payer: SHIPYARD_KEYPAIR.publicKey,
+      // swapBaseForQuote: false means we're swapping quote (SOL) for base (token)
+      const swapTx = await client.pool.swap({
+        owner: SHIPYARD_KEYPAIR.publicKey,
         pool: poolAddress,
         amountIn: new BN(lamports),
         minimumAmountOut: new BN(0), // Accept any amount (we'll check after)
-        referralTokenAccount: undefined,
+        swapBaseForQuote: false, // false = buy base token with quote (SOL)
+        referralTokenAccount: null,
       });
 
       const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
