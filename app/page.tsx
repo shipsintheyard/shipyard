@@ -798,7 +798,7 @@ export default function ShipyardPlatform() {
               }}>
                 {[
                   { value: platformStats.totalLaunches.toString(), label: 'VESSELS SHIPPED', color: '#88c0ff' },
-                  { value: `${flywheelStats.totals.feesCollectedSol.toFixed(2)}`, label: 'FEES SAVED', color: '#88c0ff' },
+                  { value: `${flywheelStats.totals.feesCollectedSol.toFixed(2)}`, label: 'REINVESTED', color: '#88c0ff' },
                   { value: '∞', label: 'LP LOCKED', color: '#a8d4ff' },
                   { value: '0%', label: 'DEV EXTRACTION', color: '#7ee787' }
                 ].map((stat, i) => (
@@ -2033,7 +2033,7 @@ export default function ShipyardPlatform() {
             {/* Stats */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', marginBottom: '28px' }}>
               {[
-                { label: 'FEES SAVED', value: `${flywheelStats.totals.feesCollectedSol.toFixed(2)} SOL`, sub: `${flywheelStats.totals.executionCount} executions`, color: '#7ee787' },
+                { label: 'REINVESTED', value: `${flywheelStats.totals.feesCollectedSol.toFixed(2)} SOL`, sub: `${flywheelStats.totals.executionCount} executions`, color: '#7ee787' },
                 { label: 'BUYBACK VALUE', value: `${flywheelStats.totals.lpCompoundedSol.toFixed(2)} SOL`, sub: 'reinvested', color: '#88c0ff' },
                 { label: 'TOKENS BURNED', value: BigInt(flywheelStats.totals.tokensBurned) > 1000000n ? `${(Number(flywheelStats.totals.tokensBurned) / 1000000).toFixed(1)}M` : Number(flywheelStats.totals.tokensBurned).toLocaleString(), sub: 'buyback + burn', color: '#f97316' },
                 { label: 'LP DEPTH', value: '$--', sub: 'coming soon', color: '#7ee787' }
