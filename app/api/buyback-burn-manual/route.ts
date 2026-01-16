@@ -32,9 +32,9 @@ const corsHeaders = {
 
 const SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 
-// Jupiter API
-const JUPITER_QUOTE_API = 'https://quote-api.jup.ag/v6/quote';
-const JUPITER_SWAP_API = 'https://quote-api.jup.ag/v6/swap';
+// Jupiter API - using lite-api which is more reliable from serverless
+const JUPITER_QUOTE_API = 'https://lite-api.jup.ag/v6/quote';
+const JUPITER_SWAP_API = 'https://lite-api.jup.ag/v6/swap';
 const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
 
 function getShipyardKeypair(): Keypair | null {
