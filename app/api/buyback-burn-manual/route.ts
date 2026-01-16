@@ -32,6 +32,7 @@ const corsHeaders = {
 
 const SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 
+// Jupiter API
 const JUPITER_QUOTE_API = 'https://quote-api.jup.ag/v6/quote';
 const JUPITER_SWAP_API = 'https://quote-api.jup.ag/v6/swap';
 const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
@@ -108,7 +109,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Step 2: Get Jupiter quote
+    // Step 2: Get Jupiter quote (with retry)
     console.log('Step 2: Getting Jupiter quote...');
     const quoteParams = new URLSearchParams({
       inputMint: WSOL_MINT.toBase58(),
@@ -118,23 +119,46 @@ export async function POST(request: NextRequest) {
     });
 
     let quote;
-    try {
-      const quoteRes = await fetch(`${JUPITER_QUOTE_API}?${quoteParams}`);
-      if (!quoteRes.ok) {
-        const error = await quoteRes.text();
-        return NextResponse.json(
-          { success: false, error: `Jupiter quote failed: ${error}` },
-          { status: 500, headers: corsHeaders }
-        );
+    let quoteAttempts = 0;
+    const maxQuoteAttempts = 3;
+
+    while (quoteAttempts < maxQuoteAttempts) {
+      quoteAttempts++;
+      try {
+        console.log(`Quote attempt ${quoteAttempts}/${maxQuoteAttempts}...`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
+        const quoteRes = await fetch(`${JUPITER_QUOTE_API}?${quoteParams}`, {
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (!quoteRes.ok) {
+          const error = await quoteRes.text();
+          console.error(`Quote attempt ${quoteAttempts} failed:`, error);
+          if (quoteAttempts === maxQuoteAttempts) {
+            return NextResponse.json(
+              { success: false, error: `Jupiter quote failed after ${maxQuoteAttempts} attempts: ${error}` },
+              { status: 500, headers: corsHeaders }
+            );
+          }
+          await new Promise(r => setTimeout(r, 1000)); // Wait 1s before retry
+          continue;
+        }
+        quote = await quoteRes.json();
+        console.log('Quote received. Expected tokens:', quote.outAmount);
+        break; // Success, exit retry loop
+      } catch (quoteError) {
+        console.error(`Quote attempt ${quoteAttempts} error:`, quoteError);
+        if (quoteAttempts === maxQuoteAttempts) {
+          return NextResponse.json(
+            { success: false, error: `Jupiter quote fetch failed after ${maxQuoteAttempts} attempts: ${quoteError instanceof Error ? quoteError.message : 'Unknown'}` },
+            { status: 500, headers: corsHeaders }
+          );
+        }
+        await new Promise(r => setTimeout(r, 1000)); // Wait 1s before retry
       }
-      quote = await quoteRes.json();
-      console.log('Quote received. Expected tokens:', quote.outAmount);
-    } catch (quoteError) {
-      console.error('Jupiter quote fetch failed:', quoteError);
-      return NextResponse.json(
-        { success: false, error: `Jupiter quote fetch failed: ${quoteError instanceof Error ? quoteError.message : 'Unknown'}` },
-        { status: 500, headers: corsHeaders }
-      );
     }
 
     // Step 3: Get swap transaction
