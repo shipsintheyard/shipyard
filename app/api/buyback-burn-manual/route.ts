@@ -11,6 +11,7 @@ import {
   getAssociatedTokenAddress,
   createBurnInstruction,
   TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
   getAccount,
 } from '@solana/spl-token';
 import { DynamicBondingCurveClient } from '@meteora-ag/dynamic-bonding-curve-sdk';
@@ -118,14 +119,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Step 2: Get token balance before swap
-    console.log('Step 2: Getting token balance before swap...');
+    // Step 2: Detect token program (Token vs Token-2022) and get balance before swap
+    console.log('Step 2: Detecting token program and getting balance...');
     const tokenMintPubkey = new PublicKey(tokenMint);
-    const tokenAccount = await getAssociatedTokenAddress(tokenMintPubkey, SHIPYARD_KEYPAIR.publicKey);
+
+    // Check which token program owns the mint
+    const mintAccountInfo = await connection.getAccountInfo(tokenMintPubkey);
+    const tokenProgramId = mintAccountInfo?.owner.equals(TOKEN_2022_PROGRAM_ID)
+      ? TOKEN_2022_PROGRAM_ID
+      : TOKEN_PROGRAM_ID;
+    console.log('Token program:', tokenProgramId.toBase58());
+
+    const tokenAccount = await getAssociatedTokenAddress(
+      tokenMintPubkey,
+      SHIPYARD_KEYPAIR.publicKey,
+      false,
+      tokenProgramId
+    );
+    console.log('Token account:', tokenAccount.toBase58());
 
     let tokenBalanceBefore = BigInt(0);
     try {
-      const accountInfo = await getAccount(connection, tokenAccount);
+      const accountInfo = await getAccount(connection, tokenAccount, 'confirmed', tokenProgramId);
       tokenBalanceBefore = accountInfo.amount;
       console.log('Token balance before:', tokenBalanceBefore.toString());
     } catch {
@@ -170,13 +185,13 @@ export async function POST(request: NextRequest) {
 
       let tokensReceived = BigInt(0);
       try {
-        const accountInfoAfter = await getAccount(connection, tokenAccount);
+        const accountInfoAfter = await getAccount(connection, tokenAccount, 'confirmed', tokenProgramId);
         tokensReceived = accountInfoAfter.amount - tokenBalanceBefore;
         console.log('Tokens received:', tokensReceived.toString());
       } catch (e) {
         console.error('Failed to get token balance after swap:', e);
         return NextResponse.json(
-          { success: false, error: 'Swap succeeded but failed to get token balance' },
+          { success: false, error: 'Swap succeeded but failed to get token balance', swapSignature },
           { status: 500, headers: corsHeaders }
         );
       }
@@ -196,7 +211,7 @@ export async function POST(request: NextRequest) {
         SHIPYARD_KEYPAIR.publicKey,
         tokensReceived,
         [],
-        TOKEN_PROGRAM_ID
+        tokenProgramId
       );
 
       const burnTx = new Transaction().add(burnIx);
