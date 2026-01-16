@@ -37,16 +37,19 @@ import path from 'path';
 const SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
 const LAUNCHES_FILE = path.join(process.cwd(), 'data', 'launches.json');
 
-// Shipyard wallet for executing buyback-burn
-const SHIPYARD_PRIVATE_KEY = process.env.SHIPYARD_PRIVATE_KEY;
-const SHIPYARD_KEYPAIR = SHIPYARD_PRIVATE_KEY
-  ? Keypair.fromSecretKey(bs58.decode(SHIPYARD_PRIVATE_KEY))
-  : Keypair.generate();
-const SHIPYARD_WALLET = SHIPYARD_KEYPAIR.publicKey;
-
 // Jupiter API for swaps
 const JUPITER_QUOTE_API = 'https://quote-api.jup.ag/v6/quote';
 const JUPITER_SWAP_API = 'https://quote-api.jup.ag/v6/swap';
+
+function getShipyardKeypair(): Keypair | null {
+  const key = process.env.SHIPYARD_PRIVATE_KEY;
+  if (!key) return null;
+  try {
+    return Keypair.fromSecretKey(bs58.decode(key));
+  } catch {
+    return null;
+  }
+}
 
 // SOL mint address (wrapped SOL)
 const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
@@ -155,6 +158,11 @@ async function executeBuyback(
   solAmount: number
 ): Promise<{ signature: string; tokensReceived: bigint } | null> {
   const lamports = Math.floor(solAmount * LAMPORTS_PER_SOL);
+  const keypair = getShipyardKeypair();
+  if (!keypair) {
+    console.error('Keypair not configured');
+    return null;
+  }
 
   console.log(`Executing buyback: ${solAmount} SOL -> ${tokenMint}`);
 
@@ -173,7 +181,7 @@ async function executeBuyback(
   console.log(`Quote: ${lamports} lamports -> ${quote.outAmount} tokens`);
 
   // Get swap transaction
-  const swapTxBase64 = await getJupiterSwapTx(quote, SHIPYARD_WALLET.toBase58());
+  const swapTxBase64 = await getJupiterSwapTx(quote, keypair.publicKey.toBase58());
 
   if (!swapTxBase64) {
     console.error('Failed to get Jupiter swap transaction');
@@ -190,7 +198,7 @@ async function executeBuyback(
   transaction.lastValidBlockHeight = lastValidBlockHeight;
 
   // Sign with Shipyard wallet
-  transaction.sign(SHIPYARD_KEYPAIR);
+  transaction.sign(keypair);
 
   // Send transaction
   const signature = await connection.sendRawTransaction(transaction.serialize(), {
@@ -217,16 +225,22 @@ async function executeBurn(
   tokenMint: PublicKey,
   amount: bigint
 ): Promise<string | null> {
+  const keypair = getShipyardKeypair();
+  if (!keypair) {
+    console.error('Keypair not configured');
+    return null;
+  }
+
   console.log(`Burning ${amount} tokens of ${tokenMint.toBase58()}`);
 
   // Get Shipyard's token account
-  const shipyardAta = await getAssociatedTokenAddress(tokenMint, SHIPYARD_WALLET);
+  const shipyardAta = await getAssociatedTokenAddress(tokenMint, keypair.publicKey);
 
   // Create burn instruction
   const burnIx = createBurnInstruction(
     shipyardAta,
     tokenMint,
-    SHIPYARD_WALLET,
+    keypair.publicKey,
     amount
   );
 
@@ -236,9 +250,9 @@ async function executeBurn(
   const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
   tx.recentBlockhash = blockhash;
   tx.lastValidBlockHeight = lastValidBlockHeight;
-  tx.feePayer = SHIPYARD_WALLET;
+  tx.feePayer = keypair.publicKey;
 
-  tx.sign(SHIPYARD_KEYPAIR);
+  tx.sign(keypair);
 
   // Send transaction
   const signature = await connection.sendRawTransaction(tx.serialize(), {
@@ -358,13 +372,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const keypair = getShipyardKeypair();
+    if (!keypair) {
+      return NextResponse.json(
+        { success: false, error: 'SHIPYARD_PRIVATE_KEY not configured' },
+        { status: 500 }
+      );
+    }
+
     console.log(`Starting buyback-burn for ${launch.symbol}:`);
     console.log(`  Token: ${launch.tokenMint}`);
     console.log(`  SOL Raised: ${launch.solRaised}`);
     console.log(`  Buyback Amount: ${buybackSolAmount} SOL (${launch.buybackBurnPercent}%)`);
 
     // Check Shipyard wallet has enough SOL
-    const balance = await connection.getBalance(SHIPYARD_WALLET);
+    const balance = await connection.getBalance(keypair.publicKey);
     const requiredLamports = Math.floor(buybackSolAmount * LAMPORTS_PER_SOL) + 10000000; // +0.01 SOL for fees
 
     if (balance < requiredLamports) {

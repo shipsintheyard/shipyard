@@ -41,16 +41,20 @@ const LAUNCHES_FILE = path.join(process.cwd(), 'data', 'launches.json');
 // Cron secret for security (set in Vercel env)
 const CRON_SECRET = process.env.CRON_SECRET;
 
-// Shipyard wallet
-const SHIPYARD_PRIVATE_KEY = process.env.SHIPYARD_PRIVATE_KEY;
-const SHIPYARD_KEYPAIR = SHIPYARD_PRIVATE_KEY
-  ? Keypair.fromSecretKey(bs58.decode(SHIPYARD_PRIVATE_KEY))
-  : null;
-
 // Jupiter API
 const JUPITER_QUOTE_API = 'https://quote-api.jup.ag/v6/quote';
 const JUPITER_SWAP_API = 'https://quote-api.jup.ag/v6/swap';
 const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
+
+function getShipyardKeypair(): Keypair | null {
+  const key = process.env.SHIPYARD_PRIVATE_KEY;
+  if (!key) return null;
+  try {
+    return Keypair.fromSecretKey(bs58.decode(key));
+  } catch {
+    return null;
+  }
+}
 
 // Engine configurations - burn percentages
 const ENGINE_BURN_PERCENT: Record<string, number> = {
@@ -103,45 +107,46 @@ async function getLaunches(): Promise<Launch[]> {
 async function claimFees(
   client: DynamicBondingCurveClient,
   connection: Connection,
-  poolAddress: PublicKey
+  poolAddress: PublicKey,
+  keypair: Keypair
 ): Promise<{ success: boolean; signature?: string; feesReceived: number; error?: string }> {
   try {
     const poolState = await client.state.getPool(poolAddress);
     const configState = await client.state.getPoolConfig(poolState.config);
 
-    if (!configState.feeClaimer || !SHIPYARD_KEYPAIR) {
-      return { success: false, feesReceived: 0, error: 'No fee claimer or keypair' };
+    if (!configState.feeClaimer) {
+      return { success: false, feesReceived: 0, error: 'No fee claimer' };
     }
 
     // Check balance before
-    const balanceBefore = await connection.getBalance(SHIPYARD_KEYPAIR.publicKey);
+    const balanceBefore = await connection.getBalance(keypair.publicKey);
 
     // Claim max fees
     const maxAmount = new BN('18446744073709551615');
 
     const transaction = await client.partner.claimPartnerTradingFee({
       feeClaimer: configState.feeClaimer,
-      payer: SHIPYARD_KEYPAIR.publicKey,
+      payer: keypair.publicKey,
       pool: poolAddress,
       maxBaseAmount: maxAmount,
       maxQuoteAmount: maxAmount,
-      receiver: SHIPYARD_KEYPAIR.publicKey,
+      receiver: keypair.publicKey,
     });
 
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
     transaction.recentBlockhash = blockhash;
     transaction.lastValidBlockHeight = lastValidBlockHeight;
-    transaction.feePayer = SHIPYARD_KEYPAIR.publicKey;
+    transaction.feePayer = keypair.publicKey;
 
     const signature = await sendAndConfirmTransaction(
       connection,
       transaction,
-      [SHIPYARD_KEYPAIR],
+      [keypair],
       { commitment: 'confirmed' }
     );
 
     // Check balance after
-    const balanceAfter = await connection.getBalance(SHIPYARD_KEYPAIR.publicKey);
+    const balanceAfter = await connection.getBalance(keypair.publicKey);
     const feesReceived = Math.max(0, balanceAfter - balanceBefore);
 
     return { success: true, signature, feesReceived };
@@ -160,11 +165,12 @@ async function claimFees(
 async function executeBuyback(
   connection: Connection,
   tokenMint: string,
-  amountLamports: number
+  amountLamports: number,
+  keypair: Keypair
 ): Promise<{ success: boolean; signature?: string; tokensReceived: number; error?: string }> {
   try {
-    if (!SHIPYARD_KEYPAIR || amountLamports < 1000000) { // Min 0.001 SOL
-      return { success: false, tokensReceived: 0, error: 'Amount too small or no keypair' };
+    if (amountLamports < 1000000) { // Min 0.001 SOL
+      return { success: false, tokensReceived: 0, error: 'Amount too small' };
     }
 
     // Get Jupiter quote
@@ -187,7 +193,7 @@ async function executeBuyback(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         quoteResponse: quote,
-        userPublicKey: SHIPYARD_KEYPAIR.publicKey.toBase58(),
+        userPublicKey: keypair.publicKey.toBase58(),
         wrapAndUnwrapSol: true,
         dynamicComputeUnitLimit: true,
         prioritizationFeeLamports: 'auto',
@@ -205,7 +211,7 @@ async function executeBuyback(
     transaction.recentBlockhash = blockhash;
     transaction.lastValidBlockHeight = lastValidBlockHeight;
 
-    transaction.sign(SHIPYARD_KEYPAIR);
+    transaction.sign(keypair);
 
     const signature = await connection.sendRawTransaction(transaction.serialize(), {
       skipPreflight: false,
@@ -234,19 +240,20 @@ async function executeBuyback(
 async function burnTokens(
   connection: Connection,
   tokenMint: PublicKey,
-  amount: number
+  amount: number,
+  keypair: Keypair
 ): Promise<{ success: boolean; signature?: string; error?: string }> {
   try {
-    if (!SHIPYARD_KEYPAIR || amount <= 0) {
-      return { success: false, error: 'No amount or keypair' };
+    if (amount <= 0) {
+      return { success: false, error: 'No amount' };
     }
 
-    const tokenAccount = await getAssociatedTokenAddress(tokenMint, SHIPYARD_KEYPAIR.publicKey);
+    const tokenAccount = await getAssociatedTokenAddress(tokenMint, keypair.publicKey);
 
     const burnIx = createBurnInstruction(
       tokenAccount,
       tokenMint,
-      SHIPYARD_KEYPAIR.publicKey,
+      keypair.publicKey,
       amount,
       [],
       TOKEN_PROGRAM_ID
@@ -257,12 +264,12 @@ async function burnTokens(
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
     transaction.recentBlockhash = blockhash;
     transaction.lastValidBlockHeight = lastValidBlockHeight;
-    transaction.feePayer = SHIPYARD_KEYPAIR.publicKey;
+    transaction.feePayer = keypair.publicKey;
 
     const signature = await sendAndConfirmTransaction(
       connection,
       transaction,
-      [SHIPYARD_KEYPAIR],
+      [keypair],
       { commitment: 'confirmed' }
     );
 
@@ -281,7 +288,8 @@ async function burnTokens(
 async function processPool(
   client: DynamicBondingCurveClient,
   connection: Connection,
-  launch: Launch
+  launch: Launch,
+  keypair: Keypair
 ): Promise<FlywheelResult> {
   const result: FlywheelResult = {
     pool: launch.poolAddress,
@@ -301,7 +309,8 @@ async function processPool(
     const claimResult = await claimFees(
       client,
       connection,
-      new PublicKey(launch.poolAddress)
+      new PublicKey(launch.poolAddress),
+      keypair
     );
 
     if (!claimResult.success) {
@@ -337,7 +346,8 @@ async function processPool(
     const buybackResult = await executeBuyback(
       connection,
       launch.tokenMint,
-      result.burnAmount
+      result.burnAmount,
+      keypair
     );
 
     if (!buybackResult.success) {
@@ -358,7 +368,8 @@ async function processPool(
     const burnResult = await burnTokens(
       connection,
       new PublicKey(launch.tokenMint),
-      result.tokensBurned
+      result.tokensBurned,
+      keypair
     );
 
     if (!burnResult.success) {
@@ -389,9 +400,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const SHIPYARD_KEYPAIR = getShipyardKeypair();
     if (!SHIPYARD_KEYPAIR) {
       return NextResponse.json(
-        { success: false, error: 'SHIPYARD_PRIVATE_KEY not configured' },
+        { success: false, error: 'SHIPYARD_PRIVATE_KEY not configured or invalid' },
         { status: 500 }
       );
     }
@@ -427,7 +439,7 @@ export async function GET(request: NextRequest) {
     const results: FlywheelResult[] = [];
 
     for (const launch of launches) {
-      const result = await processPool(client, connection, launch);
+      const result = await processPool(client, connection, launch, SHIPYARD_KEYPAIR);
       results.push(result);
 
       // Small delay between pools
@@ -477,9 +489,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const SHIPYARD_KEYPAIR = getShipyardKeypair();
     if (!SHIPYARD_KEYPAIR) {
       return NextResponse.json(
-        { success: false, error: 'SHIPYARD_PRIVATE_KEY not configured' },
+        { success: false, error: 'SHIPYARD_PRIVATE_KEY not configured or invalid' },
         { status: 500 }
       );
     }
@@ -498,7 +511,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await processPool(client, connection, launch);
+    const result = await processPool(client, connection, launch, SHIPYARD_KEYPAIR);
 
     return NextResponse.json({
       success: !result.error,

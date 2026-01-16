@@ -42,14 +42,15 @@ const DEFAULT_ENGINE = 'navigator';
 // Shipyard wallet - receives launch fees and is set as pool creator for all launches
 // This ensures all launches appear from Shipyard on explorers/Meteora
 // IMPORTANT: Set SHIPYARD_PRIVATE_KEY in environment variables
-const SHIPYARD_PRIVATE_KEY = process.env.SHIPYARD_PRIVATE_KEY;
-if (!SHIPYARD_PRIVATE_KEY) {
-  console.error('SHIPYARD_PRIVATE_KEY environment variable is required');
+function getShipyardKeypair(): Keypair | null {
+  const key = process.env.SHIPYARD_PRIVATE_KEY;
+  if (!key) return null;
+  try {
+    return Keypair.fromSecretKey(bs58.decode(key));
+  } catch {
+    return null;
+  }
 }
-const SHIPYARD_KEYPAIR = SHIPYARD_PRIVATE_KEY
-  ? Keypair.fromSecretKey(bs58.decode(SHIPYARD_PRIVATE_KEY))
-  : Keypair.generate(); // Fallback for build time only
-const SHIPYARD_WALLET = SHIPYARD_KEYPAIR.publicKey;
 
 // Launch fee
 const LAUNCH_FEE_SOL = 0.25;
@@ -120,6 +121,16 @@ export async function POST(request: NextRequest) {
     }
 
     const connection = new Connection(SOLANA_RPC, 'confirmed');
+
+    // Get Shipyard keypair
+    const SHIPYARD_KEYPAIR = getShipyardKeypair();
+    if (!SHIPYARD_KEYPAIR) {
+      return NextResponse.json(
+        { success: false, error: 'SHIPYARD_PRIVATE_KEY not configured' },
+        { status: 500 }
+      );
+    }
+    const SHIPYARD_WALLET = SHIPYARD_KEYPAIR.publicKey;
 
     // Verify fee payment
     console.log('Verifying fee payment:', body.feeSignature);

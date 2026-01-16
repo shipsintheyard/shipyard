@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/fee-flywheel",
-      "schedule": "0 */12 * * *"
+      "schedule": "0 0 * * *"
     }
   ]
 }

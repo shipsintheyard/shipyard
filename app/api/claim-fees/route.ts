@@ -27,12 +27,15 @@ import path from 'path';
 const SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 const LAUNCHES_FILE = path.join(process.cwd(), 'data', 'launches.json');
 
-// Shipyard wallet for executing fee claims
-const SHIPYARD_PRIVATE_KEY = process.env.SHIPYARD_PRIVATE_KEY;
-const SHIPYARD_KEYPAIR = SHIPYARD_PRIVATE_KEY
-  ? Keypair.fromSecretKey(bs58.decode(SHIPYARD_PRIVATE_KEY))
-  : Keypair.generate();
-const SHIPYARD_WALLET = SHIPYARD_KEYPAIR.publicKey;
+function getShipyardKeypair(): Keypair | null {
+  const key = process.env.SHIPYARD_PRIVATE_KEY;
+  if (!key) return null;
+  try {
+    return Keypair.fromSecretKey(bs58.decode(key));
+  } catch {
+    return null;
+  }
+}
 
 interface Launch {
   id: string;
@@ -153,9 +156,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    const keypair = getShipyardKeypair();
     return NextResponse.json({
       success: true,
-      shipyardWallet: SHIPYARD_WALLET.toBase58(),
+      shipyardWallet: keypair?.publicKey.toBase58() || 'not configured',
       pools: poolInfos,
     });
   } catch (error) {
@@ -179,12 +183,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!SHIPYARD_PRIVATE_KEY) {
+    const SHIPYARD_KEYPAIR = getShipyardKeypair();
+    if (!SHIPYARD_KEYPAIR) {
       return NextResponse.json(
-        { success: false, error: 'SHIPYARD_PRIVATE_KEY not configured' },
+        { success: false, error: 'SHIPYARD_PRIVATE_KEY not configured or invalid' },
         { status: 500 }
       );
     }
+    const SHIPYARD_WALLET = SHIPYARD_KEYPAIR.publicKey;
 
     const connection = new Connection(SOLANA_RPC, 'confirmed');
     const client = DynamicBondingCurveClient.create(connection, 'confirmed');
