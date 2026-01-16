@@ -1,21 +1,23 @@
 import { Connection, PublicKey, Keypair, Transaction, sendAndConfirmTransaction } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress, createBurnInstruction } from '@solana/spl-token';
+import { DynamicBondingCurveClient } from '@meteora-ag/dynamic-bonding-curve-sdk';
+import BN from 'bn.js';
 
 // ============================================================
 // SHIPYARD FEE FLYWHEEL
 // ============================================================
-// Implements the buyback + burn mechanism for graduated pools
+// Implements the buyback + burn mechanism for DBC pools
 //
 // Flow:
-// 1. Fees accrue in the Meteora DAMM v2 pool (1% per trade)
-// 2. This keeper claims accumulated fees periodically
+// 1. Fees accrue in the Meteora DBC pool (trading fees)
+// 2. This keeper claims accumulated fees via Meteora SDK
 // 3. Fees are split: X% → LP compound, Y% → buyback + burn
 // 4. Buyback uses Jupiter aggregator for best execution
 // 5. Bought tokens are burned forever
 // ============================================================
 
 export interface FlywheelConfig {
-  poolAddress: PublicKey;           // Meteora DAMM v2 pool address
+  poolAddress: PublicKey;           // Meteora DBC pool address
   tokenMint: PublicKey;             // Token to buyback
   quoteMint: PublicKey;             // SOL/USDC (quote token from fees)
   lpCompoundPercent: number;        // % of fees to add to LP (0-100)
@@ -136,10 +138,84 @@ export async function burnTokens(
 }
 
 /**
+ * Claim trading fees from a Meteora DBC pool
+ */
+export async function claimPoolFees(
+  connection: Connection,
+  keeper: Keypair,
+  poolAddress: PublicKey,
+  claimType: 'partner' | 'creator' = 'partner'
+): Promise<{
+  success: boolean;
+  signature?: string;
+  error?: string;
+}> {
+  try {
+    const client = DynamicBondingCurveClient.create(connection, 'confirmed');
+
+    // Get pool and config state
+    const poolState = await client.state.getPool(poolAddress);
+    const configState = await client.state.getPoolConfig(poolState.config);
+
+    console.log('Claiming fees from pool:', poolAddress.toBase58());
+    console.log('Fee claimer:', configState.feeClaimer?.toBase58());
+    console.log('Creator:', poolState.creator?.toBase58());
+
+    // Use max values to claim all available fees
+    const maxBaseAmount = new BN('18446744073709551615'); // u64 max
+    const maxQuoteAmount = new BN('18446744073709551615'); // u64 max
+
+    let transaction: Transaction;
+
+    if (claimType === 'creator' && poolState.creator) {
+      transaction = await client.creator.claimCreatorTradingFee({
+        creator: poolState.creator,
+        payer: keeper.publicKey,
+        pool: poolAddress,
+        maxBaseAmount,
+        maxQuoteAmount,
+        receiver: keeper.publicKey,
+      });
+    } else if (configState.feeClaimer) {
+      transaction = await client.partner.claimPartnerTradingFee({
+        feeClaimer: configState.feeClaimer,
+        payer: keeper.publicKey,
+        pool: poolAddress,
+        maxBaseAmount,
+        maxQuoteAmount,
+        receiver: keeper.publicKey,
+      });
+    } else {
+      return { success: false, error: 'No fee claimer configured for pool' };
+    }
+
+    // Sign and send
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+    transaction.recentBlockhash = blockhash;
+    transaction.lastValidBlockHeight = lastValidBlockHeight;
+    transaction.feePayer = keeper.publicKey;
+
+    const signature = await sendAndConfirmTransaction(
+      connection,
+      transaction,
+      [keeper],
+      { commitment: 'confirmed' }
+    );
+
+    return { success: true, signature };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+/**
  * Execute the fee flywheel
  *
  * This is the main keeper function that:
- * 1. Claims fees from the Meteora pool
+ * 1. Claims fees from the Meteora DBC pool via SDK
  * 2. Splits fees according to config
  * 3. Executes buyback via Jupiter
  * 4. Burns purchased tokens
@@ -159,36 +235,45 @@ export async function executeFlywheel(
   console.log('LP Compound:', config.lpCompoundPercent, '%');
   console.log('Buyback+Burn:', config.buybackBurnPercent, '%');
 
-  // Step 1: Check accumulated fees
-  // TODO: Implement Meteora fee checking via SDK
-  // For now, this is a placeholder
-  console.log('Checking accumulated fees...');
+  // Step 1: Get keeper's SOL balance before claiming
+  const balanceBefore = await connection.getBalance(keeper.publicKey);
+  console.log(`Balance before: ${balanceBefore} lamports`);
 
-  // Step 2: Claim fees from the pool
-  // TODO: Implement Meteora fee claiming via SDK
-  console.log('Claiming fees from pool...');
+  // Step 2: Claim fees from the DBC pool via Meteora SDK
+  console.log('Claiming fees from pool via Meteora SDK...');
+  const claimResult = await claimPoolFees(connection, keeper, config.poolAddress, 'partner');
 
-  // Placeholder: Simulate fee collection
-  const feesCollected = 0; // Will be populated by actual Meteora call
+  if (!claimResult.success) {
+    console.log(`Fee claim failed: ${claimResult.error}`);
+    // Continue anyway - there might be fees from previous claims
+  } else {
+    console.log(`Fee claim tx: ${claimResult.signature}`);
+  }
+
+  // Step 3: Check balance after claiming to determine fees collected
+  const balanceAfter = await connection.getBalance(keeper.publicKey);
+  const feesCollected = Math.max(0, balanceAfter - balanceBefore);
+  console.log(`Balance after: ${balanceAfter} lamports`);
+  console.log(`Fees collected: ${feesCollected} lamports`);
 
   if (feesCollected < config.minFeeThreshold) {
-    console.log(`Fees (${feesCollected}) below threshold (${config.minFeeThreshold}). Skipping.`);
+    console.log(`Fees (${feesCollected}) below threshold (${config.minFeeThreshold}). Skipping buyback.`);
     return {
-      feesCollected: 0,
+      feesCollected,
       tokensBought: 0,
       tokensBurned: 0,
-      signature: '',
+      signature: claimResult.signature || '',
     };
   }
 
-  // Step 3: Calculate splits
+  // Step 4: Calculate splits
   const buybackAmount = Math.floor(feesCollected * (config.buybackBurnPercent / 100));
   const compoundAmount = feesCollected - buybackAmount;
 
   console.log(`Buyback amount: ${buybackAmount} lamports`);
   console.log(`Compound amount: ${compoundAmount} lamports`);
 
-  // Step 4: Execute buyback via Jupiter
+  // Step 5: Execute buyback via Jupiter
   let tokensBought = 0;
   let burnSignature = '';
 
@@ -220,7 +305,7 @@ export async function executeFlywheel(
       console.log(`Buyback executed! Signature: ${swapSig}`);
       tokensBought = expectedOutput;
 
-      // Step 5: Burn the purchased tokens
+      // Step 6: Burn the purchased tokens
       console.log('Burning purchased tokens...');
       burnSignature = await burnTokens(
         connection,
@@ -233,12 +318,8 @@ export async function executeFlywheel(
     }
   }
 
-  // Step 6: Compound remaining fees to LP
-  if (compoundAmount > 0) {
-    console.log('Compounding fees to LP...');
-    // TODO: Implement LP compounding via Meteora SDK
-    // This would add liquidity to the DAMM v2 pool
-  }
+  // Note: LP compounding would require additional Meteora SDK integration
+  // for adding liquidity to the migrated DAMM pool
 
   console.log('=== FLYWHEEL COMPLETE ===');
   console.log(`Fees collected: ${feesCollected} lamports`);
