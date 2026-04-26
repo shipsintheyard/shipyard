@@ -8,6 +8,7 @@ import Trawler from './components/Trawler';
 import Sonar from './components/Sonar';
 import Bottles from './components/Bottles';
 import LaunchHistory from './components/LaunchHistory';
+import BoardingTab from './components/boarding/BoardingTab';
 import { TokenConfig, FeeConfig } from './utils/meteora';
 
 export default function ShipyardPlatform() {
@@ -467,6 +468,7 @@ export default function ShipyardPlatform() {
     { id: 'landing', label: 'Home', disabled: false },
     { id: 'raft', label: 'Raft', disabled: false },
     { id: 'trawler', label: 'Trawler', disabled: false },
+    { id: 'boarding', label: 'Boarding', disabled: false },
     { id: 'sonar', label: 'Sonar', disabled: true },
     { id: 'bottles', label: 'Bottles', disabled: false },
     { id: 'dock', label: 'The Dock', disabled: true },
@@ -2877,6 +2879,10 @@ export default function ShipyardPlatform() {
         <div className="animate-in">
           <Bottles />
         </div>
+      )}
+
+      {activeTab === 'boarding' && (
+        <BoardingTab />
       )}
 
       {/* Footer */}
