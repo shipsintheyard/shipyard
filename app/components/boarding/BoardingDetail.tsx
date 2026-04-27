@@ -80,17 +80,24 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
     setTxStatus(null);
     try {
       const poolPubkey = new PublicKey(pool.publicKey);
+      const programId = new PublicKey(BOARDING_PROGRAM_ID);
 
       const [depositPda] = PublicKey.findProgramAddressSync(
         [Buffer.from('deposit'), poolPubkey.toBuffer(), publicKey.toBuffer()],
-        new PublicKey(BOARDING_PROGRAM_ID)
+        programId
       );
       const [solVault] = PublicKey.findProgramAddressSync(
         [Buffer.from('sol_vault'), poolPubkey.toBuffer()],
-        new PublicKey(BOARDING_PROGRAM_ID)
+        programId
       );
 
-      const tx = await program.methods
+      console.log('[refund] pool:', poolPubkey.toString());
+      console.log('[refund] deposit PDA:', depositPda.toString());
+      console.log('[refund] sol vault:', solVault.toString());
+      console.log('[refund] depositor:', publicKey.toString());
+
+      // Use .rpc() — goes through Anchor provider which has the wallet
+      const sig = await program.methods
         .claimRefund()
         .accounts({
           pool: poolPubkey,
@@ -99,15 +106,16 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
           depositor: publicKey,
           systemProgram: SystemProgram.programId,
         } as any)
-        .transaction();
+        .rpc();
 
-      const sig = await sendTransaction(tx, connection);
       await connection.confirmTransaction(sig, 'confirmed');
-
-      setTxStatus('Refund claimed!');
+      setTxStatus('Refund claimed! 1 SOL returned.');
     } catch (err: any) {
       console.error('[boarding] refund error:', err);
-      setTxStatus(`Error: ${err.message?.slice(0, 80) || 'Transaction failed'}`);
+      // Show full error for debugging — program logs if available
+      const logs = err?.logs?.join('\n') || '';
+      const msg = err.message || 'Transaction failed';
+      setTxStatus(`Error: ${msg.slice(0, 120)}${logs ? '\n' + logs.slice(0, 200) : ''}`);
     } finally {
       setRefunding(false);
     }
