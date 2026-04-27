@@ -48,13 +48,14 @@ export default function BoardingDetail({ pool, onBack }: BoardingDetailProps) {
 
       const tx = await program.methods
         .deposit(new (await import('@coral-xyz/anchor')).BN(lamports))
-        .accountsPartial({
+        .accounts({
           pool: poolPubkey,
           depositAccount: depositPda,
           solVault,
+          crewPass: null,
           depositor: publicKey,
           systemProgram: SystemProgram.programId,
-        })
+        } as any)
         .transaction();
 
       const sig = await sendTransaction(tx, connection);
