@@ -33,7 +33,7 @@ export default function BoardingTab() {
           <div className="flex justify-between items-end mb-8">
             <div>
               <h1 className="font-heading text-[28px] font-bold text-white mb-1">Boarding</h1>
-              <p className="text-[13px] text-text-muted">
+              <p className="text-[15px] text-text-muted">
                 All-or-nothing presales. Hit the target or get 100% refunded.
               </p>
             </div>
@@ -49,17 +49,17 @@ export default function BoardingTab() {
           <div className="flex gap-6 mb-7 px-1">
             <div className="flex items-baseline gap-2">
               <span className="text-lg font-heading font-bold text-primary tabular-nums">{activePools.length}</span>
-              <span className="text-[9px] text-text-dim tracking-[1px]">LIVE</span>
+              <span className="text-[12px] text-text-muted tracking-[1px]">LIVE</span>
             </div>
             <div className="w-px h-5 bg-border-primary self-center" />
             <div className="flex items-baseline gap-2">
               <span className="text-lg font-heading font-bold text-white tabular-nums">{totalRaised.toFixed(0)}</span>
-              <span className="text-[9px] text-text-dim tracking-[1px]">SOL RAISED</span>
+              <span className="text-[12px] text-text-muted tracking-[1px]">SOL RAISED</span>
             </div>
             <div className="w-px h-5 bg-border-primary self-center" />
             <div className="flex items-baseline gap-2">
               <span className="text-lg font-heading font-bold text-success tabular-nums">{pools.filter(p => p.status === 'launched').length}</span>
-              <span className="text-[9px] text-text-dim tracking-[1px]">LAUNCHED</span>
+              <span className="text-[12px] text-text-muted tracking-[1px]">LAUNCHED</span>
             </div>
           </div>
 

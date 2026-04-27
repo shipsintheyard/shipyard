@@ -21,26 +21,26 @@ export default function BoardingCard({ pool, onClick }: BoardingCardProps) {
   return (
     <div
       onClick={onClick}
-      className="group p-5 bg-bg-glass border border-[rgba(136,192,255,0.08)] rounded-xl cursor-pointer transition-all duration-300 hover:border-primary/30 hover:shadow-[0_0_40px_rgba(136,192,255,0.08)] hover:-translate-y-0.5"
+      className="group p-6 bg-bg-glass border border-[rgba(136,192,255,0.1)] rounded-xl cursor-pointer transition-all duration-300 hover:border-primary/30 hover:shadow-[0_0_40px_rgba(136,192,255,0.08)] hover:-translate-y-0.5"
     >
       {/* Top row: icon + name + badges */}
       <div className="flex justify-between items-start mb-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-primary/8 rounded-lg flex items-center justify-center text-lg border border-[rgba(136,192,255,0.1)] group-hover:border-primary/25 transition-colors">
-            {pool.mode === 'blitz' ? '💥' : pool.mode === 'flash' ? '⚡' : '🧭'}
+          <div className="w-11 h-11 bg-primary/8 rounded-lg flex items-center justify-center text-xl border border-[rgba(136,192,255,0.12)] group-hover:border-primary/25 transition-colors">
+            {pool.mode === 'blitz' ? '\uD83D\uDCA5' : pool.mode === 'flash' ? '\u26A1' : '\uD83E\uDDED'}
           </div>
           <div>
-            <div className="font-heading text-[15px] font-semibold text-white leading-tight">{pool.tokenName}</div>
-            <div className="text-[10px] text-text-dim font-mono">${pool.tokenSymbol}</div>
+            <div className="font-heading text-[17px] font-semibold text-white leading-tight">{pool.tokenName}</div>
+            <div className="text-[13px] text-text-muted font-mono">${pool.tokenSymbol}</div>
           </div>
         </div>
         <div className="flex gap-1.5">
           {pool.access === 'crew' && (
-            <span className="px-2 py-0.5 rounded text-[8px] tracking-[1px] border text-[#34d399] bg-[#34d399]/8 border-[#34d399]/20">
+            <span className="px-2.5 py-1 rounded text-[10px] tracking-[1px] border text-[#34d399] bg-[#34d399]/8 border-[#34d399]/20">
               CREW
             </span>
           )}
-          <span className={`px-2 py-0.5 rounded text-[8px] font-semibold tracking-[1px] border ${badge.color}`}>
+          <span className={`px-2.5 py-1 rounded text-[10px] font-semibold tracking-[1px] border ${badge.color}`}>
             {badge.label}
           </span>
         </div>
@@ -48,13 +48,13 @@ export default function BoardingCard({ pool, onClick }: BoardingCardProps) {
 
       {/* Progress */}
       <div className="mb-4">
-        <div className="flex justify-between mb-1.5">
-          <span className="text-[10px] text-text-muted tabular-nums">
-            {pool.totalDeposited} <span className="text-text-dim">/ {pool.hardCap} SOL</span>
+        <div className="flex justify-between mb-2">
+          <span className="text-[13px] text-text-body tabular-nums">
+            {pool.totalDeposited} <span className="text-text-muted">/ {pool.hardCap} SOL</span>
           </span>
-          <span className="text-[10px] text-primary font-semibold tabular-nums">{Math.round(progress)}%</span>
+          <span className="text-[13px] text-primary font-semibold tabular-nums">{Math.round(progress)}%</span>
         </div>
-        <div className="h-1.5 bg-[rgba(136,192,255,0.08)] rounded-full overflow-hidden">
+        <div className="h-2 bg-[rgba(136,192,255,0.08)] rounded-full overflow-hidden">
           <div
             className={`h-full rounded-full progress-fill transition-[width] duration-500 ${
               pool.status === 'failed'
@@ -70,20 +70,20 @@ export default function BoardingCard({ pool, onClick }: BoardingCardProps) {
 
       {/* Bottom stats */}
       <div className="flex justify-between items-end">
-        <div className="flex gap-5">
+        <div className="flex gap-6">
           <div>
-            <div className="text-[8px] text-text-dim tracking-[1px] mb-0.5">WALLETS</div>
-            <div className="text-xs text-white font-semibold tabular-nums">
-              {pool.participantCount}<span className="text-text-dim font-normal">/{pool.minWallets}</span>
+            <div className="text-[11px] text-text-muted tracking-[1px] mb-0.5">WALLETS</div>
+            <div className="text-sm text-white font-semibold tabular-nums">
+              {pool.participantCount}<span className="text-text-muted font-normal">/{pool.minWallets}</span>
             </div>
           </div>
           <div>
-            <div className="text-[8px] text-text-dim tracking-[1px] mb-0.5">MAX</div>
-            <div className="text-xs text-white font-semibold">{pool.perWalletCap} SOL</div>
+            <div className="text-[11px] text-text-muted tracking-[1px] mb-0.5">MAX</div>
+            <div className="text-sm text-white font-semibold">{pool.perWalletCap} SOL</div>
           </div>
         </div>
         {pool.status === 'active' && (
-          <div className="text-xs font-mono text-primary tabular-nums">
+          <div className="text-sm font-mono text-primary font-semibold tabular-nums">
             {timeLeft}
           </div>
         )}

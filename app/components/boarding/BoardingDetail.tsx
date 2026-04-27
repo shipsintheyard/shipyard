@@ -36,7 +36,6 @@ export default function BoardingDetail({ pool, onBack }: BoardingDetailProps) {
       const poolPubkey = new PublicKey(pool.publicKey);
       const lamports = Math.floor(amount * LAMPORTS_PER_SOL);
 
-      // Derive PDAs
       const [depositPda] = PublicKey.findProgramAddressSync(
         [Buffer.from('deposit'), poolPubkey.toBuffer(), publicKey.toBuffer()],
         new PublicKey(BOARDING_PROGRAM_ID)
@@ -115,20 +114,20 @@ export default function BoardingDetail({ pool, onBack }: BoardingDetailProps) {
     <div className="fade-up">
       <button
         onClick={onBack}
-        className="text-[11px] text-text-dim hover:text-primary transition-colors mb-6 cursor-pointer"
+        className="text-[13px] text-text-muted hover:text-primary transition-colors mb-6 cursor-pointer"
       >
         &larr; BACK
       </button>
 
       {/* Header */}
-      <div className="flex justify-between items-start mb-6">
-        <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 bg-primary/8 rounded-xl flex items-center justify-center text-xl border border-[rgba(136,192,255,0.1)]">
+      <div className="flex justify-between items-start mb-8">
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 bg-primary/8 rounded-xl flex items-center justify-center text-2xl border border-[rgba(136,192,255,0.12)]">
             {pool.mode === 'blitz' ? '\uD83D\uDCA5' : pool.mode === 'flash' ? '\u26A1' : '\uD83E\uDDED'}
           </div>
           <div>
-            <h1 className="font-heading text-[24px] font-bold text-white leading-tight">{pool.tokenName}</h1>
-            <div className="text-[11px] text-text-dim font-mono">
+            <h1 className="font-heading text-[28px] font-bold text-white leading-tight">{pool.tokenName}</h1>
+            <div className="text-[14px] text-text-muted font-mono">
               ${pool.tokenSymbol} · {pool.mode === 'blitz' ? 'Blitz' : pool.mode === 'flash' ? 'Flash' : 'Voyage'}
               {pool.access === 'crew' ? ' · Crew' : ''}
               {isDemo && <span className="text-burn ml-2">(DEMO)</span>}
@@ -137,28 +136,28 @@ export default function BoardingDetail({ pool, onBack }: BoardingDetailProps) {
         </div>
         {isActive && (
           <div className="text-right">
-            <div className="text-[8px] text-text-dim tracking-[2px] mb-0.5">TIME LEFT</div>
-            <div className="font-mono text-lg font-bold text-primary tabular-nums">{timeLeft}</div>
+            <div className="text-[11px] text-text-muted tracking-[2px] mb-1">TIME LEFT</div>
+            <div className="font-mono text-xl font-bold text-primary tabular-nums">{timeLeft}</div>
           </div>
         )}
       </div>
 
-      <div className="grid grid-cols-[1fr_360px] gap-5">
+      <div className="grid grid-cols-[1fr_380px] gap-6">
         {/* Left — pool info */}
         <div>
           {/* Progress */}
-          <div className="p-5 bg-bg-glass border border-[rgba(136,192,255,0.08)] rounded-xl mb-4">
-            <div className="flex justify-between items-end mb-3">
+          <div className="p-6 bg-bg-glass border border-[rgba(136,192,255,0.1)] rounded-xl mb-5">
+            <div className="flex justify-between items-end mb-4">
               <div>
-                <div className="text-[8px] text-text-dim tracking-[2px] mb-1">RAISED</div>
-                <div className="font-heading text-[28px] font-bold text-white leading-none tabular-nums">
-                  {pool.totalDeposited} <span className="text-base text-text-dim">/ {pool.hardCap} SOL</span>
+                <div className="text-[11px] text-text-muted tracking-[2px] mb-1">RAISED</div>
+                <div className="font-heading text-[32px] font-bold text-white leading-none tabular-nums">
+                  {pool.totalDeposited} <span className="text-lg text-text-muted">/ {pool.hardCap} SOL</span>
                 </div>
               </div>
-              <span className="font-heading text-[28px] font-bold text-primary tabular-nums">{Math.round(progress)}%</span>
+              <span className="font-heading text-[32px] font-bold text-primary tabular-nums">{Math.round(progress)}%</span>
             </div>
 
-            <div className="h-3 bg-[rgba(136,192,255,0.06)] rounded-full overflow-hidden mb-4">
+            <div className="h-3.5 bg-[rgba(136,192,255,0.08)] rounded-full overflow-hidden mb-5">
               <div
                 className={`h-full rounded-full progress-fill ${
                   isFailed
@@ -176,32 +175,32 @@ export default function BoardingDetail({ pool, onBack }: BoardingDetailProps) {
                 { label: 'WALLETS', value: `${pool.participantCount}/${pool.minWallets}` },
                 { label: 'SUPPLY', value: `${(pool.tokenSupply / 1e6).toFixed(0)}M` },
               ].map((stat, i) => (
-                <div key={i} className="p-2.5 bg-bg-input rounded-lg">
-                  <div className="text-[7px] text-text-dim tracking-[1px] mb-0.5">{stat.label}</div>
-                  <div className="text-xs text-white font-semibold tabular-nums">{stat.value}</div>
+                <div key={i} className="p-3 bg-bg-input rounded-lg">
+                  <div className="text-[11px] text-text-muted tracking-[1px] mb-1">{stat.label}</div>
+                  <div className="text-sm text-white font-semibold tabular-nums">{stat.value}</div>
                 </div>
               ))}
             </div>
           </div>
 
           {/* How it works */}
-          <div className="p-5 bg-bg-glass border border-[rgba(136,192,255,0.08)] rounded-xl">
-            <div className="text-[8px] text-primary tracking-[2px] mb-3">HOW IT WORKS</div>
-            <div className="grid grid-cols-3 gap-2.5">
+          <div className="p-6 bg-bg-glass border border-[rgba(136,192,255,0.1)] rounded-xl">
+            <div className="text-[11px] text-primary tracking-[2px] mb-4">HOW IT WORKS</div>
+            <div className="grid grid-cols-3 gap-3">
               {[
                 { n: '01', title: 'COMMIT', desc: `Up to ${pool.perWalletCap} SOL` },
                 { n: '02', title: 'HIT TARGET', desc: `${pool.hardCap} SOL from ${pool.minWallets}+ wallets` },
                 { n: '03', title: 'LAUNCH', desc: 'Claim 60% of tokens. 35% + SOL \u2192 LP (burned).' },
               ].map((s, i) => (
-                <div key={i} className="p-3 bg-bg-input rounded-lg">
-                  <div className="text-[9px] text-primary/30 font-heading font-bold mb-1">{s.n}</div>
-                  <div className="text-[10px] text-white font-semibold mb-0.5">{s.title}</div>
-                  <div className="text-[9px] text-text-dim leading-snug">{s.desc}</div>
+                <div key={i} className="p-4 bg-bg-input rounded-lg">
+                  <div className="text-[12px] text-primary/40 font-heading font-bold mb-1">{s.n}</div>
+                  <div className="text-[13px] text-white font-semibold mb-1">{s.title}</div>
+                  <div className="text-[12px] text-text-muted leading-snug">{s.desc}</div>
                 </div>
               ))}
             </div>
-            <div className="mt-2.5 p-2.5 bg-burn/5 border border-burn/10 rounded-lg">
-              <div className="text-[9px] text-burn">
+            <div className="mt-3 p-3 bg-burn/5 border border-burn/15 rounded-lg">
+              <div className="text-[13px] text-burn">
                 Miss the target? 100% refund. No fees taken.
               </div>
             </div>
@@ -212,7 +211,7 @@ export default function BoardingDetail({ pool, onBack }: BoardingDetailProps) {
         <div>
           {/* Tx status toast */}
           {txStatus && (
-            <div className={`mb-3 p-3 rounded-lg text-[11px] font-mono ${
+            <div className={`mb-4 p-3.5 rounded-lg text-[13px] font-mono ${
               txStatus.startsWith('Error')
                 ? 'bg-burn/10 border border-burn/20 text-burn'
                 : 'bg-success/10 border border-success/20 text-success'
@@ -223,23 +222,23 @@ export default function BoardingDetail({ pool, onBack }: BoardingDetailProps) {
 
           {/* Deposit */}
           {isActive && (
-            <div className="p-5 bg-bg-glass border border-primary/15 rounded-xl mb-4">
+            <div className="p-6 bg-bg-glass border border-primary/15 rounded-xl mb-4">
               {pool.access === 'crew' && (
-                <div className="flex items-center gap-2 mb-3 p-2 bg-[#34d399]/5 border border-[#34d399]/15 rounded-lg">
-                  <span className="text-[10px] text-[#34d399]">🔒 Crew only — invite required</span>
+                <div className="flex items-center gap-2 mb-4 p-2.5 bg-[#34d399]/5 border border-[#34d399]/15 rounded-lg">
+                  <span className="text-[13px] text-[#34d399]">🔒 Crew only — invite required</span>
                 </div>
               )}
-              <div className="text-[8px] text-primary tracking-[2px] mb-3">BOARD THIS VESSEL</div>
+              <div className="text-[11px] text-primary tracking-[2px] mb-4 font-semibold">BOARD THIS VESSEL</div>
 
               {isDemo && (
-                <div className="mb-3 p-2.5 bg-burn/5 border border-burn/15 rounded-lg">
-                  <div className="text-[9px] text-burn">Demo pool — connect wallet + create a real pool to deposit</div>
+                <div className="mb-4 p-3 bg-burn/5 border border-burn/15 rounded-lg">
+                  <div className="text-[12px] text-burn">Demo pool — connect wallet + create a real pool to deposit</div>
                 </div>
               )}
 
               {/* Allocation boxes */}
-              <label className="block text-[8px] text-text-dim tracking-[2px] mb-2">SELECT ALLOCATION</label>
-              <div className="grid grid-cols-4 gap-2 mb-3">
+              <label className="block text-[11px] text-text-muted tracking-[2px] mb-2.5">SELECT ALLOCATION</label>
+              <div className="grid grid-cols-4 gap-2.5 mb-4">
                 {[
                   { sol: 0.5, label: '0.5', tag: null },
                   { sol: 1,   label: '1',   tag: null },
@@ -252,23 +251,23 @@ export default function BoardingDetail({ pool, onBack }: BoardingDetailProps) {
                       key={alloc.sol}
                       onClick={() => setDepositAmount(selected ? '' : String(alloc.sol))}
                       disabled={isDemo}
-                      className={`relative p-3 rounded-xl text-center transition-all duration-200 cursor-pointer disabled:opacity-40 ${
+                      className={`relative p-3.5 rounded-xl text-center transition-all duration-200 cursor-pointer disabled:opacity-40 ${
                         selected
                           ? 'bg-primary/12 border-2 border-primary shadow-[0_0_20px_rgba(136,192,255,0.15)]'
                           : 'bg-bg-input border border-border-primary hover:border-primary/30'
                       }`}
                     >
                       {alloc.tag && (
-                        <span className={`absolute -top-1.5 right-1.5 px-1.5 py-0.5 rounded text-[7px] font-bold tracking-[1px] ${
+                        <span className={`absolute -top-2 right-1.5 px-2 py-0.5 rounded text-[9px] font-bold tracking-[1px] ${
                           selected ? 'bg-primary text-bg-base' : 'bg-primary/15 text-primary'
                         }`}>
                           {alloc.tag}
                         </span>
                       )}
-                      <div className={`font-heading text-lg font-bold tabular-nums ${selected ? 'text-primary' : 'text-white'}`}>
+                      <div className={`font-heading text-xl font-bold tabular-nums ${selected ? 'text-primary' : 'text-white'}`}>
                         {alloc.label}
                       </div>
-                      <div className="text-[8px] text-text-dim">SOL</div>
+                      <div className="text-[11px] text-text-muted">SOL</div>
                     </button>
                   );
                 })}
@@ -276,54 +275,54 @@ export default function BoardingDetail({ pool, onBack }: BoardingDetailProps) {
 
               {/* What you get */}
               {depositAmount && (
-                <div className="p-2.5 bg-bg-input rounded-lg mb-3 space-y-1.5 fade-in">
+                <div className="p-3.5 bg-bg-input rounded-lg mb-4 space-y-2 fade-in">
                   <div className="flex justify-between">
-                    <span className="text-[9px] text-text-dim">You commit</span>
-                    <span className="text-[9px] text-white font-semibold">{depositAmount} SOL</span>
+                    <span className="text-[12px] text-text-muted">You commit</span>
+                    <span className="text-[12px] text-white font-semibold">{depositAmount} SOL</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-[9px] text-text-dim">You receive (60% of supply, pro-rata)</span>
-                    <span className="text-[9px] text-primary font-semibold">
+                    <span className="text-[12px] text-text-muted">You receive (pro-rata)</span>
+                    <span className="text-[12px] text-primary font-semibold">
                       {((parseFloat(depositAmount) / pool.hardCap) * pool.tokenSupply * 0.6 / 1e6).toFixed(1)}M ${pool.tokenSymbol}
                     </span>
                   </div>
-                  <div className="h-px bg-[rgba(136,192,255,0.06)]" />
+                  <div className="h-px bg-[rgba(136,192,255,0.08)]" />
                   <div className="flex justify-between">
-                    <span className="text-[9px] text-text-dim">92.5% SOL &rarr; LP (burned)</span>
-                    <span className="text-[9px] text-text-muted">trustless</span>
+                    <span className="text-[12px] text-text-muted">92.5% SOL &rarr; LP (burned)</span>
+                    <span className="text-[12px] text-text-subtle">trustless</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-[9px] text-text-dim">Miss target?</span>
-                    <span className="text-[9px] text-success">100% refund</span>
+                    <span className="text-[12px] text-text-muted">Miss target?</span>
+                    <span className="text-[12px] text-success font-semibold">100% refund</span>
                   </div>
                 </div>
               )}
 
               <button
                 onClick={handleDeposit}
-                disabled={!connected || depositing || isDemo}
-                className={`w-full py-3.5 rounded-lg font-heading text-sm font-bold tracking-[1px] transition-all duration-200 ${
-                  connected && !isDemo
+                disabled={!connected || depositing || isDemo || !depositAmount}
+                className={`w-full py-4 rounded-lg font-heading text-base font-bold tracking-[1px] transition-all duration-200 ${
+                  connected && !isDemo && depositAmount
                     ? 'bg-gradient-to-br from-primary to-primary-dark text-bg-base cursor-pointer shadow-[0_2px_20px_rgba(136,192,255,0.3)] hover:shadow-[0_4px_30px_rgba(136,192,255,0.5)]'
                     : 'bg-primary/8 text-text-dim cursor-not-allowed border border-border-primary'
                 }`}
               >
-                {!connected ? 'CONNECT WALLET' : depositing ? 'BOARDING...' : isDemo ? 'DEMO POOL' : 'COMMIT SOL'}
+                {!connected ? 'CONNECT WALLET' : depositing ? 'BOARDING...' : isDemo ? 'DEMO POOL' : !depositAmount ? 'SELECT AMOUNT' : 'COMMIT SOL'}
               </button>
             </div>
           )}
 
           {/* Refund */}
           {isFailed && (
-            <div className="p-5 bg-bg-glass border border-burn/20 rounded-xl mb-4">
-              <div className="text-[8px] text-burn tracking-[2px] mb-2">POOL FAILED</div>
-              <p className="text-[11px] text-text-muted mb-3">
+            <div className="p-6 bg-bg-glass border border-burn/20 rounded-xl mb-4">
+              <div className="text-[11px] text-burn tracking-[2px] mb-2 font-semibold">POOL FAILED</div>
+              <p className="text-[14px] text-text-muted mb-4">
                 Didn&apos;t hit {pool.hardCap} SOL. Your deposit is fully refundable.
               </p>
               <button
                 onClick={handleRefund}
                 disabled={!connected || refunding || isDemo}
-                className={`w-full py-3.5 rounded-lg font-heading text-sm font-bold tracking-[1px] ${
+                className={`w-full py-4 rounded-lg font-heading text-base font-bold tracking-[1px] ${
                   connected && !isDemo
                     ? 'bg-gradient-to-r from-burn to-burn-dark text-white cursor-pointer'
                     : 'bg-burn/8 text-text-dim cursor-not-allowed border border-burn/15'
@@ -336,9 +335,9 @@ export default function BoardingDetail({ pool, onBack }: BoardingDetailProps) {
 
           {/* Succeeded */}
           {pool.status === 'succeeded' && (
-            <div className="p-5 bg-bg-glass border border-success/20 rounded-xl mb-4">
-              <div className="text-[8px] text-success tracking-[2px] mb-2">TARGET REACHED</div>
-              <p className="text-[11px] text-text-muted">
+            <div className="p-6 bg-bg-glass border border-success/20 rounded-xl mb-4">
+              <div className="text-[11px] text-success tracking-[2px] mb-2 font-semibold">TARGET REACHED</div>
+              <p className="text-[14px] text-text-muted">
                 {pool.hardCap} SOL hit. Awaiting Raydium launch...
               </p>
             </div>
@@ -346,19 +345,19 @@ export default function BoardingDetail({ pool, onBack }: BoardingDetailProps) {
 
           {/* Launched */}
           {pool.status === 'launched' && (
-            <div className="p-5 bg-bg-glass border border-[#a78bfa]/20 rounded-xl mb-4">
-              <div className="text-[8px] text-[#a78bfa] tracking-[2px] mb-2">LIVE ON RAYDIUM</div>
-              <p className="text-[11px] text-text-muted mb-3">LP created and burned. This vessel is sailing.</p>
-              <button className="w-full py-2.5 bg-[#a78bfa]/8 text-[#a78bfa] border border-[#a78bfa]/20 rounded-lg text-[11px] font-semibold cursor-pointer hover:bg-[#a78bfa]/15 transition-colors">
+            <div className="p-6 bg-bg-glass border border-[#a78bfa]/20 rounded-xl mb-4">
+              <div className="text-[11px] text-[#a78bfa] tracking-[2px] mb-2 font-semibold">LIVE ON RAYDIUM</div>
+              <p className="text-[14px] text-text-muted mb-4">LP created and burned. This vessel is sailing.</p>
+              <button className="w-full py-3 bg-[#a78bfa]/8 text-[#a78bfa] border border-[#a78bfa]/20 rounded-lg text-[13px] font-semibold cursor-pointer hover:bg-[#a78bfa]/15 transition-colors">
                 VIEW ON RAYDIUM &rarr;
               </button>
             </div>
           )}
 
           {/* Creator */}
-          <div className="p-4 bg-bg-glass border border-[rgba(136,192,255,0.08)] rounded-xl">
-            <div className="text-[8px] text-text-dim tracking-[2px] mb-2">CREATOR</div>
-            <div className="text-xs text-white font-mono">
+          <div className="p-4 bg-bg-glass border border-[rgba(136,192,255,0.1)] rounded-xl">
+            <div className="text-[11px] text-text-muted tracking-[2px] mb-2">CREATOR</div>
+            <div className="text-sm text-white font-mono">
               {pool.creator.slice(0, 4)}...{pool.creator.slice(-4)}
             </div>
           </div>
