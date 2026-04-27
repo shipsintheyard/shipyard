@@ -1,5 +1,8 @@
 "use client";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { useBoardingProgram } from './useAnchorProgram';
+import { V1_HARD_CAP_SOL, V1_PER_WALLET_SOL, V1_MIN_WALLETS } from '../lib/boarding-idl';
 
 export type PoolStatus = 'active' | 'succeeded' | 'failed' | 'launched';
 export type BoardingMode = 'blitz' | 'flash' | 'voyage';
@@ -12,12 +15,12 @@ export interface BoardingPool {
   tokenName: string;
   tokenSymbol: string;
   tokenImage?: string;
-  hardCap: number;
-  perWalletCap: number;
+  hardCap: number;       // SOL
+  perWalletCap: number;  // SOL
   minWallets: number;
-  deadline: number;
+  deadline: number;       // unix seconds
   status: PoolStatus;
-  totalDeposited: number;
+  totalDeposited: number; // SOL
   participantCount: number;
   tokenSupply: number;
   mode: BoardingMode;
@@ -30,18 +33,43 @@ export interface UserDeposit {
   claimed: boolean;
 }
 
-// Mock pools — will be replaced with on-chain fetching
-const MOCK_POOLS: BoardingPool[] = [
+// ── On-chain status → frontend status ──
+function mapStatus(raw: any): PoolStatus {
+  if (raw.active)    return 'active';
+  if (raw.succeeded) return 'succeeded';
+  if (raw.failed)    return 'failed';
+  if (raw.launched)  return 'launched';
+  return 'active';
+}
+
+function mapAccess(raw: any): AccessMode {
+  if (raw.crew) return 'crew';
+  return 'public';
+}
+
+// ── Derive mode from remaining time ──
+// Not perfect — degrades as pool ages — but good enough for V1.
+function deriveMode(deadline: number): BoardingMode {
+  const now = Math.floor(Date.now() / 1000);
+  const remaining = deadline - now;
+  if (remaining <= 0) return 'flash'; // expired, default
+  if (remaining <= 3600) return 'blitz';       // ≤ 1h looks like blitz
+  if (remaining <= 24 * 3600) return 'flash';  // ≤ 24h looks like flash
+  return 'voyage';
+}
+
+// ── Demo pools — shown when devnet has no real pools ──
+const DEMO_POOLS: BoardingPool[] = [
   {
-    publicKey: '7xKm3pool1',
-    creator: '9bRz4creator1',
-    tokenMint: '3mNp1mint1',
+    publicKey: 'demo_moonbase',
+    creator: '9bRz...demo',
+    tokenMint: '3mNp...demo',
     tokenName: 'MOONBASE',
     tokenSymbol: 'MOON',
     hardCap: 80,
     perWalletCap: 2,
     minWallets: 40,
-    deadline: Math.floor(Date.now() / 1000) + 4 * 3600,  // 4h left
+    deadline: Math.floor(Date.now() / 1000) + 4 * 3600,
     status: 'active',
     totalDeposited: 52,
     participantCount: 28,
@@ -50,102 +78,17 @@ const MOCK_POOLS: BoardingPool[] = [
     access: 'public',
   },
   {
-    publicKey: '4yMk2pool2',
-    creator: '8kPj5creator2',
-    tokenMint: '5jQr2mint2',
-    tokenName: 'DEEPWATER',
-    tokenSymbol: 'DEEP',
-    hardCap: 120,
-    perWalletCap: 3,
-    minWallets: 40,
-    deadline: Math.floor(Date.now() / 1000) + 58 * 3600,  // ~2.5 days
-    status: 'active',
-    totalDeposited: 27,
-    participantCount: 11,
-    tokenSupply: 500_000_000,
-    mode: 'voyage',
-    access: 'crew',
-  },
-  {
-    publicKey: '2zLn3pool3',
-    creator: '6wNm6creator3',
-    tokenMint: '1hRs3mint3',
-    tokenName: 'NEBULA',
-    tokenSymbol: 'NEB',
-    hardCap: 80,
-    perWalletCap: 2,
-    minWallets: 40,
-    deadline: Math.floor(Date.now() / 1000) - 3600,
-    status: 'succeeded',
-    totalDeposited: 80,
-    participantCount: 43,
-    tokenSupply: 2_000_000_000,
-    mode: 'flash',
-    access: 'public',
-  },
-  {
-    publicKey: '8pJq4pool4',
-    creator: '3tQk7creator4',
-    tokenMint: '9fKw4mint4',
-    tokenName: 'ANCHOR',
-    tokenSymbol: 'ANCH',
-    hardCap: 60,
-    perWalletCap: 1.5,
-    minWallets: 40,
-    deadline: Math.floor(Date.now() / 1000) - 7200,
-    status: 'failed',
-    totalDeposited: 18,
-    participantCount: 14,
-    tokenSupply: 750_000_000,
-    mode: 'voyage',
-    access: 'public',
-  },
-  {
-    publicKey: '5nHd5pool5',
-    creator: '1rSv8creator5',
-    tokenMint: '7dMx5mint5',
-    tokenName: 'COMPASS',
-    tokenSymbol: 'CMP',
-    hardCap: 80,
-    perWalletCap: 2,
-    minWallets: 40,
-    deadline: Math.floor(Date.now() / 1000) - 86400,
-    status: 'launched',
-    totalDeposited: 80,
-    participantCount: 44,
-    tokenSupply: 1_500_000_000,
-    mode: 'flash',
-    access: 'crew',
-  },
-  {
-    publicKey: '9gTp6pool6',
-    creator: '2mXw9creator6',
-    tokenMint: '4kLz6mint6',
-    tokenName: 'KRAKEN',
-    tokenSymbol: 'KRKN',
-    hardCap: 40,
-    perWalletCap: 1,
-    minWallets: 40,
-    deadline: Math.floor(Date.now() / 1000) + 11 * 3600,
-    status: 'active',
-    totalDeposited: 38,
-    participantCount: 39,
-    tokenSupply: 420_000_000,
-    mode: 'flash',
-    access: 'public',
-  },
-  {
-    publicKey: '3bRt7pool7',
-    creator: '7yKn2creator7',
-    tokenMint: '8wPq7mint7',
+    publicKey: 'demo_sendit',
+    creator: '7yKn...demo',
+    tokenMint: '8wPq...demo',
     tokenName: 'SENDIT',
     tokenSymbol: 'SEND',
-    hardCap: 40,
-    perWalletCap: 1,
+    hardCap: 80,
+    perWalletCap: 2,
     minWallets: 40,
-    deadline: Math.floor(Date.now() / 1000) + 18 * 60,  // 18 min left
+    deadline: Math.floor(Date.now() / 1000) + 18 * 60,
     status: 'active',
-    totalDeposited: 29,
+    totalDeposited: 58,
     participantCount: 31,
     tokenSupply: 1_000_000_000,
     mode: 'blitz',
@@ -154,35 +97,67 @@ const MOCK_POOLS: BoardingPool[] = [
 ];
 
 export function useBoardingPools() {
+  const { program } = useBoardingProgram();
   const [pools, setPools] = useState<BoardingPool[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // TODO: Replace with on-chain getProgramAccounts
-    const timer = setTimeout(() => {
-      setPools(MOCK_POOLS);
-      setLoading(false);
-    }, 400);
-    return () => clearTimeout(timer);
-  }, []);
+  const fetchPools = useCallback(async () => {
+    try {
+      // Fetch all BoardingPool accounts from devnet
+      const raw = await (program.account as any).boardingPool.all();
 
-  return { pools, loading };
+      if (raw.length === 0) {
+        // No pools on-chain yet — show demos
+        setPools(DEMO_POOLS);
+        setLoading(false);
+        return;
+      }
+
+      const mapped: BoardingPool[] = raw.map((item: any) => {
+        const acc = item.account;
+        const pubkey = item.publicKey.toString();
+        return {
+          publicKey: pubkey,
+          creator: acc.creator.toString(),
+          tokenMint: acc.tokenMint.toString(),
+          tokenName: acc.tokenMint.toString().slice(0, 6), // fallback — no metadata yet
+          tokenSymbol: '???',  // TODO: fetch from TickerClaim or Metaplex
+          hardCap: acc.hardCap.toNumber() / LAMPORTS_PER_SOL,
+          perWalletCap: acc.perWalletCap.toNumber() / LAMPORTS_PER_SOL,
+          minWallets: acc.minWallets.toNumber(),
+          deadline: acc.deadline.toNumber(),
+          status: mapStatus(acc.status),
+          totalDeposited: acc.totalDeposited.toNumber() / LAMPORTS_PER_SOL,
+          participantCount: acc.participantCount.toNumber(),
+          tokenSupply: acc.tokenSupply.toNumber(),
+          mode: deriveMode(acc.deadline.toNumber()),
+          access: mapAccess(acc.accessMode),
+        };
+      });
+
+      setPools(mapped);
+    } catch (err) {
+      console.error('[boarding] Failed to fetch pools:', err);
+      setPools(DEMO_POOLS);
+    } finally {
+      setLoading(false);
+    }
+  }, [program]);
+
+  useEffect(() => {
+    fetchPools();
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchPools, 30_000);
+    return () => clearInterval(interval);
+  }, [fetchPools]);
+
+  return { pools, loading, refetch: fetchPools };
 }
 
 export function useBoardingPool(poolId: string | null) {
-  const [pool, setPool] = useState<BoardingPool | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!poolId) { setPool(null); setLoading(false); return; }
-    const timer = setTimeout(() => {
-      setPool(MOCK_POOLS.find(p => p.publicKey === poolId) || null);
-      setLoading(false);
-    }, 200);
-    return () => clearTimeout(timer);
-  }, [poolId]);
-
-  return { pool, loading };
+  const { pools } = useBoardingPools();
+  const pool = poolId ? pools.find(p => p.publicKey === poolId) || null : null;
+  return { pool, loading: false };
 }
 
 export function useCountdown(deadline: number) {
