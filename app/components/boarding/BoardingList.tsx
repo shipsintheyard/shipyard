@@ -1,6 +1,6 @@
 "use client";
 import { useState } from 'react';
-import { type BoardingPool } from '../../hooks/useBoarding';
+import { type BoardingPool, type MyDeposit } from '../../hooks/useBoarding';
 import BoardingCard from './BoardingCard';
 
 type Filter = 'all' | 'active' | 'succeeded' | 'failed' | 'launched';
@@ -16,10 +16,11 @@ const FILTERS: { id: Filter; label: string }[] = [
 interface BoardingListProps {
   pools: BoardingPool[];
   loading: boolean;
+  deposits: Map<string, MyDeposit>;
   onSelectPool: (pool: BoardingPool) => void;
 }
 
-export default function BoardingList({ pools, loading, onSelectPool }: BoardingListProps) {
+export default function BoardingList({ pools, loading, deposits, onSelectPool }: BoardingListProps) {
   const [filter, setFilter] = useState<Filter>('all');
   const filtered = filter === 'all' ? pools : pools.filter(p => p.status === filter);
 
@@ -59,6 +60,7 @@ export default function BoardingList({ pools, loading, onSelectPool }: BoardingL
             <BoardingCard
               key={pool.publicKey}
               pool={pool}
+              myDeposit={deposits.get(pool.publicKey)}
               onClick={() => onSelectPool(pool)}
             />
           ))}

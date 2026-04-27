@@ -1,8 +1,9 @@
 "use client";
 import { useState, useEffect, useCallback } from 'react';
 import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { useWallet } from '@solana/wallet-adapter-react';
 import { useBoardingProgram } from './useAnchorProgram';
-import { V1_HARD_CAP_SOL, V1_PER_WALLET_SOL, V1_MIN_WALLETS } from '../lib/boarding-idl';
+import { BOARDING_PROGRAM_ID, V1_HARD_CAP_SOL, V1_PER_WALLET_SOL, V1_MIN_WALLETS } from '../lib/boarding-idl';
 
 export type PoolStatus = 'active' | 'succeeded' | 'failed' | 'launched';
 export type BoardingMode = 'blitz' | 'flash' | 'voyage';
@@ -186,6 +187,118 @@ export function useBoardingPool(poolId: string | null) {
   const { pools } = useBoardingPools();
   const pool = poolId ? pools.find(p => p.publicKey === poolId) || null : null;
   return { pool, loading: false };
+}
+
+// ── Deposit PDA layout (82 bytes) ──
+// 8 discriminator | 32 depositor | 32 pool | 8 amount (u64 LE) | 1 claimed | 1 tokens_claimed
+const DEPOSIT_AMOUNT_OFFSET = 72; // 8 + 32 + 32
+const DEPOSIT_CLAIMED_OFFSET = 80;
+const DEPOSIT_TOKENS_CLAIMED_OFFSET = 81;
+
+export interface MyDeposit {
+  poolPubkey: string;
+  amount: number;      // SOL
+  claimed: boolean;
+  tokensClaimed: boolean;
+}
+
+/**
+ * Fetches all deposit accounts for the connected wallet across all pools.
+ * Returns a map of poolPubkey → deposit info, plus aggregate unclaimed totals.
+ */
+export function useMyDeposits(pools: BoardingPool[]) {
+  const { publicKey } = useWallet();
+  const { connection } = useBoardingProgram();
+  const [deposits, setDeposits] = useState<Map<string, MyDeposit>>(new Map());
+  const [loading, setLoading] = useState(false);
+
+  const programId = new PublicKey(BOARDING_PROGRAM_ID);
+
+  const fetchDeposits = useCallback(async () => {
+    if (!publicKey || pools.length === 0) {
+      setDeposits(new Map());
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Derive deposit PDAs for every pool
+      const pdas = pools.map(p => {
+        const poolKey = new PublicKey(p.publicKey);
+        const [pda] = PublicKey.findProgramAddressSync(
+          [Buffer.from('deposit'), poolKey.toBuffer(), publicKey.toBuffer()],
+          programId
+        );
+        return pda;
+      });
+
+      // Batch fetch all at once
+      const accounts = await connection.getMultipleAccountsInfo(pdas);
+
+      const map = new Map<string, MyDeposit>();
+      for (let i = 0; i < accounts.length; i++) {
+        const acc = accounts[i];
+        if (!acc?.data || acc.data.length < 82) continue;
+
+        const data = acc.data;
+        // Read u64 amount (little-endian) — use first 6 bytes safely (up to ~281T lamports)
+        const lo = data[DEPOSIT_AMOUNT_OFFSET] +
+                   data[DEPOSIT_AMOUNT_OFFSET + 1] * 0x100 +
+                   data[DEPOSIT_AMOUNT_OFFSET + 2] * 0x10000 +
+                   data[DEPOSIT_AMOUNT_OFFSET + 3] * 0x1000000;
+        const hi = data[DEPOSIT_AMOUNT_OFFSET + 4] +
+                   data[DEPOSIT_AMOUNT_OFFSET + 5] * 0x100 +
+                   data[DEPOSIT_AMOUNT_OFFSET + 6] * 0x10000 +
+                   data[DEPOSIT_AMOUNT_OFFSET + 7] * 0x1000000;
+        const lamports = lo + hi * 0x100000000;
+
+        map.set(pools[i].publicKey, {
+          poolPubkey: pools[i].publicKey,
+          amount: lamports / LAMPORTS_PER_SOL,
+          claimed: data[DEPOSIT_CLAIMED_OFFSET] !== 0,
+          tokensClaimed: data[DEPOSIT_TOKENS_CLAIMED_OFFSET] !== 0,
+        });
+      }
+
+      setDeposits(map);
+    } catch (err) {
+      console.error('[boarding] Failed to fetch deposits:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [publicKey, pools, connection, programId]);
+
+  useEffect(() => {
+    fetchDeposits();
+    const interval = setInterval(fetchDeposits, 30_000);
+    return () => clearInterval(interval);
+  }, [fetchDeposits]);
+
+  // Compute aggregates
+  const unclaimedRefunds: (MyDeposit & { pool: BoardingPool })[] = [];
+  const activeDeposits: (MyDeposit & { pool: BoardingPool })[] = [];
+
+  for (const pool of pools) {
+    const dep = deposits.get(pool.publicKey);
+    if (!dep) continue;
+    if (pool.status === 'failed' && !dep.claimed) {
+      unclaimedRefunds.push({ ...dep, pool });
+    }
+    if (pool.status === 'active' || pool.status === 'succeeded') {
+      activeDeposits.push({ ...dep, pool });
+    }
+  }
+
+  const totalUnclaimedSol = unclaimedRefunds.reduce((s, d) => s + d.amount, 0);
+
+  return {
+    deposits,
+    unclaimedRefunds,
+    activeDeposits,
+    totalUnclaimedSol,
+    loading,
+    refetch: fetchDeposits,
+  };
 }
 
 export function useCountdown(deadline: number) {

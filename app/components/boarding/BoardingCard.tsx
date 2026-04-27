@@ -1,8 +1,9 @@
 "use client";
-import { type BoardingPool, useCountdown } from '../../hooks/useBoarding';
+import { type BoardingPool, type MyDeposit, useCountdown } from '../../hooks/useBoarding';
 
 interface BoardingCardProps {
   pool: BoardingPool;
+  myDeposit?: MyDeposit;
   onClick: () => void;
 }
 
@@ -13,17 +14,20 @@ const STATUS_BADGE: Record<string, { label: string; color: string }> = {
   launched:  { label: 'LAUNCHED', color: 'text-[#a78bfa] bg-[#a78bfa]/10 border-[#a78bfa]/25' },
 };
 
-export default function BoardingCard({ pool, onClick }: BoardingCardProps) {
+export default function BoardingCard({ pool, myDeposit, onClick }: BoardingCardProps) {
   const timeLeft = useCountdown(pool.deadline);
   const progress = (pool.totalDeposited / pool.hardCap) * 100;
   const badge = STATUS_BADGE[pool.status] || STATUS_BADGE.active;
   const isFailed = pool.status === 'failed';
+  const hasUnclaimed = isFailed && myDeposit && !myDeposit.claimed;
 
   return (
     <div
       onClick={onClick}
       className={`group relative p-6 rounded-xl cursor-pointer transition-all duration-300 overflow-hidden ${
-        isFailed
+        hasUnclaimed
+          ? 'bg-[rgba(15,18,22,0.9)] border-2 border-burn/50 hover:border-burn/70 shadow-[0_0_20px_rgba(249,115,22,0.1)]'
+          : isFailed
           ? 'bg-[rgba(15,18,22,0.9)] border border-burn/20 hover:border-burn/40'
           : 'bg-bg-glass border border-[rgba(136,192,255,0.1)] hover:border-primary/30 hover:shadow-[0_0_40px_rgba(136,192,255,0.08)] hover:-translate-y-0.5'
       }`}
@@ -45,6 +49,24 @@ export default function BoardingCard({ pool, onClick }: BoardingCardProps) {
         </>
       )}
 
+      {/* Your deposit badge */}
+      {myDeposit && (
+        <div className={`absolute top-2 right-2 z-10 px-2.5 py-1 rounded-md text-[11px] font-bold tracking-[0.5px] border ${
+          hasUnclaimed
+            ? 'bg-burn/15 border-burn/40 text-burn animate-pulse'
+            : isFailed && myDeposit.claimed
+            ? 'bg-success/10 border-success/25 text-success'
+            : 'bg-primary/10 border-primary/25 text-primary'
+        }`}>
+          {hasUnclaimed
+            ? `${myDeposit.amount} SOL — CLAIM`
+            : isFailed && myDeposit.claimed
+            ? 'REFUNDED'
+            : `YOU: ${myDeposit.amount} SOL`
+          }
+        </div>
+      )}
+
       {/* Top row: icon + name + badges */}
       <div className="flex justify-between items-start mb-4 relative">
         <div className="flex items-center gap-3">
@@ -62,7 +84,7 @@ export default function BoardingCard({ pool, onClick }: BoardingCardProps) {
             <div className="text-[13px] text-text-muted font-mono">${pool.tokenSymbol}</div>
           </div>
         </div>
-        <div className="flex gap-1.5">
+        <div className={`flex gap-1.5 ${myDeposit ? 'mt-7' : ''}`}>
           {pool.access === 'crew' && (
             <span className="px-2.5 py-1 rounded text-[10px] tracking-[1px] border text-[#34d399] bg-[#34d399]/8 border-[#34d399]/20">
               CREW
@@ -117,9 +139,14 @@ export default function BoardingCard({ pool, onClick }: BoardingCardProps) {
             {timeLeft}
           </div>
         )}
-        {isFailed && (
-          <div className="text-[13px] font-mono text-burn font-semibold">
+        {hasUnclaimed && (
+          <div className="text-[13px] font-mono text-burn font-bold animate-pulse">
             CLAIM REFUND &rarr;
+          </div>
+        )}
+        {isFailed && !hasUnclaimed && (
+          <div className="text-[13px] font-mono text-text-dim">
+            {myDeposit?.claimed ? 'REFUNDED' : 'SUNK'}
           </div>
         )}
       </div>
