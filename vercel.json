@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/fee-flywheel",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/finalize-pools",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
