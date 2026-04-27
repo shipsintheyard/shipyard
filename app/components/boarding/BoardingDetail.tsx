@@ -13,7 +13,7 @@ interface BoardingDetailProps {
 }
 
 export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDetailProps) {
-  const { connected, publicKey, sendTransaction } = useWallet();
+  const { connected, publicKey, signTransaction } = useWallet();
   const { program, connection } = useBoardingProgram();
   const timeLeft = useCountdown(pool.deadline);
   const [depositAmount, setDepositAmount] = useState('');
@@ -60,9 +60,10 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
         } as any)
         .transaction();
 
-      const sig = await sendTransaction(tx, connection, {
-        skipPreflight: true, // Phantom simulates against mainnet — skip it
-      });
+      tx.feePayer = publicKey;
+      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      const signed = await signTransaction!(tx);
+      const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: true });
       await connection.confirmTransaction(sig, 'confirmed');
 
       setTxStatus(`Deposited ${amount} SOL`);
@@ -104,9 +105,10 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
         } as any)
         .transaction();
 
-      const sig = await sendTransaction(tx, connection, {
-        skipPreflight: true, // Phantom simulates against mainnet — skip it
-      });
+      tx.feePayer = publicKey;
+      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      const signed = await signTransaction!(tx);
+      const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: true });
       await connection.confirmTransaction(sig, 'confirmed');
       setTxStatus('Refund claimed! SOL returned to your wallet.');
     } catch (err: any) {
