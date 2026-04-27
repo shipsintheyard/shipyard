@@ -2,16 +2,17 @@
 import { useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { PublicKey, LAMPORTS_PER_SOL, SystemProgram } from '@solana/web3.js';
-import { type BoardingPool, useCountdown } from '../../hooks/useBoarding';
+import { type BoardingPool, type MyDeposit, useCountdown } from '../../hooks/useBoarding';
 import { useBoardingProgram } from '../../hooks/useAnchorProgram';
 import { BOARDING_PROGRAM_ID } from '../../lib/boarding-idl';
 
 interface BoardingDetailProps {
   pool: BoardingPool;
+  myDeposit?: MyDeposit;
   onBack: () => void;
 }
 
-export default function BoardingDetail({ pool, onBack }: BoardingDetailProps) {
+export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDetailProps) {
   const { connected, publicKey, sendTransaction } = useWallet();
   const { program, connection } = useBoardingProgram();
   const timeLeft = useCountdown(pool.deadline);
@@ -346,24 +347,45 @@ export default function BoardingDetail({ pool, onBack }: BoardingDetailProps) {
                   </div>
                 </div>
 
-                <div className="p-4 bg-burn/5 border border-burn/15 rounded-lg mb-4">
-                  <div className="text-[14px] text-burn font-semibold mb-1">Your SOL is safe</div>
-                  <div className="text-[13px] text-text-muted">
-                    Deposits are held in a trustless vault. Claim your full refund below — no fees taken.
-                  </div>
-                </div>
+                {/* State 1: User has unclaimed deposit */}
+                {myDeposit && !myDeposit.claimed && (
+                  <>
+                    <div className="p-4 bg-burn/5 border border-burn/15 rounded-lg mb-4">
+                      <div className="text-[14px] text-burn font-semibold mb-1">
+                        Your {myDeposit.amount} SOL is safe
+                      </div>
+                      <div className="text-[13px] text-text-muted">
+                        Deposits are held in a trustless vault. Claim your full refund below — no fees taken.
+                      </div>
+                    </div>
 
-                <button
-                  onClick={handleRefund}
-                  disabled={!connected || refunding || isDemo}
-                  className={`w-full py-4 rounded-lg font-heading text-lg font-bold tracking-[1px] transition-all duration-200 ${
-                    connected && !isDemo
-                      ? 'bg-gradient-to-r from-burn to-[#dc2626] text-white cursor-pointer shadow-[0_2px_25px_rgba(249,115,22,0.3)] hover:shadow-[0_4px_35px_rgba(249,115,22,0.5)]'
-                      : 'bg-burn/8 text-text-dim cursor-not-allowed border border-burn/15'
-                  }`}
-                >
-                  {connected ? (refunding ? 'CLAIMING...' : 'CLAIM REFUND') : 'CONNECT WALLET'}
-                </button>
+                    <button
+                      onClick={handleRefund}
+                      disabled={!connected || refunding || isDemo}
+                      className="w-full py-4 rounded-lg font-heading text-lg font-bold tracking-[1px] transition-all duration-200 bg-gradient-to-r from-burn to-[#dc2626] text-white cursor-pointer shadow-[0_2px_25px_rgba(249,115,22,0.3)] hover:shadow-[0_4px_35px_rgba(249,115,22,0.5)]"
+                    >
+                      {refunding ? 'CLAIMING...' : `CLAIM ${myDeposit.amount} SOL REFUND`}
+                    </button>
+                  </>
+                )}
+
+                {/* State 2: User already claimed */}
+                {myDeposit && myDeposit.claimed && (
+                  <div className="p-4 bg-success/5 border border-success/20 rounded-lg">
+                    <div className="text-[14px] text-success font-semibold mb-1">Refund claimed</div>
+                    <div className="text-[13px] text-text-muted">
+                      Your {myDeposit.amount} SOL was returned to your wallet.
+                    </div>
+                  </div>
+                )}
+
+                {/* State 3: User never deposited here */}
+                {!myDeposit && (
+                  <div className="p-4 bg-[rgba(136,192,255,0.03)] border border-[rgba(136,192,255,0.08)] rounded-lg">
+                    <div className="text-[14px] text-text-muted">You didn&apos;t deposit to this pool</div>
+                    <div className="text-[13px] text-text-dim mt-1">No action needed.</div>
+                  </div>
+                )}
               </div>
             </div>
           )}

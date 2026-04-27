@@ -97,7 +97,7 @@ export default function BoardingTab() {
       )}
 
       {view === 'detail' && selectedPool && (
-        <BoardingDetail pool={selectedPool} onBack={handleBack} />
+        <BoardingDetail pool={selectedPool} myDeposit={deposits.get(selectedPool.publicKey)} onBack={handleBack} />
       )}
 
       {view === 'create' && (
