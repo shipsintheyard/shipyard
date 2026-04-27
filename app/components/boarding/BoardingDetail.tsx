@@ -60,7 +60,9 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
         } as any)
         .transaction();
 
-      const sig = await sendTransaction(tx, connection);
+      const sig = await sendTransaction(tx, connection, {
+        skipPreflight: true, // Phantom simulates against mainnet — skip it
+      });
       await connection.confirmTransaction(sig, 'confirmed');
 
       setTxStatus(`Deposited ${amount} SOL`);
@@ -91,13 +93,7 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
         programId
       );
 
-      console.log('[refund] pool:', poolPubkey.toString());
-      console.log('[refund] deposit PDA:', depositPda.toString());
-      console.log('[refund] sol vault:', solVault.toString());
-      console.log('[refund] depositor:', publicKey.toString());
-
-      // Use .rpc() — goes through Anchor provider which has the wallet
-      const sig = await program.methods
+      const tx = await program.methods
         .claimRefund()
         .accounts({
           pool: poolPubkey,
@@ -106,10 +102,13 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
           depositor: publicKey,
           systemProgram: SystemProgram.programId,
         } as any)
-        .rpc();
+        .transaction();
 
+      const sig = await sendTransaction(tx, connection, {
+        skipPreflight: true, // Phantom simulates against mainnet — skip it
+      });
       await connection.confirmTransaction(sig, 'confirmed');
-      setTxStatus('Refund claimed! 1 SOL returned.');
+      setTxStatus('Refund claimed! SOL returned to your wallet.');
     } catch (err: any) {
       console.error('[boarding] refund error:', err);
       // Show full error for debugging — program logs if available
