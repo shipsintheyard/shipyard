@@ -98,7 +98,7 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
           solVault,
           depositor: publicKey,
           systemProgram: SystemProgram.programId,
-        })
+        } as any)
         .transaction();
 
       const sig = await sendTransaction(tx, connection);

@@ -77,3 +77,49 @@ input:focus, textarea:focus {
   border-color: #88c0ff !important;
   box-shadow: 0 0 0 2px rgba(136, 192, 255, 0.15);
 }
+
+/* Wallet adapter modal — prevent full-screen takeover */
+.wallet-adapter-modal-wrapper {
+  max-width: 420px !important;
+  margin: auto !important;
+  border-radius: 16px !important;
+  background: #0f1419 !important;
+  border: 1px solid rgba(136, 192, 255, 0.12) !important;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6) !important;
+}
+
+.wallet-adapter-modal-overlay {
+  background: rgba(0, 0, 0, 0.7) !important;
+  backdrop-filter: blur(4px) !important;
+}
+
+.wallet-adapter-modal-container {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.wallet-adapter-modal-title {
+  color: #c9d1d9 !important;
+  font-family: 'Outfit', sans-serif !important;
+}
+
+.wallet-adapter-modal-list .wallet-adapter-button {
+  background: rgba(136, 192, 255, 0.06) !important;
+  border: 1px solid rgba(136, 192, 255, 0.1) !important;
+  border-radius: 10px !important;
+  color: #c9d1d9 !important;
+}
+
+.wallet-adapter-modal-list .wallet-adapter-button:hover {
+  background: rgba(136, 192, 255, 0.12) !important;
+  border-color: rgba(136, 192, 255, 0.25) !important;
+}
+
+.wallet-adapter-modal-button-close {
+  background: rgba(136, 192, 255, 0.08) !important;
+}
+
+.wallet-adapter-modal-button-close:hover {
+  background: rgba(136, 192, 255, 0.15) !important;
+}
