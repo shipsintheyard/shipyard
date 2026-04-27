@@ -220,10 +220,17 @@ export function useMyDeposits(pools: BoardingPool[]) {
       return;
     }
 
+    // Filter out demo pools (can't derive PDAs for fake pubkeys)
+    const realPools = pools.filter(p => !p.publicKey.startsWith('demo_'));
+    if (realPools.length === 0) {
+      setDeposits(new Map());
+      return;
+    }
+
     setLoading(true);
     try {
-      // Derive deposit PDAs for every pool
-      const pdas = pools.map(p => {
+      // Derive deposit PDAs for every real pool
+      const pdas = realPools.map(p => {
         const poolKey = new PublicKey(p.publicKey);
         const [pda] = PublicKey.findProgramAddressSync(
           [Buffer.from('deposit'), poolKey.toBuffer(), publicKey.toBuffer()],
@@ -240,20 +247,14 @@ export function useMyDeposits(pools: BoardingPool[]) {
         const acc = accounts[i];
         if (!acc?.data || acc.data.length < 82) continue;
 
-        const data = acc.data;
-        // Read u64 amount (little-endian) — use first 6 bytes safely (up to ~281T lamports)
-        const lo = data[DEPOSIT_AMOUNT_OFFSET] +
-                   data[DEPOSIT_AMOUNT_OFFSET + 1] * 0x100 +
-                   data[DEPOSIT_AMOUNT_OFFSET + 2] * 0x10000 +
-                   data[DEPOSIT_AMOUNT_OFFSET + 3] * 0x1000000;
-        const hi = data[DEPOSIT_AMOUNT_OFFSET + 4] +
-                   data[DEPOSIT_AMOUNT_OFFSET + 5] * 0x100 +
-                   data[DEPOSIT_AMOUNT_OFFSET + 6] * 0x10000 +
-                   data[DEPOSIT_AMOUNT_OFFSET + 7] * 0x1000000;
+        const data = Buffer.from(acc.data);
+        // Read u64 amount (little-endian)
+        const lo = data.readUInt32LE(DEPOSIT_AMOUNT_OFFSET);
+        const hi = data.readUInt32LE(DEPOSIT_AMOUNT_OFFSET + 4);
         const lamports = lo + hi * 0x100000000;
 
-        map.set(pools[i].publicKey, {
-          poolPubkey: pools[i].publicKey,
+        map.set(realPools[i].publicKey, {
+          poolPubkey: realPools[i].publicKey,
           amount: lamports / LAMPORTS_PER_SOL,
           claimed: data[DEPOSIT_CLAIMED_OFFSET] !== 0,
           tokensClaimed: data[DEPOSIT_TOKENS_CLAIMED_OFFSET] !== 0,
