@@ -122,11 +122,17 @@ export default function BoardingDetail({ pool, onBack }: BoardingDetailProps) {
       {/* Header */}
       <div className="flex justify-between items-start mb-8">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 bg-primary/8 rounded-xl flex items-center justify-center text-2xl border border-[rgba(136,192,255,0.12)]">
-            {pool.mode === 'blitz' ? '\uD83D\uDCA5' : pool.mode === 'flash' ? '\u26A1' : '\uD83E\uDDED'}
+          <div className={`w-14 h-14 rounded-xl flex items-center justify-center text-2xl border ${
+            isFailed
+              ? 'bg-burn/8 border-burn/15'
+              : 'bg-primary/8 border-[rgba(136,192,255,0.12)]'
+          }`}>
+            {isFailed ? '\u{1F6DF}' : pool.mode === 'blitz' ? '\uD83D\uDCA5' : pool.mode === 'flash' ? '\u26A1' : '\uD83E\uDDED'}
           </div>
           <div>
-            <h1 className="font-heading text-[28px] font-bold text-white leading-tight">{pool.tokenName}</h1>
+            <h1 className={`font-heading text-[28px] font-bold leading-tight ${
+              isFailed ? 'text-text-muted line-through decoration-burn/40 decoration-2' : 'text-white'
+            }`}>{pool.tokenName}</h1>
             <div className="text-[14px] text-text-muted font-mono">
               ${pool.tokenSymbol} · {pool.mode === 'blitz' ? 'Blitz' : pool.mode === 'flash' ? 'Flash' : 'Voyage'}
               {pool.access === 'crew' ? ' · Crew' : ''}
@@ -138,6 +144,12 @@ export default function BoardingDetail({ pool, onBack }: BoardingDetailProps) {
           <div className="text-right">
             <div className="text-[11px] text-text-muted tracking-[2px] mb-1">TIME LEFT</div>
             <div className="font-mono text-xl font-bold text-primary tabular-nums">{timeLeft}</div>
+          </div>
+        )}
+        {isFailed && (
+          <div className="text-right">
+            <div className="text-[11px] text-burn tracking-[2px] mb-1">STATUS</div>
+            <div className="font-heading text-xl font-bold text-burn">SUNK</div>
           </div>
         )}
       </div>
@@ -312,24 +324,48 @@ export default function BoardingDetail({ pool, onBack }: BoardingDetailProps) {
             </div>
           )}
 
-          {/* Refund */}
+          {/* Refund — sunk vessel */}
           {isFailed && (
-            <div className="p-6 bg-bg-glass border border-burn/20 rounded-xl mb-4">
-              <div className="text-[11px] text-burn tracking-[2px] mb-2 font-semibold">POOL FAILED</div>
-              <p className="text-[14px] text-text-muted mb-4">
-                Didn&apos;t hit {pool.hardCap} SOL. Your deposit is fully refundable.
-              </p>
-              <button
-                onClick={handleRefund}
-                disabled={!connected || refunding || isDemo}
-                className={`w-full py-4 rounded-lg font-heading text-base font-bold tracking-[1px] ${
-                  connected && !isDemo
-                    ? 'bg-gradient-to-r from-burn to-burn-dark text-white cursor-pointer'
-                    : 'bg-burn/8 text-text-dim cursor-not-allowed border border-burn/15'
-                }`}
-              >
-                {connected ? (refunding ? 'CLAIMING...' : 'CLAIM REFUND') : 'CONNECT WALLET'}
-              </button>
+            <div className="relative p-6 rounded-xl mb-4 overflow-hidden border-2 border-burn/30 bg-[rgba(15,18,22,0.95)]">
+              {/* Hazard stripes background */}
+              <div className="absolute inset-0 opacity-[0.04] pointer-events-none"
+                style={{
+                  backgroundImage: 'repeating-linear-gradient(-45deg, transparent, transparent 14px, #f97316 14px, #f97316 16px)',
+                }}
+              />
+              {/* Water effect at bottom */}
+              <div className="absolute bottom-0 left-0 right-0 h-16 pointer-events-none opacity-20"
+                style={{ background: 'linear-gradient(to top, rgba(30,80,120,0.6), transparent)' }}
+              />
+
+              <div className="relative">
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="text-3xl">{'\u{1F6DF}'}</span>
+                  <div>
+                    <div className="text-[11px] text-burn tracking-[2px] font-bold">VESSEL SUNK</div>
+                    <div className="text-[13px] text-text-muted">Didn&apos;t hit {pool.hardCap} SOL target</div>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-burn/5 border border-burn/15 rounded-lg mb-4">
+                  <div className="text-[14px] text-burn font-semibold mb-1">Your SOL is safe</div>
+                  <div className="text-[13px] text-text-muted">
+                    Deposits are held in a trustless vault. Claim your full refund below — no fees taken.
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleRefund}
+                  disabled={!connected || refunding || isDemo}
+                  className={`w-full py-4 rounded-lg font-heading text-lg font-bold tracking-[1px] transition-all duration-200 ${
+                    connected && !isDemo
+                      ? 'bg-gradient-to-r from-burn to-[#dc2626] text-white cursor-pointer shadow-[0_2px_25px_rgba(249,115,22,0.3)] hover:shadow-[0_4px_35px_rgba(249,115,22,0.5)]'
+                      : 'bg-burn/8 text-text-dim cursor-not-allowed border border-burn/15'
+                  }`}
+                >
+                  {connected ? (refunding ? 'CLAIMING...' : 'CLAIM REFUND') : 'CONNECT WALLET'}
+                </button>
+              </div>
             </div>
           )}
 
