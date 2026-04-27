@@ -103,25 +103,53 @@ export function useBoardingPools() {
 
   const fetchPools = useCallback(async () => {
     try {
-      // Fetch all BoardingPool accounts from devnet
-      const raw = await (program.account as any).boardingPool.all();
+      // Fetch all BoardingPool + TickerClaim accounts in parallel
+      const [rawPools, rawTickers] = await Promise.all([
+        (program.account as any).boardingPool.all(),
+        (program.account as any).tickerClaim.all(),
+      ]);
 
-      if (raw.length === 0) {
-        // No pools on-chain yet — show demos
+      if (rawPools.length === 0) {
         setPools(DEMO_POOLS);
         setLoading(false);
         return;
       }
 
-      const mapped: BoardingPool[] = raw.map((item: any) => {
+      // Build ticker lookup: pool pubkey → ticker string
+      const tickerMap = new Map<string, string>();
+      for (const t of rawTickers) {
+        const poolKey = t.account.pool.toString();
+        // ticker is [u8; 10] zero-padded uppercase ASCII
+        const bytes: number[] = Array.from(t.account.ticker);
+        const ticker = String.fromCharCode(...bytes.filter((b: number) => b !== 0));
+        tickerMap.set(poolKey, ticker);
+      }
+
+      // Fetch mint decimals for proper supply display
+      const { connection } = program.provider as any;
+      const mintKeys = rawPools.map((p: any) => p.account.tokenMint);
+      const mintInfos = await connection.getMultipleAccountsInfo(mintKeys);
+
+      const mapped: BoardingPool[] = rawPools.map((item: any, i: number) => {
         const acc = item.account;
         const pubkey = item.publicKey.toString();
+        const ticker = tickerMap.get(pubkey) || '???';
+
+        // Parse mint decimals from raw account data (offset 44, 1 byte)
+        let decimals = 6; // default
+        if (mintInfos[i]?.data) {
+          decimals = mintInfos[i].data[44];
+        }
+
+        const rawSupply = acc.tokenSupply.toNumber();
+        const humanSupply = rawSupply / (10 ** decimals);
+
         return {
           publicKey: pubkey,
           creator: acc.creator.toString(),
           tokenMint: acc.tokenMint.toString(),
-          tokenName: acc.tokenMint.toString().slice(0, 6), // fallback — no metadata yet
-          tokenSymbol: '???',  // TODO: fetch from TickerClaim or Metaplex
+          tokenName: ticker,       // use ticker as name
+          tokenSymbol: ticker,     // use ticker as symbol
           hardCap: acc.hardCap.toNumber() / LAMPORTS_PER_SOL,
           perWalletCap: acc.perWalletCap.toNumber() / LAMPORTS_PER_SOL,
           minWallets: acc.minWallets.toNumber(),
@@ -129,7 +157,7 @@ export function useBoardingPools() {
           status: mapStatus(acc.status),
           totalDeposited: acc.totalDeposited.toNumber() / LAMPORTS_PER_SOL,
           participantCount: acc.participantCount.toNumber(),
-          tokenSupply: acc.tokenSupply.toNumber(),
+          tokenSupply: humanSupply,
           mode: deriveMode(acc.deadline.toNumber()),
           access: mapAccess(acc.accessMode),
         };
