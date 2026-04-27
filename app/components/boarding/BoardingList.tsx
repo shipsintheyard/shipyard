@@ -20,9 +20,27 @@ interface BoardingListProps {
   onSelectPool: (pool: BoardingPool) => void;
 }
 
+// Sort priority: LIVE first, then FUNDED/LAUNCHED, then SUNK last
+const STATUS_ORDER: Record<string, number> = {
+  active: 0,
+  succeeded: 1,
+  launched: 2,
+  failed: 3,
+};
+
+function sortPools(pools: BoardingPool[]): BoardingPool[] {
+  return [...pools].sort((a, b) => {
+    const oa = STATUS_ORDER[a.status] ?? 9;
+    const ob = STATUS_ORDER[b.status] ?? 9;
+    if (oa !== ob) return oa - ob;
+    // Within same status, newest first (higher deadline = created more recently)
+    return b.deadline - a.deadline;
+  });
+}
+
 export default function BoardingList({ pools, loading, deposits, onSelectPool }: BoardingListProps) {
   const [filter, setFilter] = useState<Filter>('all');
-  const filtered = filter === 'all' ? pools : pools.filter(p => p.status === filter);
+  const filtered = sortPools(filter === 'all' ? pools : pools.filter(p => p.status === filter));
 
   return (
     <div className="fade-in">
