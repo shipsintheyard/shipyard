@@ -22,7 +22,9 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
   const [txStatus, setTxStatus] = useState<string | null>(null);
 
   const progress = (pool.totalDeposited / pool.hardCap) * 100;
-  const isActive = pool.status === 'active';
+  const isExpired = pool.deadline < Math.floor(Date.now() / 1000);
+  const isActive = pool.status === 'active' && !isExpired;
+  const isAwaitingFinalize = pool.status === 'active' && isExpired;
   const isFailed = pool.status === 'failed';
   const isDemo = pool.publicKey.startsWith('demo_');
 
@@ -145,6 +147,12 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
           <div className="text-right">
             <div className="text-[11px] text-text-muted tracking-[2px] mb-1">TIME LEFT</div>
             <div className="font-mono text-xl font-bold text-primary tabular-nums">{timeLeft}</div>
+          </div>
+        )}
+        {isAwaitingFinalize && (
+          <div className="text-right">
+            <div className="text-[11px] text-[#f59e0b] tracking-[2px] mb-1">STATUS</div>
+            <div className="font-heading text-xl font-bold text-[#f59e0b] animate-pulse">EXPIRED</div>
           </div>
         )}
         {isFailed && (
@@ -322,6 +330,30 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
               >
                 {!connected ? 'CONNECT WALLET' : depositing ? 'BOARDING...' : isDemo ? 'DEMO POOL' : !depositAmount ? 'SELECT AMOUNT' : 'COMMIT SOL'}
               </button>
+            </div>
+          )}
+
+          {/* Expired — awaiting finalization */}
+          {isAwaitingFinalize && (
+            <div className="p-6 bg-bg-glass border-2 border-[#f59e0b]/30 rounded-xl mb-4">
+              <div className="flex items-center gap-3 mb-3">
+                <span className="text-2xl animate-pulse">⏳</span>
+                <div>
+                  <div className="text-[11px] text-[#f59e0b] tracking-[2px] font-bold">POOL EXPIRED</div>
+                  <div className="text-[13px] text-text-muted">Timer ran out — finalizing shortly</div>
+                </div>
+              </div>
+              <div className="p-4 bg-[#f59e0b]/5 border border-[#f59e0b]/15 rounded-lg">
+                <div className="text-[13px] text-text-muted">
+                  {pool.totalDeposited >= pool.hardCap
+                    ? 'Target was hit! Pool will be marked as funded and queued for launch.'
+                    : `Only ${pool.totalDeposited} of ${pool.hardCap} SOL raised. Pool will be marked as sunk and deposits refundable.`
+                  }
+                </div>
+                <div className="text-[12px] text-text-dim mt-2">
+                  Auto-finalization runs every few minutes. No action needed.
+                </div>
+              </div>
             </div>
           )}
 

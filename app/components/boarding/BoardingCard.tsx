@@ -17,7 +17,10 @@ const STATUS_BADGE: Record<string, { label: string; color: string }> = {
 export default function BoardingCard({ pool, myDeposit, onClick }: BoardingCardProps) {
   const timeLeft = useCountdown(pool.deadline);
   const progress = (pool.totalDeposited / pool.hardCap) * 100;
-  const badge = STATUS_BADGE[pool.status] || STATUS_BADGE.active;
+  const isExpired = pool.status === 'active' && pool.deadline < Math.floor(Date.now() / 1000);
+  const badge = isExpired
+    ? { label: 'EXPIRED', color: 'text-[#f59e0b] bg-[#f59e0b]/10 border-[#f59e0b]/25' }
+    : STATUS_BADGE[pool.status] || STATUS_BADGE.active;
   const isFailed = pool.status === 'failed';
   const hasUnclaimed = isFailed && myDeposit && !myDeposit.claimed;
 
@@ -134,9 +137,14 @@ export default function BoardingCard({ pool, myDeposit, onClick }: BoardingCardP
             <div className={`text-sm font-semibold ${isFailed ? 'text-text-muted' : 'text-white'}`}>{pool.perWalletCap} SOL</div>
           </div>
         </div>
-        {pool.status === 'active' && (
+        {pool.status === 'active' && !isExpired && (
           <div className="text-sm font-mono text-primary font-semibold tabular-nums">
             {timeLeft}
+          </div>
+        )}
+        {isExpired && (
+          <div className="text-[13px] font-mono text-[#f59e0b] font-semibold animate-pulse">
+            FINALIZING...
           </div>
         )}
         {hasUnclaimed && (
