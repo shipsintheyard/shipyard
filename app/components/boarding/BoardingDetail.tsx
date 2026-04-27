@@ -327,12 +327,11 @@ export default function BoardingDetail({ pool, onBack }: BoardingDetailProps) {
           {/* Refund — sunk vessel */}
           {isFailed && (
             <div className="relative p-6 rounded-xl mb-4 overflow-hidden border-2 border-burn/30 bg-[rgba(15,18,22,0.95)]">
-              {/* Hazard stripes background */}
-              <div className="absolute inset-0 opacity-[0.04] pointer-events-none"
-                style={{
-                  backgroundImage: 'repeating-linear-gradient(-45deg, transparent, transparent 14px, #f97316 14px, #f97316 16px)',
-                }}
-              />
+              {/* Bold red X overlay */}
+              <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none" viewBox="0 0 100 100">
+                <line x1="5" y1="5" x2="95" y2="95" stroke="#dc2626" strokeWidth="2" strokeOpacity="0.15" strokeLinecap="round" />
+                <line x1="95" y1="5" x2="5" y2="95" stroke="#dc2626" strokeWidth="2" strokeOpacity="0.15" strokeLinecap="round" />
+              </svg>
               {/* Water effect at bottom */}
               <div className="absolute bottom-0 left-0 right-0 h-16 pointer-events-none opacity-20"
                 style={{ background: 'linear-gradient(to top, rgba(30,80,120,0.6), transparent)' }}

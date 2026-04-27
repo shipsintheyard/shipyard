@@ -31,13 +31,12 @@ export default function BoardingCard({ pool, onClick }: BoardingCardProps) {
       {/* Sunk overlay for failed pools */}
       {isFailed && (
         <>
-          {/* Diagonal hazard stripes */}
-          <div className="absolute inset-0 opacity-[0.04] pointer-events-none"
-            style={{
-              backgroundImage: 'repeating-linear-gradient(-45deg, transparent, transparent 12px, #f97316 12px, #f97316 14px)',
-            }}
-          />
-          {/* Sunken ship + water overlay at bottom */}
+          {/* Bold red X across the card */}
+          <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none" viewBox="0 0 100 100">
+            <line x1="8" y1="8" x2="92" y2="92" stroke="#dc2626" strokeWidth="2.5" strokeOpacity="0.18" strokeLinecap="round" />
+            <line x1="92" y1="8" x2="8" y2="92" stroke="#dc2626" strokeWidth="2.5" strokeOpacity="0.18" strokeLinecap="round" />
+          </svg>
+          {/* Sunken water overlay at bottom */}
           <div className="absolute bottom-0 left-0 right-0 h-12 pointer-events-none opacity-30"
             style={{
               background: 'linear-gradient(to top, rgba(30,80,120,0.5), transparent)',
