@@ -237,45 +237,67 @@ export default function BoardingDetail({ pool, onBack }: BoardingDetailProps) {
                 </div>
               )}
 
-              <div className="mb-3">
-                <label className="block text-[8px] text-text-dim tracking-[2px] mb-1.5">AMOUNT (SOL)</label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max={pool.perWalletCap}
-                    value={depositAmount}
-                    onChange={(e) => setDepositAmount(e.target.value)}
-                    placeholder={`Max ${pool.perWalletCap}`}
-                    disabled={isDemo}
-                    className="w-full p-3 bg-bg-input border border-border-primary rounded-lg text-white text-sm font-mono pr-16 disabled:opacity-40"
-                  />
-                  <button
-                    onClick={() => setDepositAmount(String(pool.perWalletCap))}
-                    disabled={isDemo}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-primary/10 text-primary text-[8px] rounded border border-primary/20 cursor-pointer hover:bg-primary/20 transition-colors disabled:opacity-40"
-                  >
-                    MAX
-                  </button>
-                </div>
+              {/* Allocation boxes */}
+              <label className="block text-[8px] text-text-dim tracking-[2px] mb-2">SELECT ALLOCATION</label>
+              <div className="grid grid-cols-4 gap-2 mb-3">
+                {[
+                  { sol: 0.5, label: '0.5', tag: null },
+                  { sol: 1,   label: '1',   tag: null },
+                  { sol: 1.5, label: '1.5', tag: null },
+                  { sol: 2,   label: '2',   tag: 'MAX' },
+                ].filter(a => a.sol <= pool.perWalletCap).map((alloc) => {
+                  const selected = depositAmount === String(alloc.sol);
+                  return (
+                    <button
+                      key={alloc.sol}
+                      onClick={() => setDepositAmount(selected ? '' : String(alloc.sol))}
+                      disabled={isDemo}
+                      className={`relative p-3 rounded-xl text-center transition-all duration-200 cursor-pointer disabled:opacity-40 ${
+                        selected
+                          ? 'bg-primary/12 border-2 border-primary shadow-[0_0_20px_rgba(136,192,255,0.15)]'
+                          : 'bg-bg-input border border-border-primary hover:border-primary/30'
+                      }`}
+                    >
+                      {alloc.tag && (
+                        <span className={`absolute -top-1.5 right-1.5 px-1.5 py-0.5 rounded text-[7px] font-bold tracking-[1px] ${
+                          selected ? 'bg-primary text-bg-base' : 'bg-primary/15 text-primary'
+                        }`}>
+                          {alloc.tag}
+                        </span>
+                      )}
+                      <div className={`font-heading text-lg font-bold tabular-nums ${selected ? 'text-primary' : 'text-white'}`}>
+                        {alloc.label}
+                      </div>
+                      <div className="text-[8px] text-text-dim">SOL</div>
+                    </button>
+                  );
+                })}
               </div>
 
-              {/* Fee breakdown */}
-              <div className="p-2.5 bg-bg-input rounded-lg mb-3 space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-[9px] text-text-dim">60% tokens &rarr; you (presale)</span>
-                  <span className="text-[9px] text-white">claim after launch</span>
+              {/* What you get */}
+              {depositAmount && (
+                <div className="p-2.5 bg-bg-input rounded-lg mb-3 space-y-1.5 fade-in">
+                  <div className="flex justify-between">
+                    <span className="text-[9px] text-text-dim">You commit</span>
+                    <span className="text-[9px] text-white font-semibold">{depositAmount} SOL</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[9px] text-text-dim">You receive (60% of supply, pro-rata)</span>
+                    <span className="text-[9px] text-primary font-semibold">
+                      {((parseFloat(depositAmount) / pool.hardCap) * pool.tokenSupply * 0.6 / 1e6).toFixed(1)}M ${pool.tokenSymbol}
+                    </span>
+                  </div>
+                  <div className="h-px bg-[rgba(136,192,255,0.06)]" />
+                  <div className="flex justify-between">
+                    <span className="text-[9px] text-text-dim">92.5% SOL &rarr; LP (burned)</span>
+                    <span className="text-[9px] text-text-muted">trustless</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[9px] text-text-dim">Miss target?</span>
+                    <span className="text-[9px] text-success">100% refund</span>
+                  </div>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-[9px] text-text-dim">35% tokens + 92.5% SOL &rarr; LP</span>
-                  <span className="text-[9px] text-primary">burned</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-[9px] text-text-dim">7.5% SOL &rarr; creator + platform</span>
-                  <span className="text-[9px] text-text-muted">fees</span>
-                </div>
-              </div>
+              )}
 
               <button
                 onClick={handleDeposit}
