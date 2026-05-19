@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { Connection, Transaction, LAMPORTS_PER_SOL } from '@solana/web3.js';
@@ -9,6 +9,8 @@ import Sonar from './components/Sonar';
 import Bottles from './components/Bottles';
 import LaunchHistory from './components/LaunchHistory';
 import BoardingTab from './components/boarding/BoardingTab';
+import ChainSelector from './components/ChainSelector';
+import WalletButton from './components/WalletButton';
 import { TokenConfig, FeeConfig } from './utils/meteora';
 
 export default function ShipyardPlatform() {
@@ -16,18 +18,19 @@ export default function ShipyardPlatform() {
   const { setVisible } = useWalletModal();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const pathname = usePathname();
 
   // Check for ?dev=1 to enable dev mode (bypasses any redirects, shows full UI)
   const isDevMode = searchParams.get('dev') === '1';
 
   const [activeTab, setActiveTabRaw] = useState(() => {
-    const tab = searchParams.get('tab');
-    return tab || 'landing';
+    const segment = pathname.slice(1); // strip leading /
+    return segment || 'landing';
   });
 
   const setActiveTab = (tab: string) => {
     setActiveTabRaw(tab);
-    router.push(tab === 'landing' ? '/' : `?tab=${tab}`, { scroll: false });
+    router.push(tab === 'landing' ? '/' : `/${tab}`, { scroll: false });
   };
   const [launchStep, setLaunchStep] = useState(1);
   const [selectedEngine, setSelectedEngine] = useState('navigator');
@@ -648,25 +651,10 @@ export default function ShipyardPlatform() {
           ))}
         </nav>
 
-        <button 
-          onClick={() => connected ? disconnect() : setVisible(true)}
-          style={{
-            padding: '12px 24px',
-            background: connected ? 'rgba(136, 192, 255, 0.1)' : 'transparent',
-            color: '#88c0ff',
-            border: '1px solid #88c0ff',
-            borderRadius: '6px',
-            fontFamily: "'Space Mono', monospace",
-            fontSize: '11px',
-            fontWeight: '600',
-            cursor: 'pointer',
-            letterSpacing: '1px'
-          }}>
-          {connected 
-            ? `${publicKey?.toBase58().slice(0, 4)}...${publicKey?.toBase58().slice(-4)}`
-            : 'CONNECT WALLET'
-          }
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <ChainSelector />
+          <WalletButton />
+        </div>
       </header>
 
       <main>
