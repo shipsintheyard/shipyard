@@ -1,7 +1,7 @@
 "use client";
 import { createContext, useContext, useState, type ReactNode } from 'react';
 
-export type Chain = 'sol' | 'base';
+export type Chain = 'sol' | 'base' | 'eth';
 
 interface ChainContextValue {
   chain: Chain;

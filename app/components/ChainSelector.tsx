@@ -3,6 +3,7 @@ import { useChain, type Chain } from '../providers/ChainProvider';
 
 const chains: { id: Chain; label: string }[] = [
   { id: 'sol', label: 'SOL' },
+  { id: 'eth', label: 'ETH' },
   { id: 'base', label: 'BASE' },
 ];
 
