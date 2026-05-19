@@ -20,7 +20,15 @@ export default function ShipyardPlatform() {
   // Check for ?dev=1 to enable dev mode (bypasses any redirects, shows full UI)
   const isDevMode = searchParams.get('dev') === '1';
 
-  const [activeTab, setActiveTab] = useState('landing');
+  const [activeTab, setActiveTabRaw] = useState(() => {
+    const tab = searchParams.get('tab');
+    return tab || 'landing';
+  });
+
+  const setActiveTab = (tab: string) => {
+    setActiveTabRaw(tab);
+    router.push(tab === 'landing' ? '/' : `?tab=${tab}`, { scroll: false });
+  };
   const [launchStep, setLaunchStep] = useState(1);
   const [selectedEngine, setSelectedEngine] = useState('navigator');
   const [docsSection, setDocsSection] = useState('overview');
