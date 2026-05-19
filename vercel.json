@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/finalize-pools",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 */6 * * *"
     }
   ]
 }
