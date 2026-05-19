@@ -592,7 +592,7 @@ export default function ShipyardPlatform() {
         position: 'relative',
         zIndex: 10
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+        <div onClick={() => setActiveTab('landing')} style={{ display: 'flex', alignItems: 'center', gap: '14px', cursor: 'pointer' }}>
           <div style={{
             width: '42px',
             height: '42px',

@@ -14,9 +14,17 @@ const STATUS_BADGE: Record<string, { label: string; color: string }> = {
   launched:  { label: 'LAUNCHED', color: 'text-[#a78bfa] bg-[#a78bfa]/10 border-[#a78bfa]/25' },
 };
 
+const CHAIN_BADGE: Record<string, { label: string; icon: string; color: string }> = {
+  sol:  { label: 'SOL',  icon: '◎', color: 'text-[#9945FF] bg-[#9945FF]/10 border-[#9945FF]/25' },
+  base: { label: 'BASE', icon: '🔵', color: 'text-[#0052FF] bg-[#0052FF]/10 border-[#0052FF]/25' },
+  eth:  { label: 'ETH',  icon: 'Ξ', color: 'text-[#627EEA] bg-[#627EEA]/10 border-[#627EEA]/25' },
+};
+
 export default function BoardingCard({ pool, myDeposit, onClick }: BoardingCardProps) {
   const timeLeft = useCountdown(pool.deadline);
   const progress = (pool.totalDeposited / pool.hardCap) * 100;
+  const currency = pool.chain === 'sol' ? 'SOL' : 'ETH';
+  const chainBadge = CHAIN_BADGE[pool.chain] || CHAIN_BADGE.sol;
   const isExpired = pool.status === 'active' && pool.deadline < Math.floor(Date.now() / 1000);
   const badge = isExpired
     ? { label: 'EXPIRED', color: 'text-[#f59e0b] bg-[#f59e0b]/10 border-[#f59e0b]/25' }
@@ -62,10 +70,10 @@ export default function BoardingCard({ pool, myDeposit, onClick }: BoardingCardP
             : 'bg-primary/10 border-primary/25 text-primary'
         }`}>
           {hasUnclaimed
-            ? `${myDeposit.amount} SOL — CLAIM`
+            ? `${myDeposit.amount} ${currency} — CLAIM`
             : isFailed && myDeposit.claimed
             ? 'REFUNDED'
-            : `YOU: ${myDeposit.amount} SOL`
+            : `YOU: ${myDeposit.amount} ${currency}`
           }
         </div>
       )}
@@ -84,7 +92,12 @@ export default function BoardingCard({ pool, myDeposit, onClick }: BoardingCardP
             <div className={`font-heading text-[17px] font-semibold leading-tight ${
               isFailed ? 'text-text-muted line-through decoration-burn/40' : 'text-white'
             }`}>{pool.tokenName}</div>
-            <div className="text-[13px] text-text-muted font-mono">${pool.tokenSymbol}</div>
+            <div className="flex items-center gap-2">
+              <span className="text-[13px] text-text-muted font-mono">${pool.tokenSymbol}</span>
+              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold tracking-[0.5px] border ${chainBadge.color}`}>
+                {chainBadge.icon} {chainBadge.label}
+              </span>
+            </div>
           </div>
         </div>
         <div className={`flex gap-1.5 ${myDeposit ? 'mt-7' : ''}`}>
@@ -103,7 +116,7 @@ export default function BoardingCard({ pool, myDeposit, onClick }: BoardingCardP
       <div className="mb-4 relative">
         <div className="flex justify-between mb-2">
           <span className={`text-[13px] tabular-nums ${isFailed ? 'text-text-muted' : 'text-text-body'}`}>
-            {pool.totalDeposited} <span className="text-text-muted">/ {pool.hardCap} SOL</span>
+            {pool.totalDeposited} <span className="text-text-muted">/ {pool.hardCap} {currency}</span>
           </span>
           <span className={`text-[13px] font-semibold tabular-nums ${isFailed ? 'text-burn' : 'text-primary'}`}>
             {Math.round(progress)}%
@@ -134,7 +147,7 @@ export default function BoardingCard({ pool, myDeposit, onClick }: BoardingCardP
           </div>
           <div>
             <div className="text-[11px] text-text-muted tracking-[1px] mb-0.5">MAX</div>
-            <div className={`text-sm font-semibold ${isFailed ? 'text-text-muted' : 'text-white'}`}>{pool.perWalletCap} SOL</div>
+            <div className={`text-sm font-semibold ${isFailed ? 'text-text-muted' : 'text-white'}`}>{pool.perWalletCap} {currency}</div>
           </div>
         </div>
         {pool.status === 'active' && !isExpired && (

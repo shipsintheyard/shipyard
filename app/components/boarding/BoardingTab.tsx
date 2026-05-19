@@ -2,16 +2,48 @@
 import { useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useBoardingPools, useMyDeposits, type BoardingPool } from '../../hooks/useBoarding';
+import { useEVMBoardingPools } from '../../hooks/useEVMBoarding';
+import { useChain } from '../../providers/ChainProvider';
 import BoardingList from './BoardingList';
 import BoardingDetail from './BoardingDetail';
 import CreateBoarding from './CreateBoarding';
 
 type View = 'list' | 'detail' | 'create';
 
+// Adapt EVM pools to the unified BoardingPool shape
+function adaptEVMPools(evmPools: any[], chain: 'base' | 'eth'): BoardingPool[] {
+  return evmPools.map(p => ({
+    publicKey: `${chain}_${p.poolId}`,
+    creator: p.creator,
+    tokenMint: p.token,
+    tokenName: p.ticker,
+    tokenSymbol: p.ticker,
+    hardCap: p.hardCap,
+    perWalletCap: p.perWalletCap,
+    minWallets: 0,
+    deadline: p.deadline,
+    status: p.status as BoardingPool['status'],
+    totalDeposited: p.totalDeposited,
+    participantCount: p.participantCount,
+    tokenSupply: p.tokenSupply,
+    mode: 'flash' as const,
+    access: 'public' as const,
+    chain,
+  }));
+}
+
 export default function BoardingTab() {
+  const { chain } = useChain();
   const { connected } = useWallet();
-  const { pools, loading } = useBoardingPools();
-  const { deposits, unclaimedRefunds, totalUnclaimedSol } = useMyDeposits(pools);
+  const { pools: solPools, loading: solLoading } = useBoardingPools();
+  const { pools: evmPools, loading: evmLoading } = useEVMBoardingPools();
+
+  const pools = chain === 'sol'
+    ? solPools
+    : adaptEVMPools(evmPools, chain === 'eth' ? 'eth' : 'base');
+  const loading = chain === 'sol' ? solLoading : evmLoading;
+
+  const { deposits, unclaimedRefunds, totalUnclaimedSol } = useMyDeposits(chain === 'sol' ? solPools : []);
   const [view, setView] = useState<View>('list');
   const [selectedPool, setSelectedPool] = useState<BoardingPool | null>(null);
 
@@ -83,7 +115,7 @@ export default function BoardingTab() {
             <div className="w-px h-5 bg-border-primary self-center" />
             <div className="flex items-baseline gap-2">
               <span className="text-lg font-heading font-bold text-white tabular-nums">{totalRaised.toFixed(0)}</span>
-              <span className="text-[12px] text-text-muted tracking-[1px]">SOL RAISED</span>
+              <span className="text-[12px] text-text-muted tracking-[1px]">{chain === 'sol' ? 'SOL' : 'ETH'} RAISED</span>
             </div>
             <div className="w-px h-5 bg-border-primary self-center" />
             <div className="flex items-baseline gap-2">

@@ -16,16 +16,17 @@ export interface BoardingPool {
   tokenName: string;
   tokenSymbol: string;
   tokenImage?: string;
-  hardCap: number;       // SOL
-  perWalletCap: number;  // SOL
+  hardCap: number;       // SOL or ETH
+  perWalletCap: number;  // SOL or ETH
   minWallets: number;
   deadline: number;       // unix seconds
   status: PoolStatus;
-  totalDeposited: number; // SOL
+  totalDeposited: number; // SOL or ETH
   participantCount: number;
   tokenSupply: number;
   mode: BoardingMode;
   access: AccessMode;
+  chain: 'sol' | 'base' | 'eth';
 }
 
 export interface UserDeposit {
@@ -77,6 +78,7 @@ const DEMO_POOLS: BoardingPool[] = [
     tokenSupply: 1_000_000_000,
     mode: 'flash',
     access: 'public',
+    chain: 'sol',
   },
   {
     publicKey: 'demo_sendit',
@@ -94,6 +96,7 @@ const DEMO_POOLS: BoardingPool[] = [
     tokenSupply: 1_000_000_000,
     mode: 'blitz',
     access: 'public',
+    chain: 'sol',
   },
 ];
 
@@ -161,6 +164,7 @@ export function useBoardingPools() {
           tokenSupply: humanSupply,
           mode: deriveMode(acc.deadline.toNumber()),
           access: mapAccess(acc.accessMode),
+          chain: 'sol',
         };
       });
 
