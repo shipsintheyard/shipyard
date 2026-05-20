@@ -9,6 +9,14 @@ import { useEVMTransactions } from '../../hooks/useEVMTransactions';
 import { BOARDING_PROGRAM_ID } from '../../lib/boarding-idl';
 import { BASE_EXPLORER } from '../../lib/evm-contracts';
 
+function formatSupply(n: number): string {
+  if (n >= 1e12) return `${(n / 1e12).toFixed(1)}T`;
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(0)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(0)}K`;
+  return String(n);
+}
+
 interface BoardingDetailProps {
   pool: BoardingPool;
   myDeposit?: MyDeposit;
@@ -252,7 +260,7 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
                 { label: 'HARD CAP', value: `${pool.hardCap} ${currency}` },
                 { label: 'PER WALLET', value: `${pool.perWalletCap} ${currency}` },
                 { label: 'WALLETS', value: pool.minWallets > 0 ? `${pool.participantCount}/${pool.minWallets}` : `${pool.participantCount}` },
-                { label: 'SUPPLY', value: `${(pool.tokenSupply / 1e6).toFixed(0)}M` },
+                { label: 'SUPPLY', value: formatSupply(pool.tokenSupply) },
               ].map((stat, i) => (
                 <div key={i} className="p-3 bg-bg-input rounded-lg">
                   <div className="text-[11px] text-text-muted tracking-[1px] mb-1">{stat.label}</div>
