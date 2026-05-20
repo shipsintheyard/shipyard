@@ -28,6 +28,12 @@ export default function ShipyardPlatform() {
     return segment || 'landing';
   });
 
+  // Sync tab when browser back/forward changes the pathname
+  useEffect(() => {
+    const segment = pathname.slice(1);
+    setActiveTabRaw(segment || 'landing');
+  }, [pathname]);
+
   const setActiveTab = (tab: string) => {
     setActiveTabRaw(tab);
     router.push(tab === 'landing' ? '/' : `/${tab}`, { scroll: false });
