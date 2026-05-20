@@ -4,6 +4,7 @@ import { type BoardingPool, type MyDeposit } from '../../hooks/useBoarding';
 import BoardingCard from './BoardingCard';
 
 type Filter = 'all' | 'active' | 'succeeded' | 'failed' | 'launched';
+type ChainFilter = 'all' | 'sol' | 'base' | 'eth';
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: 'all', label: 'ALL' },
@@ -11,6 +12,13 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: 'succeeded', label: 'FUNDED' },
   { id: 'launched', label: 'LAUNCHED' },
   { id: 'failed', label: 'FAILED' },
+];
+
+const CHAIN_FILTERS: { id: ChainFilter; label: string }[] = [
+  { id: 'all', label: 'ALL' },
+  { id: 'sol', label: '◎ SOL' },
+  { id: 'eth', label: 'Ξ ETH' },
+  { id: 'base', label: '🔵 BASE' },
 ];
 
 interface BoardingListProps {
@@ -40,18 +48,40 @@ function sortPools(pools: BoardingPool[]): BoardingPool[] {
 
 export default function BoardingList({ pools, loading, deposits, onSelectPool }: BoardingListProps) {
   const [filter, setFilter] = useState<Filter>('all');
-  const filtered = sortPools(filter === 'all' ? pools : pools.filter(p => p.status === filter));
+  const [chainFilter, setChainFilter] = useState<ChainFilter>('all');
+
+  const filtered = sortPools(
+    pools
+      .filter(p => filter === 'all' || p.status === filter)
+      .filter(p => chainFilter === 'all' || p.chain === chainFilter)
+  );
 
   return (
     <div className="fade-in">
       {/* Filters */}
-      <div className="flex gap-1.5 mb-6">
+      <div className="flex items-center gap-1.5 mb-6">
         {FILTERS.map(f => (
           <button
             key={f.id}
             onClick={() => setFilter(f.id)}
             className={`px-4 py-2 rounded-md text-[12px] font-mono tracking-[1px] transition-all duration-200 ${
               filter === f.id
+                ? 'bg-primary/12 text-primary border border-primary/30'
+                : 'bg-transparent text-text-dim border border-transparent hover:text-text-muted'
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+
+        <div className="w-px h-5 bg-border-primary mx-2" />
+
+        {CHAIN_FILTERS.map(f => (
+          <button
+            key={f.id}
+            onClick={() => setChainFilter(f.id)}
+            className={`px-3 py-2 rounded-md text-[11px] font-mono tracking-[1px] transition-all duration-200 ${
+              chainFilter === f.id
                 ? 'bg-primary/12 text-primary border border-primary/30'
                 : 'bg-transparent text-text-dim border border-transparent hover:text-text-muted'
             }`}
