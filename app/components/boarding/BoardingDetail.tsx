@@ -1,10 +1,13 @@
 "use client";
 import { useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { useAccount } from 'wagmi';
 import { PublicKey, LAMPORTS_PER_SOL, SystemProgram } from '@solana/web3.js';
 import { type BoardingPool, type MyDeposit, useCountdown } from '../../hooks/useBoarding';
 import { useBoardingProgram } from '../../hooks/useAnchorProgram';
+import { useEVMTransactions } from '../../hooks/useEVMTransactions';
 import { BOARDING_PROGRAM_ID } from '../../lib/boarding-idl';
+import { BASE_EXPLORER } from '../../lib/evm-contracts';
 
 interface BoardingDetailProps {
   pool: BoardingPool;
@@ -13,13 +16,28 @@ interface BoardingDetailProps {
 }
 
 export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDetailProps) {
-  const { connected, publicKey, signTransaction } = useWallet();
+  // Chain helpers
+  const isEVM = pool.chain === 'base' || pool.chain === 'eth';
+  const currency = isEVM ? 'ETH' : 'SOL';
+  const dex = isEVM ? 'Uniswap' : 'Raydium';
+
+  // Solana hooks (always called for hook rules)
+  const { connected: solConnected, publicKey, signTransaction } = useWallet();
   const { program, connection } = useBoardingProgram();
+
+  // EVM hooks (always called for hook rules)
+  const { address: evmAddress, isConnected: evmConnected } = useAccount();
+  const evmTx = useEVMTransactions();
+
+  // Unified connected state
+  const connected = isEVM ? evmConnected : solConnected;
+
   const timeLeft = useCountdown(pool.deadline);
   const [depositAmount, setDepositAmount] = useState('');
   const [depositing, setDepositing] = useState(false);
   const [refunding, setRefunding] = useState(false);
   const [txStatus, setTxStatus] = useState<string | null>(null);
+  const [txLink, setTxLink] = useState<string | null>(null);
 
   const progress = (pool.totalDeposited / pool.hardCap) * 100;
   const isExpired = pool.deadline < Math.floor(Date.now() / 1000);
@@ -28,45 +46,57 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
   const isFailed = pool.status === 'failed';
   const isDemo = pool.publicKey.startsWith('demo_');
 
+  // Extract EVM poolId from publicKey format "base_0", "base_1", etc.
+  const evmPoolId = isEVM ? parseInt(pool.publicKey.split('_')[1]) : 0;
+
   const handleDeposit = async () => {
-    if (!connected || !publicKey || isDemo) return;
+    if (!connected || isDemo) return;
     const amount = parseFloat(depositAmount);
     if (isNaN(amount) || amount <= 0 || amount > pool.perWalletCap) return;
 
     setDepositing(true);
     setTxStatus(null);
+    setTxLink(null);
+
     try {
-      const poolPubkey = new PublicKey(pool.publicKey);
-      const lamports = Math.floor(amount * LAMPORTS_PER_SOL);
+      if (isEVM) {
+        const { tx } = await evmTx.deposit({ poolId: evmPoolId, amount });
+        setTxStatus(`Deposited ${amount} ${currency}`);
+        setTxLink(BASE_EXPLORER.tx(tx));
+      } else {
+        if (!publicKey) return;
+        const poolPubkey = new PublicKey(pool.publicKey);
+        const lamports = Math.floor(amount * LAMPORTS_PER_SOL);
 
-      const [depositPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('deposit'), poolPubkey.toBuffer(), publicKey.toBuffer()],
-        new PublicKey(BOARDING_PROGRAM_ID)
-      );
-      const [solVault] = PublicKey.findProgramAddressSync(
-        [Buffer.from('sol_vault'), poolPubkey.toBuffer()],
-        new PublicKey(BOARDING_PROGRAM_ID)
-      );
+        const [depositPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from('deposit'), poolPubkey.toBuffer(), publicKey.toBuffer()],
+          new PublicKey(BOARDING_PROGRAM_ID)
+        );
+        const [solVault] = PublicKey.findProgramAddressSync(
+          [Buffer.from('sol_vault'), poolPubkey.toBuffer()],
+          new PublicKey(BOARDING_PROGRAM_ID)
+        );
 
-      const tx = await program.methods
-        .deposit(new (await import('@coral-xyz/anchor')).BN(lamports))
-        .accounts({
-          pool: poolPubkey,
-          depositAccount: depositPda,
-          solVault,
-          crewPass: null,
-          depositor: publicKey,
-          systemProgram: SystemProgram.programId,
-        } as any)
-        .transaction();
+        const tx = await program.methods
+          .deposit(new (await import('@coral-xyz/anchor')).BN(lamports))
+          .accounts({
+            pool: poolPubkey,
+            depositAccount: depositPda,
+            solVault,
+            crewPass: null,
+            depositor: publicKey,
+            systemProgram: SystemProgram.programId,
+          } as any)
+          .transaction();
 
-      tx.feePayer = publicKey;
-      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-      const signed = await signTransaction!(tx);
-      const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: true });
-      await connection.confirmTransaction(sig, 'confirmed');
-
-      setTxStatus(`Deposited ${amount} SOL`);
+        tx.feePayer = publicKey;
+        tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+        const signed = await signTransaction!(tx);
+        const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: true });
+        await connection.confirmTransaction(sig, 'confirmed');
+        setTxStatus(`Deposited ${amount} SOL`);
+        setTxLink(`https://solscan.io/tx/${sig}?cluster=devnet`);
+      }
       setDepositAmount('');
     } catch (err: any) {
       console.error('[boarding] deposit error:', err);
@@ -77,43 +107,52 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
   };
 
   const handleRefund = async () => {
-    if (!connected || !publicKey || isDemo) return;
+    if (!connected || isDemo) return;
 
     setRefunding(true);
     setTxStatus(null);
+    setTxLink(null);
+
     try {
-      const poolPubkey = new PublicKey(pool.publicKey);
-      const programId = new PublicKey(BOARDING_PROGRAM_ID);
+      if (isEVM) {
+        const { tx } = await evmTx.claimRefund({ poolId: evmPoolId });
+        setTxStatus('Refund claimed! Returned to your wallet.');
+        setTxLink(BASE_EXPLORER.tx(tx));
+      } else {
+        if (!publicKey) return;
+        const poolPubkey = new PublicKey(pool.publicKey);
+        const programId = new PublicKey(BOARDING_PROGRAM_ID);
 
-      const [depositPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('deposit'), poolPubkey.toBuffer(), publicKey.toBuffer()],
-        programId
-      );
-      const [solVault] = PublicKey.findProgramAddressSync(
-        [Buffer.from('sol_vault'), poolPubkey.toBuffer()],
-        programId
-      );
+        const [depositPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from('deposit'), poolPubkey.toBuffer(), publicKey.toBuffer()],
+          programId
+        );
+        const [solVault] = PublicKey.findProgramAddressSync(
+          [Buffer.from('sol_vault'), poolPubkey.toBuffer()],
+          programId
+        );
 
-      const tx = await program.methods
-        .claimRefund()
-        .accounts({
-          pool: poolPubkey,
-          depositAccount: depositPda,
-          solVault,
-          depositor: publicKey,
-          systemProgram: SystemProgram.programId,
-        } as any)
-        .transaction();
+        const tx = await program.methods
+          .claimRefund()
+          .accounts({
+            pool: poolPubkey,
+            depositAccount: depositPda,
+            solVault,
+            depositor: publicKey,
+            systemProgram: SystemProgram.programId,
+          } as any)
+          .transaction();
 
-      tx.feePayer = publicKey;
-      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-      const signed = await signTransaction!(tx);
-      const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: true });
-      await connection.confirmTransaction(sig, 'confirmed');
-      setTxStatus('Refund claimed! SOL returned to your wallet.');
+        tx.feePayer = publicKey;
+        tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+        const signed = await signTransaction!(tx);
+        const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: true });
+        await connection.confirmTransaction(sig, 'confirmed');
+        setTxStatus('Refund claimed! SOL returned to your wallet.');
+        setTxLink(`https://solscan.io/tx/${sig}?cluster=devnet`);
+      }
     } catch (err: any) {
       console.error('[boarding] refund error:', err);
-      // Show full error for debugging — program logs if available
       const logs = err?.logs?.join('\n') || '';
       const msg = err.message || 'Transaction failed';
       setTxStatus(`Error: ${msg.slice(0, 120)}${logs ? '\n' + logs.slice(0, 200) : ''}`);
@@ -121,6 +160,13 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
       setRefunding(false);
     }
   };
+
+  // Chain badge for header
+  const chainBadge = pool.chain === 'sol'
+    ? { icon: '◎', label: 'SOLANA', color: 'text-[#9945FF] bg-[#9945FF]/10 border-[#9945FF]/25' }
+    : pool.chain === 'base'
+    ? { icon: '🔵', label: 'BASE', color: 'text-[#0052FF] bg-[#0052FF]/10 border-[#0052FF]/25' }
+    : { icon: 'Ξ', label: 'ETHEREUM', color: 'text-[#627EEA] bg-[#627EEA]/10 border-[#627EEA]/25' };
 
   return (
     <div className="fade-up">
@@ -145,9 +191,12 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
             <h1 className={`font-heading text-[28px] font-bold leading-tight ${
               isFailed ? 'text-text-muted line-through decoration-burn/40 decoration-2' : 'text-white'
             }`}>{pool.tokenName}</h1>
-            <div className="text-[14px] text-text-muted font-mono">
-              ${pool.tokenSymbol} · {pool.mode === 'blitz' ? 'Blitz' : pool.mode === 'flash' ? 'Flash' : 'Voyage'}
-              {pool.access === 'crew' ? ' · Crew' : ''}
+            <div className="flex items-center gap-2 text-[14px] text-text-muted font-mono">
+              <span>${pool.tokenSymbol} · {pool.mode === 'blitz' ? 'Blitz' : pool.mode === 'flash' ? 'Flash' : 'Voyage'}</span>
+              {pool.access === 'crew' ? <span> · Crew</span> : null}
+              <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-[0.5px] border ${chainBadge.color}`}>
+                {chainBadge.icon} {chainBadge.label}
+              </span>
               {isDemo && <span className="text-burn ml-2">(DEMO)</span>}
             </div>
           </div>
@@ -181,7 +230,7 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
               <div>
                 <div className="text-[11px] text-text-muted tracking-[2px] mb-1">RAISED</div>
                 <div className="font-heading text-[32px] font-bold text-white leading-none tabular-nums">
-                  {pool.totalDeposited} <span className="text-lg text-text-muted">/ {pool.hardCap} SOL</span>
+                  {pool.totalDeposited} <span className="text-lg text-text-muted">/ {pool.hardCap} {currency}</span>
                 </div>
               </div>
               <span className="font-heading text-[32px] font-bold text-primary tabular-nums">{Math.round(progress)}%</span>
@@ -200,9 +249,9 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
 
             <div className="grid grid-cols-4 gap-3">
               {[
-                { label: 'HARD CAP', value: `${pool.hardCap} SOL` },
-                { label: 'PER WALLET', value: `${pool.perWalletCap} SOL` },
-                { label: 'WALLETS', value: `${pool.participantCount}/${pool.minWallets}` },
+                { label: 'HARD CAP', value: `${pool.hardCap} ${currency}` },
+                { label: 'PER WALLET', value: `${pool.perWalletCap} ${currency}` },
+                { label: 'WALLETS', value: pool.minWallets > 0 ? `${pool.participantCount}/${pool.minWallets}` : `${pool.participantCount}` },
                 { label: 'SUPPLY', value: `${(pool.tokenSupply / 1e6).toFixed(0)}M` },
               ].map((stat, i) => (
                 <div key={i} className="p-3 bg-bg-input rounded-lg">
@@ -218,9 +267,9 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
             <div className="text-[11px] text-primary tracking-[2px] mb-4">HOW IT WORKS</div>
             <div className="grid grid-cols-3 gap-3">
               {[
-                { n: '01', title: 'COMMIT', desc: `Up to ${pool.perWalletCap} SOL` },
-                { n: '02', title: 'HIT TARGET', desc: `${pool.hardCap} SOL from ${pool.minWallets}+ wallets` },
-                { n: '03', title: 'LAUNCH', desc: 'Claim 60% of tokens. 35% + SOL \u2192 LP (burned).' },
+                { n: '01', title: 'COMMIT', desc: `Up to ${pool.perWalletCap} ${currency}` },
+                { n: '02', title: 'HIT TARGET', desc: `${pool.hardCap} ${currency}${pool.minWallets > 0 ? ` from ${pool.minWallets}+ wallets` : ''}` },
+                { n: '03', title: 'LAUNCH', desc: `Claim 60% of tokens. 35% + ${currency} \u2192 LP (burned).` },
               ].map((s, i) => (
                 <div key={i} className="p-4 bg-bg-input rounded-lg">
                   <div className="text-[12px] text-primary/40 font-heading font-bold mb-1">{s.n}</div>
@@ -247,6 +296,12 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
                 : 'bg-success/10 border border-success/20 text-success'
             }`}>
               {txStatus}
+              {txLink && (
+                <a href={txLink} target="_blank" rel="noopener noreferrer"
+                  className="block mt-1 text-[11px] underline opacity-70 hover:opacity-100">
+                  View on explorer &rarr;
+                </a>
+              )}
             </div>
           )}
 
@@ -269,17 +324,25 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
               {/* Allocation boxes */}
               <label className="block text-[11px] text-text-muted tracking-[2px] mb-2.5">SELECT ALLOCATION</label>
               <div className="grid grid-cols-4 gap-2.5 mb-4">
-                {[
-                  { sol: 0.5, label: '0.5', tag: null },
-                  { sol: 1,   label: '1',   tag: null },
-                  { sol: 1.5, label: '1.5', tag: null },
-                  { sol: 2,   label: '2',   tag: 'MAX' },
-                ].filter(a => a.sol <= pool.perWalletCap).map((alloc) => {
-                  const selected = depositAmount === String(alloc.sol);
+                {(isEVM
+                  ? [
+                      { amount: 0.01, label: '0.01', tag: null },
+                      { amount: 0.025, label: '0.025', tag: null },
+                      { amount: 0.05, label: '0.05', tag: null },
+                      { amount: 0.1, label: '0.1', tag: 'MAX' },
+                    ]
+                  : [
+                      { amount: 0.5, label: '0.5', tag: null },
+                      { amount: 1, label: '1', tag: null },
+                      { amount: 1.5, label: '1.5', tag: null },
+                      { amount: 2, label: '2', tag: 'MAX' },
+                    ]
+                ).filter(a => a.amount <= pool.perWalletCap).map((alloc) => {
+                  const selected = depositAmount === String(alloc.amount);
                   return (
                     <button
-                      key={alloc.sol}
-                      onClick={() => setDepositAmount(selected ? '' : String(alloc.sol))}
+                      key={alloc.amount}
+                      onClick={() => setDepositAmount(selected ? '' : String(alloc.amount))}
                       disabled={isDemo}
                       className={`relative p-3.5 rounded-xl text-center transition-all duration-200 cursor-pointer disabled:opacity-40 ${
                         selected
@@ -297,7 +360,7 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
                       <div className={`font-heading text-xl font-bold tabular-nums ${selected ? 'text-primary' : 'text-white'}`}>
                         {alloc.label}
                       </div>
-                      <div className="text-[11px] text-text-muted">SOL</div>
+                      <div className="text-[11px] text-text-muted">{currency}</div>
                     </button>
                   );
                 })}
@@ -308,7 +371,7 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
                 <div className="p-3.5 bg-bg-input rounded-lg mb-4 space-y-2 fade-in">
                   <div className="flex justify-between">
                     <span className="text-[12px] text-text-muted">You commit</span>
-                    <span className="text-[12px] text-white font-semibold">{depositAmount} SOL</span>
+                    <span className="text-[12px] text-white font-semibold">{depositAmount} {currency}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-[12px] text-text-muted">You receive (pro-rata)</span>
@@ -318,7 +381,7 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
                   </div>
                   <div className="h-px bg-[rgba(136,192,255,0.08)]" />
                   <div className="flex justify-between">
-                    <span className="text-[12px] text-text-muted">92.5% SOL &rarr; LP (burned)</span>
+                    <span className="text-[12px] text-text-muted">92.5% {currency} &rarr; LP (burned)</span>
                     <span className="text-[12px] text-text-subtle">trustless</span>
                   </div>
                   <div className="flex justify-between">
@@ -337,7 +400,7 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
                     : 'bg-primary/8 text-text-dim cursor-not-allowed border border-border-primary'
                 }`}
               >
-                {!connected ? 'CONNECT WALLET' : depositing ? 'BOARDING...' : isDemo ? 'DEMO POOL' : !depositAmount ? 'SELECT AMOUNT' : 'COMMIT SOL'}
+                {!connected ? 'CONNECT WALLET' : depositing ? 'BOARDING...' : isDemo ? 'DEMO POOL' : !depositAmount ? 'SELECT AMOUNT' : `COMMIT ${currency}`}
               </button>
             </div>
           )}
@@ -356,7 +419,7 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
                 <div className="text-[13px] text-text-muted">
                   {pool.totalDeposited >= pool.hardCap
                     ? 'Target was hit! Pool will be marked as funded and queued for launch.'
-                    : `Only ${pool.totalDeposited} of ${pool.hardCap} SOL raised. Pool will be marked as sunk and deposits refundable.`
+                    : `Only ${pool.totalDeposited} of ${pool.hardCap} ${currency} raised. Pool will be marked as sunk and deposits refundable.`
                   }
                 </div>
                 <div className="text-[12px] text-text-dim mt-2">
@@ -384,7 +447,7 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
                   <span className="text-3xl">{'\u{1F6DF}'}</span>
                   <div>
                     <div className="text-[11px] text-burn tracking-[2px] font-bold">VESSEL SUNK</div>
-                    <div className="text-[13px] text-text-muted">Didn&apos;t hit {pool.hardCap} SOL target</div>
+                    <div className="text-[13px] text-text-muted">Didn&apos;t hit {pool.hardCap} {currency} target</div>
                   </div>
                 </div>
 
@@ -393,7 +456,7 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
                   <div className="p-4 bg-success/5 border border-success/20 rounded-lg">
                     <div className="text-[14px] text-success font-semibold mb-1">Refund claimed</div>
                     <div className="text-[13px] text-text-muted">
-                      Your {myDeposit.amount} SOL was returned to your wallet.
+                      Your {myDeposit.amount} {currency} was returned to your wallet.
                     </div>
                   </div>
                 )}
@@ -405,7 +468,7 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
                       {myDeposit ? (
                         <>
                           <div className="text-[14px] text-burn font-semibold mb-1">
-                            Your {myDeposit.amount} SOL is safe
+                            Your {myDeposit.amount} {currency} is safe
                           </div>
                           <div className="text-[13px] text-text-muted">
                             Deposits are held in a trustless vault. Claim your full refund below — no fees taken.
@@ -427,7 +490,7 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
                           : 'bg-burn/8 text-text-dim cursor-not-allowed border border-burn/15'
                       }`}
                     >
-                      {!connected ? 'CONNECT WALLET' : refunding ? 'CLAIMING...' : myDeposit ? `CLAIM ${myDeposit.amount} SOL REFUND` : 'CLAIM REFUND'}
+                      {!connected ? 'CONNECT WALLET' : refunding ? 'CLAIMING...' : myDeposit ? `CLAIM ${myDeposit.amount} ${currency} REFUND` : 'CLAIM REFUND'}
                     </button>
                   </>
                 )}
@@ -440,7 +503,7 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
             <div className="p-6 bg-bg-glass border border-success/20 rounded-xl mb-4">
               <div className="text-[11px] text-success tracking-[2px] mb-2 font-semibold">TARGET REACHED</div>
               <p className="text-[14px] text-text-muted">
-                {pool.hardCap} SOL hit. Awaiting Raydium launch...
+                {pool.hardCap} {currency} hit. Awaiting {dex} launch...
               </p>
             </div>
           )}
@@ -448,10 +511,10 @@ export default function BoardingDetail({ pool, myDeposit, onBack }: BoardingDeta
           {/* Launched */}
           {pool.status === 'launched' && (
             <div className="p-6 bg-bg-glass border border-[#a78bfa]/20 rounded-xl mb-4">
-              <div className="text-[11px] text-[#a78bfa] tracking-[2px] mb-2 font-semibold">LIVE ON RAYDIUM</div>
+              <div className="text-[11px] text-[#a78bfa] tracking-[2px] mb-2 font-semibold">LIVE ON {dex.toUpperCase()}</div>
               <p className="text-[14px] text-text-muted mb-4">LP created and burned. This vessel is sailing.</p>
               <button className="w-full py-3 bg-[#a78bfa]/8 text-[#a78bfa] border border-[#a78bfa]/20 rounded-lg text-[13px] font-semibold cursor-pointer hover:bg-[#a78bfa]/15 transition-colors">
-                VIEW ON RAYDIUM &rarr;
+                VIEW ON {dex.toUpperCase()} &rarr;
               </button>
             </div>
           )}
