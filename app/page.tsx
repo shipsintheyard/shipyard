@@ -488,6 +488,7 @@ export default function ShipyardPlatform() {
     { id: 'boarding', label: 'Boarding', disabled: false },
     { id: 'sonar', label: 'Sonar', disabled: true },
     { id: 'bottles', label: 'Bottles', disabled: false },
+    { id: 'sailor', label: 'Sailor', disabled: false },
     { id: 'dock', label: 'The Dock', disabled: true },
     { id: 'docs', label: 'Docs', disabled: false },
     { id: 'widgets', label: 'Widgets', disabled: true }

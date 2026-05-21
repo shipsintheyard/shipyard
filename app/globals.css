@@ -78,6 +78,42 @@ input:focus, textarea:focus {
   box-shadow: 0 0 0 2px rgba(136, 192, 255, 0.15);
 }
 
+/* ============================================================================
+   OSRS Stat Board
+   ============================================================================ */
+
+@keyframes xpFill {
+  from { width: 0; }
+}
+
+.xp-fill {
+  animation: xpFill 1s ease-out;
+}
+
+.osrs-bevel {
+  border: 2px solid;
+  border-color: #5c503c #2b2418 #2b2418 #5c503c;
+}
+
+.osrs-panel {
+  background: #3e3529;
+  border: 3px solid #5c503c;
+  box-shadow: inset 0 0 0 1px #2b2418, 0 4px 12px rgba(0,0,0,0.5);
+}
+
+/* Sailor skill grid responsive */
+.sailor-skill-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+@media (max-width: 520px) {
+  .sailor-skill-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 360px) {
+  .sailor-skill-grid { grid-template-columns: 1fr; }
+}
+
 /* Wallet adapter modal — prevent full-screen takeover */
 .wallet-adapter-modal-wrapper {
   max-width: 420px !important;
