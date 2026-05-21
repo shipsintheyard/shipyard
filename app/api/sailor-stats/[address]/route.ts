@@ -143,6 +143,8 @@ export async function GET(
     let tokenCount = 0;
     let pumpfunCoins = 0;
     let stakedSol = 0;
+    let nftCount = 0;
+    let deadTokens = 0;
     const defiTokens: string[] = [];
     const defiCategories = new Set<string>();
 
@@ -151,9 +153,19 @@ export async function GET(
       if (!info) continue;
 
       const amount = info.tokenAmount.uiAmount ?? 0;
-      if (amount <= 0) continue;
+
+      // Dead tokens: zero-balance accounts (rugged/dumped)
+      if (amount <= 0) {
+        deadTokens++;
+        continue;
+      }
 
       tokenCount++;
+
+      // NFTs: decimals 0 and exactly 1 token
+      if (info.tokenAmount.decimals === 0 && amount === 1) {
+        nftCount++;
+      }
 
       // Check pump.fun
       if (pfMints.has(info.mint)) {
@@ -179,7 +191,6 @@ export async function GET(
     return NextResponse.json({
       success: true,
       data: {
-        // Core (existing)
         txnCount,
         successfulTxns,
         walletAgeDays,
@@ -187,14 +198,15 @@ export async function GET(
         tokenCount,
         totalTokenAccounts: tokenAccounts.value.length,
         solBalance,
-        // New: pump.fun
         pumpfunCoins,
-        // New: DeFi
         defiTokens,
         defiCategories: Array.from(defiCategories),
-        // New: staking
         stakedSol: Math.round(stakedSol * 100) / 100,
+        nftCount,
+        deadTokens,
       },
+    }, {
+      headers: { 'Cache-Control': 'public, max-age=300' },
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'RPC error';

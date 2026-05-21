@@ -17,6 +17,9 @@ export interface OnChainData {
   defiCategories: string[];
   // Staking
   stakedSol: number;
+  // NFTs + dead tokens
+  nftCount: number;
+  deadTokens: number;
 }
 
 export function useWalletOnChain(address: string | null) {

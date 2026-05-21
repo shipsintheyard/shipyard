@@ -92,24 +92,35 @@ input:focus, textarea:focus {
 
 .osrs-bevel {
   border: 2px solid;
-  border-color: #5c503c #2b2418 #2b2418 #5c503c;
+  border-color: #968052 #332D25 #332D25 #968052;
+  border-radius: 0;
+  box-shadow: inset 1px 1px 0 #968052, inset -1px -1px 0 #332D25;
 }
 
 .osrs-panel {
   background: #3e3529;
   border: 3px solid #5c503c;
-  box-shadow: inset 0 0 0 1px #2b2418, 0 4px 12px rgba(0,0,0,0.5);
+  border-radius: 0;
+  box-shadow: inset 1px 1px 0 #968052, inset -1px -1px 0 #332D25, 0 4px 12px rgba(0,0,0,0.5);
 }
 
 /* Parchment scroll wrapper */
 .osrs-scroll {
-  background: linear-gradient(180deg,
-    #a89070 0%, #c8b68e 2%, #d5c4a1 8%,
-    #d5c4a1 92%, #c8b68e 98%, #a89070 100%
-  );
+  background:
+    repeating-linear-gradient(
+      180deg,
+      transparent 0px, transparent 3px,
+      rgba(139, 115, 85, 0.06) 3px, rgba(139, 115, 85, 0.06) 4px
+    ),
+    linear-gradient(180deg,
+      #a89070 0%, #c8b68e 2%, #d5c4a1 8%,
+      #d5c4a1 92%, #c8b68e 98%, #a89070 100%
+    );
   border: 3px solid #8b7355;
-  border-radius: 2px;
+  border-radius: 0;
   box-shadow:
+    inset 2px 2px 0 #c8b68e,
+    inset -2px -2px 0 #7a6644,
     inset 0 0 30px rgba(139, 115, 85, 0.25),
     0 8px 32px rgba(0, 0, 0, 0.5);
   position: relative;
@@ -122,12 +133,43 @@ input:focus, textarea:focus {
   margin: -3px -3px 0;
   background: linear-gradient(180deg, #6d5a3f 0%, #8b7355 60%, #a89070 100%);
   border: 2px solid #5a4730;
-  border-radius: 4px 4px 0 0;
+  border-radius: 0;
 }
 .osrs-scroll::after {
   margin: 0 -3px -3px;
   background: linear-gradient(0deg, #6d5a3f 0%, #8b7355 60%, #a89070 100%);
-  border-radius: 0 0 4px 4px;
+  border-radius: 0;
+}
+
+/* OSRS-style beveled button */
+.osrs-button {
+  background: #4a3f31;
+  border: 2px solid;
+  border-color: #968052 #332D25 #332D25 #968052;
+  border-radius: 0;
+  box-shadow: inset 1px 1px 0 #968052, inset -1px -1px 0 #332D25;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.osrs-button:hover {
+  background: #5c503c;
+}
+.osrs-button:active {
+  border-color: #332D25 #968052 #968052 #332D25;
+  box-shadow: inset -1px -1px 0 #968052, inset 1px 1px 0 #332D25;
+}
+
+/* Skeleton shimmer for loading state */
+@keyframes skeletonShimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+.osrs-skeleton {
+  background: #2b2418;
+  background-image: linear-gradient(90deg, #2b2418 0px, #3e3529 40px, #2b2418 80px);
+  background-size: 200px 100%;
+  animation: skeletonShimmer 1.5s ease-in-out infinite;
+  border-radius: 0;
 }
 
 /* Sailor skill grid responsive */

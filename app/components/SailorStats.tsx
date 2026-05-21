@@ -29,7 +29,7 @@ function progressToNext(xp: number): number {
 }
 
 // ============================================================================
-// Skill mapping — now powered by real on-chain data
+// Skill mapping — log-scaled for balance
 // ============================================================================
 
 interface SkillData {
@@ -49,32 +49,37 @@ function computeSkills(chain: OnChainData, shipyard: CharacterStats | null): Ski
     {
       name: 'Sailing',
       icon: '⛵',
-      // Transaction volume — capped at 5k
-      xp: Math.min(chain.txnCount, 5000) * 5,
+      // Transaction volume — linear but capped at 5k txns ≈ 6000 XP ≈ lvl 98
+      xp: Math.min(chain.txnCount, 5000) * 1.2,
     },
     {
       name: 'Degenning',
       icon: '💎',
-      // Token diversity + pump.fun coin bonus
-      xp: chain.tokenCount * 100 + chain.pumpfunCoins * 300,
+      // Token diversity (log-scaled) + pump.fun + dead tokens as degen signal
+      xp: Math.log2((chain.tokenCount || 0) + 1) * 200
+        + (chain.pumpfunCoins || 0) * 150
+        + (chain.deadTokens || 0) * 50,
     },
     {
       name: 'Plundering',
       icon: '🏴‍☠️',
-      // SOL balance + staked SOL (liquid staking tokens)
-      xp: (chain.solBalance + chain.stakedSol) * 30,
+      // Log-scaled wealth — whales don't auto-99
+      xp: Math.log2((chain.solBalance + chain.stakedSol) + 1) * 300,
     },
     {
       name: 'Navigation',
       icon: '🧭',
-      // Success rate * volume + DeFi diversity bonus
-      xp: successRate * chain.txnCount * 2 + chain.defiCategories.length * 200,
+      // Success rate × capped volume + DeFi diversity bonus
+      xp: successRate * Math.min(chain.txnCount, 2000) * 0.5
+        + chain.defiCategories.length * 200,
     },
     {
       name: 'Anchoring',
       icon: '⚓',
-      // Wallet age + staking bonus (committed to the network)
-      xp: chain.walletAgeDays * 6 + (chain.stakedSol > 0 ? 500 : 0),
+      // Wallet age (capped 1000d) + staking bonus + NFT commitment
+      xp: Math.min(chain.walletAgeDays, 1000) * 4
+        + (chain.stakedSol > 0 ? 500 : 0)
+        + (chain.nftCount || 0) * 20,
     },
     {
       name: 'Shipbuilding',
@@ -110,16 +115,16 @@ function getRankFromLevel(totalLevel: number) {
 }
 
 // ============================================================================
-// OSRS palette
+// OSRS palette — corrected colors
 // ============================================================================
 
 const O = {
   panelBg:    '#3e3529',
   outer:      '#5c503c',
   deepest:    '#1a1610',
-  bevelLight: '#7a6e5a',
-  bevelDark:  '#2b2418',
-  gold:       '#ff981f',
+  bevelLight: '#968052',
+  bevelDark:  '#332D25',
+  gold:       '#FFFF00',     // Pure yellow — faithful OSRS level color
   label:      '#c8aa6e',
   xpGreen:    '#00b036',
   text:       '#d4c4a0',
@@ -152,7 +157,7 @@ function SkillTile({ skill, delay }: { skill: SkillData; delay: number }) {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <span style={{ fontSize: '18px', lineHeight: 1 }}>{skill.icon}</span>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
@@ -169,13 +174,15 @@ function SkillTile({ skill, delay }: { skill: SkillData; delay: number }) {
               flex: 1,
               textAlign: 'center',
               letterSpacing: '1px',
+              minWidth: 0,
             }}>{dots}</span>
             <span style={{
-              fontSize: '14px',
+              fontSize: '13px',
               color: O.gold,
               fontFamily: FONT,
               fontWeight: 'bold',
-              textShadow: '0 1px 3px rgba(0,0,0,0.6)',
+              textShadow: '1px 1px 0 #000',
+              flexShrink: 0,
             }}>
               {skill.level}
             </span>
@@ -188,7 +195,7 @@ function SkillTile({ skill, delay }: { skill: SkillData; delay: number }) {
         height: '6px',
         background: O.deepest,
         border: `1px solid ${O.bevelDark}`,
-        borderRadius: '1px',
+        borderRadius: 0,
         overflow: 'hidden',
       }}>
         <div className="xp-fill" style={{
@@ -196,6 +203,7 @@ function SkillTile({ skill, delay }: { skill: SkillData; delay: number }) {
           width: `${skill.progress * 100}%`,
           background: `linear-gradient(180deg, #2dd147 0%, ${O.xpGreen} 50%, #008a2a 100%)`,
           boxShadow: '0 0 4px rgba(0, 176, 54, 0.4)',
+          borderRadius: 0,
         }} />
       </div>
 
@@ -226,9 +234,9 @@ function BadgeIcon({ badge }: { badge: { id: string; name: string; icon: string;
         alignItems: 'center',
         justifyContent: 'center',
         fontSize: '20px',
-        borderRadius: '4px',
+        borderRadius: 0,
         border: `1px solid ${badge.earned ? O.gold : O.bevelDark}`,
-        background: badge.earned ? 'rgba(255, 152, 31, 0.1)' : 'rgba(0,0,0,0.3)',
+        background: badge.earned ? 'rgba(255, 255, 0, 0.1)' : 'rgba(0,0,0,0.3)',
         filter: badge.earned ? 'none' : 'grayscale(1) opacity(0.35)',
         transition: 'filter 0.2s, border-color 0.2s',
       }}>
@@ -244,6 +252,7 @@ function BadgeIcon({ badge }: { badge: { id: string; name: string; icon: string;
           padding: '6px 10px',
           background: O.panelBg,
           border: `1px solid ${O.outer}`,
+          borderRadius: 0,
           whiteSpace: 'nowrap',
           zIndex: 10,
           fontFamily: FONT,
@@ -274,6 +283,69 @@ function StatRow({ label, value, color }: { label: string; value: string | numbe
     }}>
       <span style={{ color: O.label }}>{label}</span>
       <span style={{ color: color ?? O.text }}>{value}</span>
+    </div>
+  );
+}
+
+// ============================================================================
+// Skeleton loading state
+// ============================================================================
+
+function SkeletonTile() {
+  return (
+    <div className="osrs-bevel" style={{ background: O.deepest, padding: '12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className="osrs-skeleton" style={{ width: 18, height: 18 }} />
+        <div style={{ flex: 1 }}>
+          <div className="osrs-skeleton" style={{ height: 8, width: '60%', marginBottom: 8 }} />
+          <div className="osrs-skeleton" style={{ height: 6, width: '100%' }} />
+        </div>
+      </div>
+      <div className="osrs-skeleton" style={{ height: 7, width: '40%', marginTop: 8, marginLeft: 'auto' }} />
+    </div>
+  );
+}
+
+function LoadingSkeleton() {
+  return (
+    <div style={{ maxWidth: '640px', margin: '0 auto', padding: '24px 16px 60px' }}>
+      <div className="osrs-scroll" style={{ padding: '24px 20px' }}>
+        {/* Header skeleton */}
+        <div className="osrs-panel" style={{ padding: '16px 20px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div className="osrs-skeleton" style={{ width: 24, height: 24 }} />
+            <div>
+              <div className="osrs-skeleton" style={{ width: 80, height: 11, marginBottom: 6 }} />
+              <div className="osrs-skeleton" style={{ width: 100, height: 7 }} />
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div className="osrs-skeleton" style={{ width: 60, height: 7, marginBottom: 6, marginLeft: 'auto' }} />
+            <div className="osrs-skeleton" style={{ width: 40, height: 18, marginLeft: 'auto' }} />
+          </div>
+        </div>
+        {/* Skill grid skeleton */}
+        <div className="sailor-skill-grid" style={{ marginBottom: '16px' }}>
+          {[...Array(6)].map((_, i) => <SkeletonTile key={i} />)}
+        </div>
+        {/* Combat level skeleton */}
+        <div className="osrs-bevel" style={{ background: O.deepest, padding: '12px', marginBottom: '16px', textAlign: 'center' }}>
+          <div className="osrs-skeleton" style={{ width: 80, height: 7, margin: '0 auto 8px' }} />
+          <div className="osrs-skeleton" style={{ width: 50, height: 22, margin: '0 auto' }} />
+        </div>
+        {/* Stats panel skeleton */}
+        <div className="osrs-panel" style={{ padding: '14px 16px', marginBottom: '16px' }}>
+          <div className="osrs-skeleton" style={{ width: 70, height: 7, marginBottom: 12 }} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 20px' }}>
+            <div>
+              {[...Array(5)].map((_, i) => <div key={i} className="osrs-skeleton" style={{ height: 7, marginBottom: 10, width: `${70 + Math.random() * 30}%` }} />)}
+            </div>
+            <div>
+              {[...Array(5)].map((_, i) => <div key={i} className="osrs-skeleton" style={{ height: 7, marginBottom: 10, width: `${70 + Math.random() * 30}%` }} />)}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -310,28 +382,22 @@ export default function SailorStats({ address }: { address: string }) {
 
   const shortenAddr = (a: string) => `${a.slice(0, 6)}...${a.slice(-4)}`;
 
-  const handleShare = useCallback(() => {
+  const handleCopy = useCallback(() => {
     const text = `⚔️ Sailor Stats | Total: ${totalLevel} | Rank: ${rankInfo.title} ${rankInfo.icon}`;
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, [totalLevel, rankInfo]);
 
-  // Loading
+  const handleShareX = useCallback(() => {
+    const text = encodeURIComponent(`⚔️ Sailor Stats | Total: ${totalLevel} | Rank: ${rankInfo.title} ${rankInfo.icon}`);
+    const url = encodeURIComponent(`https://shipsintheyard.com/sailor/${address}`);
+    window.open(`https://twitter.com/intent/tweet?text=${text}&url=${url}`, '_blank', 'noopener');
+  }, [totalLevel, rankInfo, address]);
+
+  // Loading — show skeleton cards
   if (isLoading) {
-    return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '80px 20px',
-        fontFamily: FONT,
-        fontSize: '10px',
-        color: '#6e7b8b',
-      }}>
-        Loading sailor stats...
-      </div>
-    );
+    return <LoadingSkeleton />;
   }
 
   // Error or no data
@@ -408,7 +474,7 @@ export default function SailorStats({ address }: { address: string }) {
               fontSize: '18px',
               color: O.gold,
               fontWeight: 'bold',
-              textShadow: '0 2px 6px rgba(255, 152, 31, 0.3)',
+              textShadow: '1px 1px 0 #000',
             }}>
               {totalLevel}
             </div>
@@ -443,7 +509,7 @@ export default function SailorStats({ address }: { address: string }) {
             fontSize: '22px',
             color: O.gold,
             fontWeight: 'bold',
-            textShadow: '0 2px 8px rgba(255, 152, 31, 0.3)',
+            textShadow: '1px 1px 0 #000',
           }}>
             ⚔️ {combatLevel}
           </div>
@@ -504,6 +570,8 @@ export default function SailorStats({ address }: { address: string }) {
               <StatRow label="SOL Balance" value={chain.solBalance.toFixed(2)} color={O.gold} />
               <StatRow label="Staked SOL" value={chain.stakedSol > 0 ? chain.stakedSol.toFixed(2) : '—'} color={chain.stakedSol > 0 ? '#7ee787' : undefined} />
               <StatRow label="Tokens Held" value={chain.tokenCount} />
+              <StatRow label="NFTs" value={chain.nftCount ?? 0} color={(chain.nftCount ?? 0) > 0 ? '#fbbf24' : undefined} />
+              <StatRow label="Dead Tokens" value={chain.deadTokens ?? 0} color={(chain.deadTokens ?? 0) > 0 ? '#f97316' : undefined} />
               <StatRow label="PF Coins" value={chain.pumpfunCoins} color={chain.pumpfunCoins > 0 ? '#a78bfa' : undefined} />
               <StatRow label="DeFi" value={chain.defiTokens.length > 0 ? chain.defiTokens.join(', ') : '—'} color={chain.defiTokens.length > 0 ? '#88c0ff' : undefined} />
             </div>
@@ -545,26 +613,41 @@ export default function SailorStats({ address }: { address: string }) {
       </div>
       {/* end scroll */}
 
-      {/* 6. Share Button (outside scroll) */}
-      <button
-        onClick={handleShare}
-        style={{
-          width: '100%',
-          marginTop: '16px',
-          padding: '14px',
-          background: 'rgba(136, 192, 255, 0.08)',
-          border: '1px solid rgba(136, 192, 255, 0.2)',
-          borderRadius: '8px',
-          fontFamily: FONT,
-          fontSize: '9px',
-          color: copied ? '#7ee787' : '#88c0ff',
-          cursor: 'pointer',
-          letterSpacing: '1px',
-          transition: 'color 0.2s',
-        }}
-      >
-        {copied ? 'COPIED!' : '⚔️ SHARE SAILOR STATS'}
-      </button>
+      {/* 6. Share Buttons (outside scroll) */}
+      <div style={{
+        display: 'flex',
+        gap: '8px',
+        marginTop: '16px',
+      }}>
+        <button
+          className="osrs-button"
+          onClick={handleCopy}
+          style={{
+            flex: 1,
+            padding: '12px',
+            fontFamily: FONT,
+            fontSize: '8px',
+            color: copied ? '#7ee787' : O.label,
+            letterSpacing: '1px',
+          }}
+        >
+          {copied ? '✓ COPIED' : '📋 COPY STATS'}
+        </button>
+        <button
+          className="osrs-button"
+          onClick={handleShareX}
+          style={{
+            flex: 1,
+            padding: '12px',
+            fontFamily: FONT,
+            fontSize: '8px',
+            color: O.label,
+            letterSpacing: '1px',
+          }}
+        >
+          𝕏 SHARE TO X
+        </button>
+      </div>
     </div>
   );
 }
