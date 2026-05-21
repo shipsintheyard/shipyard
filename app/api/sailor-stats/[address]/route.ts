@@ -124,21 +124,40 @@ export async function GET(
       getPumpfunMints(),
     ]);
 
-    // --- Signatures ---
-    const txnCount = signatures.length;
-    const txnCountCapped = signatures.length >= 1000; // RPC limit — real count is higher
+    // --- Signatures: paginate backward to find true wallet age + total count ---
+    let allSigs = signatures;
+    let totalTxns = signatures.length;
+    const txnCountCapped = signatures.length >= 1000;
     const successfulTxns = signatures.filter(s => !s.err).length;
-    const blockTimes = signatures
+
+    // Get latest activity from first batch
+    const recentTimes = signatures
       .map(s => s.blockTime)
       .filter((t): t is number => t !== null);
-
     const now = Date.now() / 1000;
-    const walletAgeDays = blockTimes.length > 0
-      ? Math.floor((now - Math.min(...blockTimes)) / 86400)
-      : 0;
-    const lastActivityDays = blockTimes.length > 0
-      ? Math.floor((now - Math.max(...blockTimes)) / 86400)
+    const lastActivityDays = recentTimes.length > 0
+      ? Math.floor((now - Math.max(...recentTimes)) / 86400)
       : 999;
+
+    // Paginate backward to find the earliest transaction (cap at 10 pages = 10k txns)
+    let lastBatch = signatures;
+    while (lastBatch.length >= 1000) {
+      const oldestSig = lastBatch[lastBatch.length - 1].signature;
+      lastBatch = await connection.getSignaturesForAddress(pubkey, {
+        limit: 1000,
+        before: oldestSig,
+      });
+      totalTxns += lastBatch.length;
+      if (totalTxns > 10000) break; // safety cap
+    }
+
+    // Wallet age from the actual earliest transaction
+    const earliestTimes = lastBatch.length > 0
+      ? lastBatch.map(s => s.blockTime).filter((t): t is number => t !== null)
+      : recentTimes;
+    const walletAgeDays = earliestTimes.length > 0
+      ? Math.floor((now - Math.min(...earliestTimes)) / 86400)
+      : 0;
 
     // --- Token analysis ---
     let tokenCount = 0;
@@ -192,8 +211,8 @@ export async function GET(
     return NextResponse.json({
       success: true,
       data: {
-        txnCount,
-        txnCountCapped,
+        txnCount: totalTxns,
+        txnCountCapped: totalTxns > 10000,
         successfulTxns,
         walletAgeDays,
         lastActivityDays,
