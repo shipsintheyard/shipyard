@@ -49,31 +49,37 @@ function computeSkills(chain: OnChainData, shipyard: CharacterStats | null): Ski
     {
       name: 'Sailing',
       icon: '⛵',
+      // Transaction volume — capped at 5k
       xp: Math.min(chain.txnCount, 5000) * 5,
     },
     {
       name: 'Degenning',
       icon: '💎',
-      xp: chain.tokenCount * 100,
+      // Token diversity + pump.fun coin bonus
+      xp: chain.tokenCount * 100 + chain.pumpfunCoins * 300,
     },
     {
       name: 'Plundering',
       icon: '🏴‍☠️',
-      xp: chain.solBalance * 30,
+      // SOL balance + staked SOL (liquid staking tokens)
+      xp: (chain.solBalance + chain.stakedSol) * 30,
     },
     {
       name: 'Navigation',
       icon: '🧭',
-      xp: successRate * chain.txnCount * 3,
+      // Success rate * volume + DeFi diversity bonus
+      xp: successRate * chain.txnCount * 2 + chain.defiCategories.length * 200,
     },
     {
       name: 'Anchoring',
       icon: '⚓',
-      xp: chain.walletAgeDays * 6,
+      // Wallet age + staking bonus (committed to the network)
+      xp: chain.walletAgeDays * 6 + (chain.stakedSol > 0 ? 500 : 0),
     },
     {
       name: 'Shipbuilding',
       icon: '🔨',
+      // Shipyard-specific activity
       xp: shipyard
         ? shipyard.poolsCreated * 100 + shipyard.poolsLaunched * 200
         : 0,
@@ -492,12 +498,14 @@ export default function SailorStats({ address }: { address: string }) {
               <StatRow label="Last Active" value={
                 chain.lastActivityDays === 0 ? 'Today' : `${chain.lastActivityDays}d ago`
               } />
+              <StatRow label="Total XP" value={totalXp.toLocaleString()} color={O.gold} />
             </div>
             <div>
               <StatRow label="SOL Balance" value={chain.solBalance.toFixed(2)} color={O.gold} />
+              <StatRow label="Staked SOL" value={chain.stakedSol > 0 ? chain.stakedSol.toFixed(2) : '—'} color={chain.stakedSol > 0 ? '#7ee787' : undefined} />
               <StatRow label="Tokens Held" value={chain.tokenCount} />
-              <StatRow label="Token Accts" value={chain.totalTokenAccounts} />
-              <StatRow label="Total XP" value={totalXp.toLocaleString()} color={O.gold} />
+              <StatRow label="PF Coins" value={chain.pumpfunCoins} color={chain.pumpfunCoins > 0 ? '#a78bfa' : undefined} />
+              <StatRow label="DeFi" value={chain.defiTokens.length > 0 ? chain.defiTokens.join(', ') : '—'} color={chain.defiTokens.length > 0 ? '#88c0ff' : undefined} />
             </div>
           </div>
         </div>

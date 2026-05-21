@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 
 export interface OnChainData {
+  // Core
   txnCount: number;
   successfulTxns: number;
   walletAgeDays: number;
@@ -9,6 +10,13 @@ export interface OnChainData {
   tokenCount: number;
   totalTokenAccounts: number;
   solBalance: number;
+  // Pump.fun
+  pumpfunCoins: number;
+  // DeFi
+  defiTokens: string[];
+  defiCategories: string[];
+  // Staking
+  stakedSol: number;
 }
 
 export function useWalletOnChain(address: string | null) {
