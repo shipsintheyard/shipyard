@@ -555,11 +555,6 @@ export default function SailorStats({ address }: { address: string }) {
           }}>
             <div>
               <StatRow label="Transactions" value={chain.txnCountCapped ? `${chain.txnCount.toLocaleString()}+` : chain.txnCount.toLocaleString()} />
-              <StatRow label="Succeeded" value={
-                chain.txnCount > 0
-                  ? `${chain.successfulTxns.toLocaleString()}/${chain.txnCount.toLocaleString()}`
-                  : '—'
-              } color="#7ee787" />
               <StatRow label="Wallet Age" value={`${chain.walletAgeDays}d`} />
               <StatRow label="Last Active" value={
                 chain.lastActivityDays === 0 ? 'Today' : `${chain.lastActivityDays}d ago`
