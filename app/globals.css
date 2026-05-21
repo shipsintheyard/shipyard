@@ -101,6 +101,35 @@ input:focus, textarea:focus {
   box-shadow: inset 0 0 0 1px #2b2418, 0 4px 12px rgba(0,0,0,0.5);
 }
 
+/* Parchment scroll wrapper */
+.osrs-scroll {
+  background: linear-gradient(180deg,
+    #a89070 0%, #c8b68e 2%, #d5c4a1 8%,
+    #d5c4a1 92%, #c8b68e 98%, #a89070 100%
+  );
+  border: 3px solid #8b7355;
+  border-radius: 2px;
+  box-shadow:
+    inset 0 0 30px rgba(139, 115, 85, 0.25),
+    0 8px 32px rgba(0, 0, 0, 0.5);
+  position: relative;
+}
+.osrs-scroll::before,
+.osrs-scroll::after {
+  content: '';
+  display: block;
+  height: 10px;
+  margin: -3px -3px 0;
+  background: linear-gradient(180deg, #6d5a3f 0%, #8b7355 60%, #a89070 100%);
+  border: 2px solid #5a4730;
+  border-radius: 4px 4px 0 0;
+}
+.osrs-scroll::after {
+  margin: 0 -3px -3px;
+  background: linear-gradient(0deg, #6d5a3f 0%, #8b7355 60%, #a89070 100%);
+  border-radius: 0 0 4px 4px;
+}
+
 /* Sailor skill grid responsive */
 .sailor-skill-grid {
   display: grid;

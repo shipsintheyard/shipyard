@@ -17,41 +17,51 @@ export default function SailorLanding() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: '#1a1610',
+      background: 'linear-gradient(180deg, #0f1419 0%, #1a1f2e 50%, #0f1419 100%)',
+      color: '#c9d1d9',
       display: 'flex',
       flexDirection: 'column',
     }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Space+Mono:wght@400;700&family=Outfit:wght@400;600;700&display=swap');
       `}</style>
 
-      {/* Nav */}
-      <div style={{
-        padding: '12px 24px',
-        borderBottom: '2px solid #2b2418',
+      {/* Header */}
+      <header style={{
+        padding: '16px 40px',
+        borderBottom: '1px solid rgba(136, 192, 255, 0.15)',
         display: 'flex',
-        alignItems: 'center',
         justifyContent: 'space-between',
-        background: '#3e3529',
+        alignItems: 'center',
+        background: 'rgba(15, 20, 25, 0.9)',
+        backdropFilter: 'blur(10px)',
       }}>
         <Link href="/" style={{
-          color: '#c8aa6e',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
           textDecoration: 'none',
-          fontSize: '10px',
-          fontFamily: "'Press Start 2P', monospace",
         }}>
-          &larr; Shipyard
+          <span style={{
+            fontFamily: "'Outfit', sans-serif",
+            fontSize: '16px',
+            fontWeight: '700',
+            color: '#fff',
+            letterSpacing: '1px',
+          }}>
+            THE SHIPYARD
+          </span>
+          <span style={{
+            fontSize: '9px',
+            color: '#88c0ff',
+            letterSpacing: '3px',
+          }}>
+            / SAILOR
+          </span>
         </Link>
-        <span style={{
-          color: '#ff981f',
-          fontSize: '10px',
-          fontFamily: "'Press Start 2P', monospace",
-        }}>
-          Sailor Hiscores
-        </span>
-      </div>
+      </header>
 
-      {/* Center prompt */}
+      {/* Center content */}
       <div style={{
         flex: 1,
         display: 'flex',
@@ -59,30 +69,30 @@ export default function SailorLanding() {
         alignItems: 'center',
         justifyContent: 'center',
         padding: '40px 16px',
-        gap: '24px',
+        gap: '28px',
       }}>
         <div style={{ fontSize: '48px' }}>⚔️</div>
         <div style={{
-          fontFamily: "'Press Start 2P', monospace",
-          fontSize: '14px',
-          color: '#ff981f',
-          textAlign: 'center',
-          lineHeight: '2',
+          fontFamily: "'Outfit', sans-serif",
+          fontSize: '24px',
+          fontWeight: '700',
+          color: '#fff',
+          letterSpacing: '1px',
         }}>
           Sailor Stats
         </div>
         <div style={{
-          fontFamily: "'Press Start 2P', monospace",
-          fontSize: '8px',
-          color: '#5c503c',
+          fontFamily: "'Space Mono', monospace",
+          fontSize: '12px',
+          color: '#6e7b8b',
           textAlign: 'center',
-          lineHeight: '2.2',
+          lineHeight: '1.8',
         }}>
-          Look up any wallet to view their<br />
-          OSRS-style stat board
+          Look up any Solana wallet to see their<br />
+          on-chain stat board
         </div>
 
-        {/* Lookup input */}
+        {/* Lookup */}
         <div style={{
           display: 'flex',
           gap: '8px',
@@ -98,11 +108,12 @@ export default function SailorLanding() {
             style={{
               flex: 1,
               padding: '12px 14px',
-              background: '#2b2418',
-              border: '2px solid #5c503c',
-              color: '#ff981f',
-              fontSize: '11px',
-              fontFamily: "'Press Start 2P', monospace",
+              background: 'rgba(136, 192, 255, 0.05)',
+              border: '1px solid rgba(136, 192, 255, 0.15)',
+              borderRadius: '6px',
+              color: '#fff',
+              fontSize: '13px',
+              fontFamily: "'Space Mono', monospace",
               outline: 'none',
             }}
           />
@@ -110,12 +121,13 @@ export default function SailorLanding() {
             onClick={handleLookup}
             style={{
               padding: '12px 20px',
-              background: '#5c503c',
-              border: '2px solid',
-              borderColor: '#7a6e5a #2b2418 #2b2418 #7a6e5a',
-              color: '#ff981f',
-              fontSize: '10px',
-              fontFamily: "'Press Start 2P', monospace",
+              background: 'linear-gradient(135deg, #88c0ff 0%, #5a9fd4 100%)',
+              border: 'none',
+              borderRadius: '6px',
+              color: '#0f1419',
+              fontFamily: "'Outfit', sans-serif",
+              fontSize: '13px',
+              fontWeight: '700',
               cursor: 'pointer',
             }}
           >
@@ -123,22 +135,22 @@ export default function SailorLanding() {
           </button>
         </div>
 
-        {/* Connected wallet shortcut */}
         {publicKey && (
           <button
             onClick={() => router.push(`/sailor/${publicKey.toBase58()}`)}
             style={{
-              padding: '12px 24px',
-              background: '#3e3529',
-              border: '2px solid',
-              borderColor: '#7a6e5a #2b2418 #2b2418 #7a6e5a',
-              color: '#c8aa6e',
-              fontSize: '9px',
-              fontFamily: "'Press Start 2P', monospace",
+              padding: '10px 20px',
+              background: 'transparent',
+              border: '1px solid rgba(136, 192, 255, 0.2)',
+              borderRadius: '6px',
+              color: '#88c0ff',
+              fontFamily: "'Space Mono', monospace",
+              fontSize: '11px',
               cursor: 'pointer',
+              letterSpacing: '1px',
             }}
           >
-            View your stats
+            VIEW YOUR STATS
           </button>
         )}
       </div>

@@ -22,42 +22,71 @@ export default function SailorPage() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: '#1a1610',
+      background: 'linear-gradient(180deg, #0f1419 0%, #1a1f2e 50%, #0f1419 100%)',
+      color: '#c9d1d9',
     }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Space+Mono:wght@400;700&family=Outfit:wght@400;600;700&display=swap');
       `}</style>
 
-      {/* Navigation */}
-      <div style={{
-        padding: '12px 24px',
-        borderBottom: '2px solid #2b2418',
+      {/* Header — matches Shipyard nav style */}
+      <header style={{
+        padding: '16px 40px',
+        borderBottom: '1px solid rgba(136, 192, 255, 0.15)',
         display: 'flex',
-        alignItems: 'center',
         justifyContent: 'space-between',
-        background: '#3e3529',
+        alignItems: 'center',
+        background: 'rgba(15, 20, 25, 0.9)',
+        backdropFilter: 'blur(10px)',
       }}>
         <Link href="/" style={{
-          color: '#c8aa6e',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
           textDecoration: 'none',
-          fontSize: '10px',
-          fontFamily: "'Press Start 2P', monospace",
         }}>
-          &larr; Shipyard
+          <span style={{
+            fontFamily: "'Outfit', sans-serif",
+            fontSize: '16px',
+            fontWeight: '700',
+            color: '#fff',
+            letterSpacing: '1px',
+          }}>
+            THE SHIPYARD
+          </span>
+          <span style={{
+            fontSize: '9px',
+            color: '#88c0ff',
+            letterSpacing: '3px',
+          }}>
+            / SAILOR
+          </span>
         </Link>
-        <span style={{
-          color: '#ff981f',
-          fontSize: '10px',
-          fontFamily: "'Press Start 2P', monospace",
-        }}>
-          Sailor Hiscores
-        </span>
-      </div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {publicKey && publicKey.toBase58() !== address && (
+            <button
+              onClick={() => router.push(`/sailor/${publicKey.toBase58()}`)}
+              style={{
+                padding: '8px 14px',
+                background: 'transparent',
+                border: '1px solid rgba(136, 192, 255, 0.2)',
+                borderRadius: '6px',
+                color: '#6e7b8b',
+                fontFamily: "'Space Mono', monospace",
+                fontSize: '11px',
+                cursor: 'pointer',
+              }}
+            >
+              MY STATS
+            </button>
+          )}
+        </div>
+      </header>
 
       {/* Lookup bar */}
       <div style={{
         maxWidth: '640px',
-        margin: '24px auto 0',
+        margin: '20px auto 0',
         padding: '0 16px',
         display: 'flex',
         gap: '8px',
@@ -72,48 +101,31 @@ export default function SailorPage() {
           style={{
             flex: 1,
             padding: '10px 14px',
-            background: '#2b2418',
-            border: '2px solid #5c503c',
-            borderRadius: '0',
-            color: '#ff981f',
-            fontSize: '11px',
-            fontFamily: "'Press Start 2P', monospace",
+            background: 'rgba(136, 192, 255, 0.05)',
+            border: '1px solid rgba(136, 192, 255, 0.15)',
+            borderRadius: '6px',
+            color: '#fff',
+            fontSize: '13px',
+            fontFamily: "'Space Mono', monospace",
             outline: 'none',
           }}
         />
         <button
           onClick={handleLookup}
           style={{
-            padding: '10px 16px',
-            background: '#5c503c',
-            border: '2px solid',
-            borderColor: '#7a6e5a #2b2418 #2b2418 #7a6e5a',
-            color: '#ff981f',
-            fontSize: '10px',
-            fontFamily: "'Press Start 2P', monospace",
+            padding: '10px 18px',
+            background: 'rgba(136, 192, 255, 0.1)',
+            border: '1px solid rgba(136, 192, 255, 0.2)',
+            borderRadius: '6px',
+            color: '#88c0ff',
+            fontFamily: "'Space Mono', monospace",
+            fontSize: '11px',
             cursor: 'pointer',
+            letterSpacing: '1px',
           }}
         >
-          Look up
+          LOOK UP
         </button>
-        {publicKey && publicKey.toBase58() !== address && (
-          <button
-            onClick={() => router.push(`/sailor/${publicKey.toBase58()}`)}
-            style={{
-              padding: '10px 12px',
-              background: '#3e3529',
-              border: '2px solid',
-              borderColor: '#7a6e5a #2b2418 #2b2418 #7a6e5a',
-              color: '#c8aa6e',
-              fontSize: '9px',
-              fontFamily: "'Press Start 2P', monospace",
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            My Stats
-          </button>
-        )}
       </div>
 
       {/* Stat board */}

@@ -1,11 +1,12 @@
 "use client";
 import React, { useMemo, useState, useCallback } from 'react';
 import { useCharacterStats, RANK_PROGRESSION } from '../hooks/useCharacter';
-import { useDegenScore } from '../hooks/useDegenScore';
+import { useWalletOnChain } from '../hooks/useWalletOnChain';
 import type { CharacterStats } from '../hooks/useCharacter';
+import type { OnChainData } from '../hooks/useWalletOnChain';
 
 // ============================================================================
-// XP / Level system (OSRS-inspired curve, compressed for our data ranges)
+// XP / Level system (OSRS-inspired curve)
 // ============================================================================
 
 function xpForLevel(level: number): number {
@@ -28,7 +29,7 @@ function progressToNext(xp: number): number {
 }
 
 // ============================================================================
-// Skill definitions & mapping
+// Skill mapping — now powered by real on-chain data
 // ============================================================================
 
 interface SkillData {
@@ -39,26 +40,67 @@ interface SkillData {
   progress: number;
 }
 
-function computeSkills(
-  stats: CharacterStats,
-  degenScore: number,
-  holdTime: number,
-  walletAge: number,
-): SkillData[] {
+function computeSkills(chain: OnChainData, shipyard: CharacterStats | null): SkillData[] {
+  const successRate = chain.txnCount > 0
+    ? chain.successfulTxns / chain.txnCount
+    : 0;
+
   const raw = [
-    { name: 'Sailing',      icon: '⛵', xp: (stats.poolsJoined + stats.poolsCreated) * 50 },
-    { name: 'Degenning',    icon: '💎', xp: degenScore * 50 },
-    { name: 'Plundering',   icon: '🏴‍☠️', xp: stats.totalCommitted * 100 },
-    { name: 'Navigation',   icon: '🧭', xp: stats.successRate * 50 },
-    { name: 'Anchoring',    icon: '⚓', xp: (holdTime + walletAge) * 80 },
-    { name: 'Shipbuilding', icon: '🔨', xp: stats.poolsCreated * 100 + stats.poolsLaunched * 200 },
+    {
+      name: 'Sailing',
+      icon: '⛵',
+      xp: Math.min(chain.txnCount, 5000) * 5,
+    },
+    {
+      name: 'Degenning',
+      icon: '💎',
+      xp: chain.tokenCount * 100,
+    },
+    {
+      name: 'Plundering',
+      icon: '🏴‍☠️',
+      xp: chain.solBalance * 30,
+    },
+    {
+      name: 'Navigation',
+      icon: '🧭',
+      xp: successRate * chain.txnCount * 3,
+    },
+    {
+      name: 'Anchoring',
+      icon: '⚓',
+      xp: chain.walletAgeDays * 6,
+    },
+    {
+      name: 'Shipbuilding',
+      icon: '🔨',
+      xp: shipyard
+        ? shipyard.poolsCreated * 100 + shipyard.poolsLaunched * 200
+        : 0,
+    },
   ];
-  return raw.map(s => ({
-    ...s,
-    xp: Math.round(s.xp),
-    level: levelFromXp(Math.round(s.xp)),
-    progress: progressToNext(Math.round(s.xp)),
-  }));
+
+  return raw.map(s => {
+    const xp = Math.round(s.xp);
+    return {
+      ...s,
+      xp,
+      level: levelFromXp(xp),
+      progress: progressToNext(xp),
+    };
+  });
+}
+
+// Rank based on total level (not Shipyard pools)
+function getRankFromLevel(totalLevel: number) {
+  if (totalLevel >= 551) return { title: 'Shipwright', icon: '🔨', color: '#ec4899' };
+  if (totalLevel >= 451) return { title: 'Admiral',    icon: '⭐', color: '#f97316' };
+  if (totalLevel >= 351) return { title: 'Captain',    icon: '🎖️', color: '#fbbf24' };
+  if (totalLevel >= 251) return { title: 'Navigator',  icon: '🧭', color: '#a78bfa' };
+  if (totalLevel >= 176) return { title: 'Boatswain',  icon: '🪢', color: '#7ee787' };
+  if (totalLevel >= 101) return { title: 'Sailor',     icon: '⛵', color: '#88c0ff' };
+  if (totalLevel >= 51)  return { title: 'Deckhand',   icon: '🧹', color: '#c9d1d9' };
+  return { title: 'Stowaway', icon: '🐀', color: '#6e7b8b' };
 }
 
 // ============================================================================
@@ -76,7 +118,12 @@ const O = {
   xpGreen:    '#00b036',
   text:       '#d4c4a0',
   dim:        '#5c503c',
-  pageBg:     '#1a1610',
+  // Parchment scroll colors
+  parchment:       '#d5c4a1',
+  parchmentDark:   '#c8b68e',
+  parchmentBorder: '#8b7355',
+  parchmentShadow: '#a89070',
+  parchmentText:   '#3b2e1a',
 };
 
 const FONT = "'Press Start 2P', monospace";
@@ -97,7 +144,6 @@ function SkillTile({ skill, delay }: { skill: SkillData; delay: number }) {
       opacity: 0,
       animation: `fadeUp 0.35s ease-out ${delay}s forwards`,
     }}>
-      {/* Icon + Name + Level */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <span style={{ fontSize: '18px', lineHeight: 1 }}>{skill.icon}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -147,7 +193,6 @@ function SkillTile({ skill, delay }: { skill: SkillData; delay: number }) {
         }} />
       </div>
 
-      {/* XP text */}
       <div style={{
         fontSize: '7px',
         fontFamily: FONT,
@@ -232,19 +277,16 @@ function StatRow({ label, value, color }: { label: string; value: string | numbe
 // ============================================================================
 
 export default function SailorStats({ address }: { address: string }) {
-  const { stats, badges, loading } = useCharacterStats(address);
-  const { score, loading: degenLoading } = useDegenScore(stats);
+  const { stats, badges, loading: shipyardLoading } = useCharacterStats(address);
+  const { data: chain, loading: chainLoading, error: chainError } = useWalletOnChain(address);
   const [copied, setCopied] = useState(false);
 
+  const isLoading = shipyardLoading || chainLoading;
+
   const skills = useMemo(() => {
-    if (!stats) return [];
-    return computeSkills(
-      stats,
-      score?.totalScore ?? 0,
-      score?.holdTime ?? 0,
-      score?.walletAge ?? 0,
-    );
-  }, [stats, score]);
+    if (!chain) return [];
+    return computeSkills(chain, stats);
+  }, [chain, stats]);
 
   const totalLevel = useMemo(() => skills.reduce((s, sk) => s + sk.level, 0), [skills]);
   const totalXp = useMemo(() => skills.reduce((s, sk) => s + sk.xp, 0), [skills]);
@@ -258,22 +300,19 @@ export default function SailorStats({ address }: { address: string }) {
     );
   }, [skills]);
 
-  const rankInfo = useMemo(() => {
-    if (!stats) return RANK_PROGRESSION[0];
-    return RANK_PROGRESSION.find(r => r.rank === stats.rank) ?? RANK_PROGRESSION[0];
-  }, [stats]);
+  const rankInfo = useMemo(() => getRankFromLevel(totalLevel), [totalLevel]);
 
   const shortenAddr = (a: string) => `${a.slice(0, 6)}...${a.slice(-4)}`;
 
   const handleShare = useCallback(() => {
-    const text = `⚔️ Sailor Stats | Total: ${totalLevel} | Rank: ${stats?.title ?? 'Stowaway'} ${rankInfo.icon}`;
+    const text = `⚔️ Sailor Stats | Total: ${totalLevel} | Rank: ${rankInfo.title} ${rankInfo.icon}`;
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  }, [totalLevel, stats, rankInfo]);
+  }, [totalLevel, rankInfo]);
 
-  // Loading state
-  if (loading || degenLoading) {
+  // Loading
+  if (isLoading) {
     return (
       <div style={{
         display: 'flex',
@@ -282,15 +321,15 @@ export default function SailorStats({ address }: { address: string }) {
         padding: '80px 20px',
         fontFamily: FONT,
         fontSize: '10px',
-        color: O.dim,
+        color: '#6e7b8b',
       }}>
         Loading sailor stats...
       </div>
     );
   }
 
-  // No data
-  if (!stats) {
+  // Error or no data
+  if (chainError || !chain) {
     return (
       <div style={{
         maxWidth: '640px',
@@ -299,13 +338,12 @@ export default function SailorStats({ address }: { address: string }) {
         textAlign: 'center',
         fontFamily: FONT,
         fontSize: '10px',
-        color: O.dim,
+        color: '#6e7b8b',
         lineHeight: '2.2',
       }}>
         <div style={{ fontSize: '48px', marginBottom: '16px' }}>🐀</div>
         <div style={{ color: O.label, fontSize: '11px', marginBottom: '8px' }}>Stowaway</div>
-        <div>No on-chain activity found</div>
-        <div>for this wallet.</div>
+        <div>{chainError || 'No on-chain activity found'}</div>
       </div>
     );
   }
@@ -317,170 +355,201 @@ export default function SailorStats({ address }: { address: string }) {
       padding: '24px 16px 60px',
     }}>
       {/* ============================================================
-          1. Header — Rank + Address + Total Level
+          Parchment Scroll wrapper
           ============================================================ */}
-      <div className="osrs-panel" style={{
-        padding: '16px 20px',
-        marginBottom: '16px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ fontSize: '24px' }}>{rankInfo.icon}</span>
-          <div>
-            <div style={{
-              fontFamily: FONT,
-              fontSize: '11px',
-              color: rankInfo.color,
-              fontWeight: 'bold',
-              marginBottom: '4px',
-            }}>
-              {stats.title}
+      <div className="osrs-scroll" style={{ padding: '24px 20px' }}>
+
+        {/* 1. Header */}
+        <div className="osrs-panel" style={{
+          padding: '16px 20px',
+          marginBottom: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '24px' }}>{rankInfo.icon}</span>
+            <div>
+              <div style={{
+                fontFamily: FONT,
+                fontSize: '11px',
+                color: rankInfo.color,
+                fontWeight: 'bold',
+                marginBottom: '4px',
+              }}>
+                {rankInfo.title}
+              </div>
+              <div style={{
+                fontFamily: FONT,
+                fontSize: '7px',
+                color: O.dim,
+              }}>
+                {shortenAddr(address)}
+              </div>
             </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
             <div style={{
               fontFamily: FONT,
               fontSize: '7px',
               color: O.dim,
+              marginBottom: '4px',
             }}>
-              {shortenAddr(address)}
+              TOTAL LEVEL
+            </div>
+            <div style={{
+              fontFamily: FONT,
+              fontSize: '18px',
+              color: O.gold,
+              fontWeight: 'bold',
+              textShadow: '0 2px 6px rgba(255, 152, 31, 0.3)',
+            }}>
+              {totalLevel}
             </div>
           </div>
         </div>
-        <div style={{ textAlign: 'right' }}>
+
+        {/* 2. Skill Grid */}
+        <div className="sailor-skill-grid" style={{ marginBottom: '16px' }}>
+          {skills.map((skill, i) => (
+            <SkillTile key={skill.name} skill={skill} delay={0.05 + i * 0.08} />
+          ))}
+        </div>
+
+        {/* 3. Combat Level */}
+        <div className="osrs-bevel" style={{
+          background: O.deepest,
+          padding: '12px',
+          marginBottom: '16px',
+          textAlign: 'center',
+        }}>
           <div style={{
             fontFamily: FONT,
             fontSize: '7px',
             color: O.dim,
-            marginBottom: '4px',
+            marginBottom: '6px',
+            letterSpacing: '2px',
           }}>
-            TOTAL LEVEL
+            COMBAT LEVEL
           </div>
           <div style={{
             fontFamily: FONT,
-            fontSize: '18px',
+            fontSize: '22px',
             color: O.gold,
             fontWeight: 'bold',
-            textShadow: '0 2px 6px rgba(255, 152, 31, 0.3)',
+            textShadow: '0 2px 8px rgba(255, 152, 31, 0.3)',
           }}>
-            {totalLevel}
+            ⚔️ {combatLevel}
           </div>
         </div>
-      </div>
 
-      {/* ============================================================
-          2. Skill Grid — 3x2
-          ============================================================ */}
-      <div className="sailor-skill-grid" style={{ marginBottom: '16px' }}>
-        {skills.map((skill, i) => (
-          <SkillTile key={skill.name} skill={skill} delay={0.05 + i * 0.08} />
-        ))}
-      </div>
-
-      {/* ============================================================
-          3. Combat Level
-          ============================================================ */}
-      <div className="osrs-bevel" style={{
-        background: O.deepest,
-        padding: '12px',
-        marginBottom: '16px',
-        textAlign: 'center',
-      }}>
-        <div style={{
-          fontFamily: FONT,
-          fontSize: '7px',
-          color: O.dim,
-          marginBottom: '6px',
-          letterSpacing: '2px',
+        {/* 4. Badges */}
+        <div className="osrs-panel" style={{
+          padding: '14px 16px',
+          marginBottom: '16px',
         }}>
-          COMBAT LEVEL
-        </div>
-        <div style={{
-          fontFamily: FONT,
-          fontSize: '22px',
-          color: O.gold,
-          fontWeight: 'bold',
-          textShadow: '0 2px 8px rgba(255, 152, 31, 0.3)',
-        }}>
-          ⚔️ {combatLevel}
-        </div>
-      </div>
-
-      {/* ============================================================
-          4. Badges
-          ============================================================ */}
-      <div className="osrs-panel" style={{
-        padding: '14px 16px',
-        marginBottom: '16px',
-      }}>
-        <div style={{
-          fontFamily: FONT,
-          fontSize: '7px',
-          color: O.dim,
-          marginBottom: '10px',
-          letterSpacing: '2px',
-        }}>
-          BADGES
-        </div>
-        <div style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '8px',
-        }}>
-          {badges.map(b => <BadgeIcon key={b.id} badge={b} />)}
-        </div>
-      </div>
-
-      {/* ============================================================
-          5. Stats Panel
-          ============================================================ */}
-      <div className="osrs-panel" style={{
-        padding: '14px 16px',
-        marginBottom: '16px',
-      }}>
-        <div style={{
-          fontFamily: FONT,
-          fontSize: '7px',
-          color: O.dim,
-          marginBottom: '10px',
-          letterSpacing: '2px',
-        }}>
-          STATS
-        </div>
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: '0 20px',
-        }}>
-          <div>
-            <StatRow label="Pools Joined" value={stats.poolsJoined} />
-            <StatRow label="Pools Created" value={stats.poolsCreated} />
-            <StatRow label="Launched" value={stats.poolsLaunched} color="#7ee787" />
-            <StatRow label="Sunk" value={stats.poolsFailed} color="#f97316" />
+          <div style={{
+            fontFamily: FONT,
+            fontSize: '7px',
+            color: O.dim,
+            marginBottom: '10px',
+            letterSpacing: '2px',
+          }}>
+            BADGES
           </div>
-          <div>
-            <StatRow label="SOL Committed" value={`${stats.totalCommitted.toFixed(2)}`} />
-            <StatRow label="SOL Refunded" value={`${stats.totalRefunded.toFixed(2)}`} />
-            <StatRow label="Earnings" value={`${stats.creatorEarnings.toFixed(2)}`} color="#7ee787" />
-            <StatRow label="Total XP" value={totalXp.toLocaleString()} color={O.gold} />
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {badges.map(b => <BadgeIcon key={b.id} badge={b} />)}
           </div>
         </div>
-      </div>
 
-      {/* ============================================================
-          6. Share Button
-          ============================================================ */}
+        {/* 5. Stats Panel */}
+        <div className="osrs-panel" style={{
+          padding: '14px 16px',
+          marginBottom: '16px',
+        }}>
+          <div style={{
+            fontFamily: FONT,
+            fontSize: '7px',
+            color: O.dim,
+            marginBottom: '10px',
+            letterSpacing: '2px',
+          }}>
+            ON-CHAIN
+          </div>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '0 20px',
+          }}>
+            <div>
+              <StatRow label="Transactions" value={chain.txnCount.toLocaleString()} />
+              <StatRow label="Success Rate" value={
+                chain.txnCount > 0
+                  ? `${Math.round((chain.successfulTxns / chain.txnCount) * 100)}%`
+                  : '—'
+              } color="#7ee787" />
+              <StatRow label="Wallet Age" value={`${chain.walletAgeDays}d`} />
+              <StatRow label="Last Active" value={
+                chain.lastActivityDays === 0 ? 'Today' : `${chain.lastActivityDays}d ago`
+              } />
+            </div>
+            <div>
+              <StatRow label="SOL Balance" value={chain.solBalance.toFixed(2)} color={O.gold} />
+              <StatRow label="Tokens Held" value={chain.tokenCount} />
+              <StatRow label="Token Accts" value={chain.totalTokenAccounts} />
+              <StatRow label="Total XP" value={totalXp.toLocaleString()} color={O.gold} />
+            </div>
+          </div>
+        </div>
+
+        {/* Shipyard-specific stats (if any) */}
+        {stats && (stats.poolsCreated > 0 || stats.poolsJoined > 0) && (
+          <div className="osrs-panel" style={{
+            padding: '14px 16px',
+            marginBottom: '16px',
+          }}>
+            <div style={{
+              fontFamily: FONT,
+              fontSize: '7px',
+              color: O.dim,
+              marginBottom: '10px',
+              letterSpacing: '2px',
+            }}>
+              SHIPYARD
+            </div>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '0 20px',
+            }}>
+              <div>
+                <StatRow label="Pools Joined" value={stats.poolsJoined} />
+                <StatRow label="Pools Created" value={stats.poolsCreated} />
+              </div>
+              <div>
+                <StatRow label="Launched" value={stats.poolsLaunched} color="#7ee787" />
+                <StatRow label="Sunk" value={stats.poolsFailed} color="#f97316" />
+              </div>
+            </div>
+          </div>
+        )}
+
+      </div>
+      {/* end scroll */}
+
+      {/* 6. Share Button (outside scroll) */}
       <button
         onClick={handleShare}
         style={{
           width: '100%',
+          marginTop: '16px',
           padding: '14px',
-          background: O.panelBg,
-          border: '2px solid',
-          borderColor: `${O.bevelLight} ${O.bevelDark} ${O.bevelDark} ${O.bevelLight}`,
+          background: 'rgba(136, 192, 255, 0.08)',
+          border: '1px solid rgba(136, 192, 255, 0.2)',
+          borderRadius: '8px',
           fontFamily: FONT,
           fontSize: '9px',
-          color: copied ? '#7ee787' : O.gold,
+          color: copied ? '#7ee787' : '#88c0ff',
           cursor: 'pointer',
           letterSpacing: '1px',
           transition: 'color 0.2s',
