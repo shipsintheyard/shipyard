@@ -554,26 +554,26 @@ export default function SailorStats({ address }: { address: string }) {
             gap: '0 20px',
           }}>
             <div>
-              <StatRow label="Transactions" value={chain.txnCount.toLocaleString()} />
-              <StatRow label="Success Rate" value={
+              <StatRow label="Transactions" value={chain.txnCountCapped ? `${chain.txnCount.toLocaleString()}+` : chain.txnCount.toLocaleString()} />
+              <StatRow label="Succeeded" value={
                 chain.txnCount > 0
-                  ? `${Math.round((chain.successfulTxns / chain.txnCount) * 100)}%`
+                  ? `${chain.successfulTxns.toLocaleString()}/${chain.txnCount.toLocaleString()}`
                   : '—'
               } color="#7ee787" />
               <StatRow label="Wallet Age" value={`${chain.walletAgeDays}d`} />
               <StatRow label="Last Active" value={
                 chain.lastActivityDays === 0 ? 'Today' : `${chain.lastActivityDays}d ago`
               } />
-              <StatRow label="Total XP" value={totalXp.toLocaleString()} color={O.gold} />
+              <StatRow label="SOL" value={chain.solBalance.toFixed(2)} color={O.gold} />
+              <StatRow label="Staked" value={chain.stakedSol > 0 ? chain.stakedSol.toFixed(2) : '—'} color={chain.stakedSol > 0 ? '#7ee787' : undefined} />
             </div>
             <div>
-              <StatRow label="SOL Balance" value={chain.solBalance.toFixed(2)} color={O.gold} />
-              <StatRow label="Staked SOL" value={chain.stakedSol > 0 ? chain.stakedSol.toFixed(2) : '—'} color={chain.stakedSol > 0 ? '#7ee787' : undefined} />
-              <StatRow label="Tokens Held" value={chain.tokenCount} />
-              <StatRow label="NFTs" value={chain.nftCount ?? 0} color={(chain.nftCount ?? 0) > 0 ? '#fbbf24' : undefined} />
+              <StatRow label="Tokens" value={chain.tokenCount} />
               <StatRow label="Dead Tokens" value={chain.deadTokens ?? 0} color={(chain.deadTokens ?? 0) > 0 ? '#f97316' : undefined} />
+              <StatRow label="NFTs" value={chain.nftCount ?? 0} color={(chain.nftCount ?? 0) > 0 ? '#fbbf24' : undefined} />
               <StatRow label="PF Coins" value={chain.pumpfunCoins} color={chain.pumpfunCoins > 0 ? '#a78bfa' : undefined} />
               <StatRow label="DeFi" value={chain.defiTokens.length > 0 ? chain.defiTokens.join(', ') : '—'} color={chain.defiTokens.length > 0 ? '#88c0ff' : undefined} />
+              <StatRow label="Total XP" value={totalXp.toLocaleString()} color={O.gold} />
             </div>
           </div>
         </div>

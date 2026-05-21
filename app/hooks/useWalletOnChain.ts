@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 export interface OnChainData {
   // Core
   txnCount: number;
+  txnCountCapped: boolean;
   successfulTxns: number;
   walletAgeDays: number;
   lastActivityDays: number;

@@ -126,6 +126,7 @@ export async function GET(
 
     // --- Signatures ---
     const txnCount = signatures.length;
+    const txnCountCapped = signatures.length >= 1000; // RPC limit — real count is higher
     const successfulTxns = signatures.filter(s => !s.err).length;
     const blockTimes = signatures
       .map(s => s.blockTime)
@@ -192,6 +193,7 @@ export async function GET(
       success: true,
       data: {
         txnCount,
+        txnCountCapped,
         successfulTxns,
         walletAgeDays,
         lastActivityDays,
