@@ -271,18 +271,47 @@ function BadgeIcon({ badge }: { badge: { id: string; name: string; icon: string;
   );
 }
 
-function StatRow({ label, value, color }: { label: string; value: string | number; color?: string }) {
+function StatRow({ label, value, color, tip }: { label: string; value: string | number; color?: string; tip?: string }) {
+  const [hovered, setHovered] = useState(false);
   return (
-    <div style={{
-      display: 'flex',
-      justifyContent: 'space-between',
-      padding: '4px 0',
-      borderBottom: `1px solid ${O.bevelDark}`,
-      fontFamily: FONT,
-      fontSize: '7px',
-    }}>
-      <span style={{ color: O.label }}>{label}</span>
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        padding: '4px 0',
+        borderBottom: `1px solid ${O.bevelDark}`,
+        fontFamily: FONT,
+        fontSize: '7px',
+        position: 'relative',
+        cursor: tip ? 'help' : 'default',
+      }}
+    >
+      <span style={{ color: O.label, borderBottom: tip ? `1px dotted ${O.dim}` : 'none' }}>{label}</span>
       <span style={{ color: color ?? O.text }}>{value}</span>
+      {tip && hovered && (
+        <div style={{
+          position: 'absolute',
+          bottom: '100%',
+          left: 0,
+          right: 0,
+          marginBottom: '4px',
+          padding: '5px 8px',
+          background: O.panelBg,
+          border: `1px solid ${O.outer}`,
+          borderRadius: 0,
+          zIndex: 10,
+          fontFamily: FONT,
+          fontSize: '6px',
+          color: O.text,
+          lineHeight: '1.6',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+          whiteSpace: 'normal',
+        }}>
+          {tip}
+        </div>
+      )}
     </div>
   );
 }
@@ -554,25 +583,25 @@ export default function SailorStats({ address }: { address: string }) {
             gap: '0 20px',
           }}>
             <div>
-              <StatRow label="Transactions" value={chain.txnCountCapped ? `${chain.txnCount.toLocaleString()}+` : chain.txnCount.toLocaleString()} />
-              <StatRow label="Since" value={
+              <StatRow label="Transactions" tip="Total on-chain transactions from this wallet" value={chain.txnCountCapped ? `${chain.txnCount.toLocaleString()}+` : chain.txnCount.toLocaleString()} />
+              <StatRow label="Since" tip="Date of first on-chain transaction" value={
                 chain.firstSeenDate
                   ? new Date(chain.firstSeenDate).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
                   : '—'
               } />
-              <StatRow label="Last Active" value={
+              <StatRow label="Last Active" tip="Time since most recent transaction" value={
                 chain.lastActivityDays === 0 ? 'Today' : `${chain.lastActivityDays}d ago`
               } />
-              <StatRow label="SOL" value={chain.solBalance.toFixed(2)} color={O.gold} />
-              <StatRow label="Staked" value={chain.stakedSol > 0 ? chain.stakedSol.toFixed(2) : '—'} color={chain.stakedSol > 0 ? '#7ee787' : undefined} />
+              <StatRow label="SOL" tip="Native SOL balance in wallet" value={chain.solBalance.toFixed(2)} color={O.gold} />
+              <StatRow label="Staked" tip="SOL in liquid staking tokens (mSOL, jitoSOL, etc.)" value={chain.stakedSol > 0 ? chain.stakedSol.toFixed(2) : '—'} color={chain.stakedSol > 0 ? '#7ee787' : undefined} />
             </div>
             <div>
-              <StatRow label="Tokens" value={chain.tokenCount} />
-              <StatRow label="Dead Tokens" value={chain.deadTokens ?? 0} color={(chain.deadTokens ?? 0) > 0 ? '#f97316' : undefined} />
-              <StatRow label="NFTs" value={chain.nftCount ?? 0} color={(chain.nftCount ?? 0) > 0 ? '#fbbf24' : undefined} />
-              <StatRow label="PF Coins" value={chain.pumpfunCoins} color={chain.pumpfunCoins > 0 ? '#a78bfa' : undefined} />
-              <StatRow label="DeFi" value={chain.defiTokens.length > 0 ? chain.defiTokens.join(', ') : '—'} color={chain.defiTokens.length > 0 ? '#88c0ff' : undefined} />
-              <StatRow label="Total XP" value={totalXp.toLocaleString()} color={O.gold} />
+              <StatRow label="Tokens" tip="SPL tokens with a non-zero balance" value={chain.tokenCount} />
+              <StatRow label="Dead Tokens" tip="Zero-balance token accounts — sold or rugged" value={chain.deadTokens ?? 0} color={(chain.deadTokens ?? 0) > 0 ? '#f97316' : undefined} />
+              <StatRow label="NFTs" tip="Non-fungible tokens held in wallet" value={chain.nftCount ?? 0} color={(chain.nftCount ?? 0) > 0 ? '#fbbf24' : undefined} />
+              <StatRow label="Pump.fun" tip="Tokens bought through pump.fun" value={chain.pumpfunCoins} color={chain.pumpfunCoins > 0 ? '#a78bfa' : undefined} />
+              <StatRow label="DeFi" tip="Recognized DeFi protocol tokens (JUP, RAY, etc.)" value={chain.defiTokens.length > 0 ? chain.defiTokens.join(', ') : '—'} color={chain.defiTokens.length > 0 ? '#88c0ff' : undefined} />
+              <StatRow label="Total XP" tip="Combined experience points across all skills" value={totalXp.toLocaleString()} color={O.gold} />
             </div>
           </div>
         </div>
