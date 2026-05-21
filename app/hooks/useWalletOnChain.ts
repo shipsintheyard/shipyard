@@ -7,6 +7,7 @@ export interface OnChainData {
   txnCountCapped: boolean;
   successfulTxns: number;
   walletAgeDays: number;
+  firstSeenDate: string | null;
   lastActivityDays: number;
   tokenCount: number;
   totalTokenAccounts: number;
