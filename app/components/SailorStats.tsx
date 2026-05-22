@@ -6,16 +6,26 @@ import type { CharacterStats } from '../hooks/useCharacter';
 import type { OnChainData } from '../hooks/useWalletOnChain';
 
 // ============================================================================
-// XP / Level system (OSRS-inspired curve)
+// XP / Level system — real OSRS exponential curve
+// XP doubles every 7 levels. Level 92 = halfway to 99. Level 99 = 13,034,431.
 // ============================================================================
 
+// Precompute the OSRS XP table once (levels 1–99)
+const OSRS_XP_TABLE: number[] = [0]; // index 0 → level 1 = 0 XP
+let _xpAccum = 0;
+for (let l = 1; l < 99; l++) {
+  _xpAccum += Math.floor(l + 300 * Math.pow(2, l / 7));
+  OSRS_XP_TABLE.push(Math.floor(_xpAccum / 4));
+}
+// OSRS_XP_TABLE[98] = 13,034,431 (level 99)
+
 function xpForLevel(level: number): number {
-  return Math.floor(level * level * 0.5 + level * 10);
+  return OSRS_XP_TABLE[Math.max(0, Math.min(level - 1, 98))];
 }
 
 function levelFromXp(xp: number): number {
-  for (let l = 99; l >= 1; l--) {
-    if (xp >= xpForLevel(l)) return l;
+  for (let l = 98; l >= 0; l--) {
+    if (xp >= OSRS_XP_TABLE[l]) return l + 1;
   }
   return 1;
 }
@@ -25,11 +35,12 @@ function progressToNext(xp: number): number {
   if (level >= 99) return 1;
   const cur = xpForLevel(level);
   const next = xpForLevel(level + 1);
-  return (xp - cur) / (next - cur);
+  return next > cur ? (xp - cur) / (next - cur) : 0;
 }
 
 // ============================================================================
-// Skill mapping — log-scaled for balance
+// Skill mapping — scaled for the OSRS exponential curve
+// XP multipliers tuned so: casual wallet ~30-50, active ~50-70, extreme ~80-90+
 // ============================================================================
 
 interface SkillData {
@@ -45,44 +56,46 @@ function computeSkills(chain: OnChainData, shipyard: CharacterStats | null): Ski
     {
       name: 'Sailing',
       icon: '⛵',
-      // Transaction volume — linear but capped at 5k txns ≈ 6000 XP ≈ lvl 98
-      xp: Math.min(chain.txnCount, 5000) * 1.2,
+      // Transaction volume — 500 txns ≈ lvl 50, 5000 txns ≈ lvl 73
+      xp: Math.min(chain.txnCount, 5000) * 200,
     },
     {
       name: 'Degenning',
       icon: '💎',
-      // Token diversity (log-scaled) + memecoins + dead tokens as degen signal
-      xp: Math.log2((chain.tokenCount || 0) + 1) * 200
-        + (chain.memecoins || 0) * 100
-        + (chain.deadTokens || 0) * 50,
+      // Memecoins + dead tokens + token diversity
+      // 20 memecoins + 10 dead ≈ lvl 55, 40 meme + 20 dead ≈ lvl 63
+      xp: Math.log2((chain.tokenCount || 0) + 1) * 15000
+        + (chain.memecoins || 0) * 8000
+        + (chain.deadTokens || 0) * 3000,
     },
     {
       name: 'Plundering',
       icon: '🏴‍☠️',
-      // Log-scaled wealth — whales don't auto-99
-      xp: Math.log2((chain.solBalance + chain.stakedSol) + 1) * 300,
+      // Log-scaled wealth — 1 SOL ≈ lvl 40, 100 SOL ≈ lvl 58, 1000 SOL ≈ lvl 63
+      xp: Math.log2((chain.solBalance + chain.stakedSol) + 1) * 50000,
     },
     {
       name: 'Navigation',
       icon: '🧭',
       // DeFi diversity + capped txn activity
-      xp: chain.defiCategories.length * 300
-        + Math.min(chain.txnCount, 2000) * 0.3,
+      // 2 defi categories + 1k txns ≈ lvl 57, 4 categories + 2k txns ≈ lvl 65
+      xp: chain.defiCategories.length * 100000
+        + Math.min(chain.txnCount, 2000) * 80,
     },
     {
       name: 'Anchoring',
       icon: '⚓',
-      // Wallet age (capped 1000d) + staking bonus + NFT commitment
-      xp: Math.min(chain.walletAgeDays, 1000) * 4
-        + (chain.stakedSol > 0 ? 500 : 0)
-        + (chain.nftCount || 0) * 20,
+      // Wallet age + staking + NFTs — 1 year ≈ lvl 64, 3 years + staking ≈ lvl 77
+      xp: Math.min(chain.walletAgeDays, 1000) * 1500
+        + (chain.stakedSol > 0 ? 200000 : 0)
+        + (chain.nftCount || 0) * 10000,
     },
     {
       name: 'Shipbuilding',
       icon: '🔨',
-      // Shipyard-specific activity
+      // Shipyard-specific — 1 pool ≈ lvl 40, 5 created + 2 launched ≈ lvl 64
       xp: shipyard
-        ? shipyard.poolsCreated * 100 + shipyard.poolsLaunched * 200
+        ? shipyard.poolsCreated * 50000 + shipyard.poolsLaunched * 150000
         : 0,
     },
   ];
