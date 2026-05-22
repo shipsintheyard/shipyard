@@ -8,7 +8,13 @@ const RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 // Known DeFi token mints
 // ============================================================================
 
-const DEFI_MINTS: Record<string, { name: string; category: string }> = {
+const KNOWN_MINTS: Record<string, { name: string; category: string }> = {
+  // Stablecoins
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': { name: 'USDC', category: 'stablecoin' },
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': { name: 'USDT', category: 'stablecoin' },
+  'USDSwr9ApdHk5bvJKMjXLj5YqAk76DpFXo8H5x4B1QV': { name: 'USDS', category: 'stablecoin' },
+  // Wrapped SOL
+  'So11111111111111111111111111111111111111112': { name: 'wSOL', category: 'wrapped' },
   // Liquid staking
   'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So': { name: 'mSOL', category: 'staking' },
   'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn': { name: 'jitoSOL', category: 'staking' },
@@ -35,10 +41,12 @@ const DEFI_MINTS: Record<string, { name: string; category: string }> = {
 };
 
 const STAKING_MINTS = new Set(
-  Object.entries(DEFI_MINTS)
+  Object.entries(KNOWN_MINTS)
     .filter(([, v]) => v.category === 'staking')
     .map(([k]) => k)
 );
+
+const DEFI_CATEGORIES = new Set(['staking', 'perps', 'governance']);
 
 // ============================================================================
 // Token account type helpers
@@ -134,7 +142,7 @@ export async function GET(
 
     // --- Token analysis ---
     let tokenCount = 0;
-    let pumpfunCoins = 0;
+    let memecoins = 0;
     let stakedSol = 0;
     let nftCount = 0;
     let deadTokens = 0;
@@ -161,19 +169,19 @@ export async function GET(
         continue;
       }
 
-      // Pump.fun detection: mint addresses end with "pump"
-      if (info.mint.endsWith('pump')) {
-        pumpfunCoins++;
-      }
-
-      // Check DeFi tokens
-      const defi = DEFI_MINTS[info.mint];
-      if (defi) {
-        defiTokens.push(defi.name);
-        defiCategories.add(defi.category);
+      // Known tokens (DeFi, stablecoins, wrapped SOL)
+      const known = KNOWN_MINTS[info.mint];
+      if (known) {
+        if (DEFI_CATEGORIES.has(known.category)) {
+          defiTokens.push(known.name);
+          defiCategories.add(known.category);
+        }
         if (STAKING_MINTS.has(info.mint)) {
           stakedSol += amount;
         }
+      } else {
+        // Not a known token and not an NFT = memecoin
+        memecoins++;
       }
     }
 
@@ -191,7 +199,7 @@ export async function GET(
         tokenCount,
         totalTokenAccounts: tokenAccounts.value.length,
         solBalance,
-        pumpfunCoins,
+        memecoins,
         defiTokens,
         defiCategories: Array.from(defiCategories),
         stakedSol: Math.round(stakedSol * 100) / 100,

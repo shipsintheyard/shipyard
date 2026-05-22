@@ -51,9 +51,9 @@ function computeSkills(chain: OnChainData, shipyard: CharacterStats | null): Ski
     {
       name: 'Degenning',
       icon: '💎',
-      // Token diversity (log-scaled) + pump.fun + dead tokens as degen signal
+      // Token diversity (log-scaled) + memecoins + dead tokens as degen signal
       xp: Math.log2((chain.tokenCount || 0) + 1) * 200
-        + (chain.pumpfunCoins || 0) * 150
+        + (chain.memecoins || 0) * 100
         + (chain.deadTokens || 0) * 50,
     },
     {
@@ -173,14 +173,13 @@ function SkillTile({ skill, delay }: { skill: SkillData; delay: number }) {
               minWidth: 0,
             }}>{dots}</span>
             <span style={{
-              fontSize: '13px',
-              color: O.gold,
               fontFamily: FONT,
               fontWeight: 'bold',
               textShadow: '1px 1px 0 #000',
               flexShrink: 0,
             }}>
-              {skill.level}
+              <span style={{ fontSize: '13px', color: O.gold }}>{skill.level}</span>
+              <span style={{ fontSize: '7px', color: O.dim }}>/99</span>
             </span>
           </div>
         </div>
@@ -595,7 +594,7 @@ export default function SailorStats({ address }: { address: string }) {
               <StatRow label="Tokens" tip="SPL tokens with a non-zero balance" value={chain.tokenCount} />
               <StatRow label="Dead Tokens" tip="Zero-balance token accounts — sold or rugged" value={chain.deadTokens ?? 0} color={(chain.deadTokens ?? 0) > 0 ? '#f97316' : undefined} />
               <StatRow label="NFTs" tip="Non-fungible tokens held in wallet" value={chain.nftCount ?? 0} color={(chain.nftCount ?? 0) > 0 ? '#fbbf24' : undefined} />
-              <StatRow label="Pump.fun" tip="Tokens bought through pump.fun" value={chain.pumpfunCoins} color={chain.pumpfunCoins > 0 ? '#a78bfa' : undefined} />
+              <StatRow label="Memecoins" tip="Tokens that aren't DeFi, stablecoins, or NFTs" value={chain.memecoins} color={chain.memecoins > 0 ? '#a78bfa' : undefined} />
               <StatRow label="DeFi" tip="Recognized DeFi protocol tokens (JUP, RAY, etc.)" value={chain.defiTokens.length > 0 ? chain.defiTokens.join(', ') : '—'} color={chain.defiTokens.length > 0 ? '#88c0ff' : undefined} />
               <StatRow label="Total XP" tip="Combined experience points across all skills" value={totalXp.toLocaleString()} color={O.gold} />
             </div>

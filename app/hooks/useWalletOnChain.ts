@@ -11,8 +11,8 @@ export interface OnChainData {
   tokenCount: number;
   totalTokenAccounts: number;
   solBalance: number;
-  // Pump.fun
-  pumpfunCoins: number;
+  // Memecoins (not DeFi, not stablecoin, not NFT)
+  memecoins: number;
   // DeFi
   defiTokens: string[];
   defiCategories: string[];
