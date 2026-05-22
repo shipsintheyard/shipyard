@@ -41,29 +41,6 @@ const STAKING_MINTS = new Set(
 );
 
 // ============================================================================
-// Pump.fun per-mint check — cached in-memory
-// ============================================================================
-
-const pfMintCache = new Map<string, { isPf: boolean; ts: number }>();
-const PF_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours — a mint is PF or it isn't
-
-async function isPumpfunMint(mint: string): Promise<boolean> {
-  const cached = pfMintCache.get(mint);
-  if (cached && Date.now() - cached.ts < PF_CACHE_TTL) return cached.isPf;
-
-  try {
-    const res = await fetch(`https://frontend-api-v2.pump.fun/coins/${mint}`, {
-      headers: { 'Accept': 'application/json' },
-    });
-    const isPf = res.ok;
-    pfMintCache.set(mint, { isPf, ts: Date.now() });
-    return isPf;
-  } catch {
-    return false;
-  }
-}
-
-// ============================================================================
 // Token account type helpers
 // ============================================================================
 
@@ -91,6 +68,8 @@ function getTokenInfo(
 // Route handler
 // ============================================================================
 
+const MAX_PAGES = 20; // up to 20k txns
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ address: string }> }
@@ -117,34 +96,31 @@ export async function GET(
       connection.getBalance(pubkey),
     ]);
 
-    // --- Signatures: paginate backward to find true wallet age + total count ---
-    let allSigs = signatures;
-    let totalTxns = signatures.length;
-    const txnCountCapped = signatures.length >= 1000;
-    const successfulTxns = signatures.filter(s => !s.err).length;
-
-    // Get latest activity from first batch
+    // --- Recent activity from first batch ---
+    const now = Date.now() / 1000;
     const recentTimes = signatures
       .map(s => s.blockTime)
       .filter((t): t is number => t !== null);
-    const now = Date.now() / 1000;
     const lastActivityDays = recentTimes.length > 0
       ? Math.floor((now - Math.max(...recentTimes)) / 86400)
       : 999;
 
-    // Paginate backward to find the earliest transaction (cap at 10 pages = 10k txns)
+    // --- Paginate backward to find first tx + total count ---
+    let totalTxns = signatures.length;
     let lastBatch = signatures;
-    while (lastBatch.length >= 1000) {
+    let pages = 1;
+    while (lastBatch.length >= 1000 && pages < MAX_PAGES) {
       const oldestSig = lastBatch[lastBatch.length - 1].signature;
       lastBatch = await connection.getSignaturesForAddress(pubkey, {
         limit: 1000,
         before: oldestSig,
       });
       totalTxns += lastBatch.length;
-      if (totalTxns > 10000) break; // safety cap
+      pages++;
     }
+    const txnCountCapped = pages >= MAX_PAGES;
 
-    // Wallet age from the actual earliest transaction
+    // First-seen date from the actual earliest batch
     const earliestTimes = lastBatch.length > 0
       ? lastBatch.map(s => s.blockTime).filter((t): t is number => t !== null)
       : recentTimes;
@@ -158,12 +134,12 @@ export async function GET(
 
     // --- Token analysis ---
     let tokenCount = 0;
+    let pumpfunCoins = 0;
     let stakedSol = 0;
     let nftCount = 0;
     let deadTokens = 0;
     const defiTokens: string[] = [];
     const defiCategories = new Set<string>();
-    const unknownMints: string[] = []; // mints to check against pump.fun
 
     for (const ta of tokenAccounts.value) {
       const info = getTokenInfo(ta);
@@ -182,7 +158,12 @@ export async function GET(
       // NFTs: decimals 0 and exactly 1 token
       if (info.tokenAmount.decimals === 0 && amount === 1) {
         nftCount++;
-        continue; // NFTs aren't PF coins or DeFi
+        continue;
+      }
+
+      // Pump.fun detection: mint addresses end with "pump"
+      if (info.mint.endsWith('pump')) {
+        pumpfunCoins++;
       }
 
       // Check DeFi tokens
@@ -193,15 +174,8 @@ export async function GET(
         if (STAKING_MINTS.has(info.mint)) {
           stakedSol += amount;
         }
-      } else {
-        // Not a known DeFi token — could be pump.fun
-        unknownMints.push(info.mint);
       }
     }
-
-    // Check unknown mints against pump.fun API in parallel
-    const pfResults = await Promise.all(unknownMints.map(isPumpfunMint));
-    const pumpfunCoins = pfResults.filter(Boolean).length;
 
     // --- SOL balance ---
     const solBalance = balance / 1e9;
@@ -210,8 +184,7 @@ export async function GET(
       success: true,
       data: {
         txnCount: totalTxns,
-        txnCountCapped: totalTxns > 10000,
-        successfulTxns,
+        txnCountCapped,
         walletAgeDays,
         firstSeenDate,
         lastActivityDays,

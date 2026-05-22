@@ -5,7 +5,6 @@ export interface OnChainData {
   // Core
   txnCount: number;
   txnCountCapped: boolean;
-  successfulTxns: number;
   walletAgeDays: number;
   firstSeenDate: string | null;
   lastActivityDays: number;

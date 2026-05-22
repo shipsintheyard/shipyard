@@ -41,10 +41,6 @@ interface SkillData {
 }
 
 function computeSkills(chain: OnChainData, shipyard: CharacterStats | null): SkillData[] {
-  const successRate = chain.txnCount > 0
-    ? chain.successfulTxns / chain.txnCount
-    : 0;
-
   const raw = [
     {
       name: 'Sailing',
@@ -69,9 +65,9 @@ function computeSkills(chain: OnChainData, shipyard: CharacterStats | null): Ski
     {
       name: 'Navigation',
       icon: '🧭',
-      // Success rate × capped volume + DeFi diversity bonus
-      xp: successRate * Math.min(chain.txnCount, 2000) * 0.5
-        + chain.defiCategories.length * 200,
+      // DeFi diversity + capped txn activity
+      xp: chain.defiCategories.length * 300
+        + Math.min(chain.txnCount, 2000) * 0.3,
     },
     {
       name: 'Anchoring',
