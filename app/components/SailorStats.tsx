@@ -394,7 +394,7 @@ function LoadingSkeleton() {
 
 export default function SailorStats({ address }: { address: string }) {
   const { stats, badges, loading: shipyardLoading } = useCharacterStats(address);
-  const { data: chain, loading: chainLoading, error: chainError } = useWalletOnChain(address);
+  const { data: chain, loading: chainLoading, duneLoading, error: chainError } = useWalletOnChain(address);
   const [copied, setCopied] = useState(false);
 
   const isLoading = shipyardLoading || chainLoading;
@@ -592,9 +592,11 @@ export default function SailorStats({ address }: { address: string }) {
             gap: '0 20px',
           }}>
             <div>
-              <StatRow label="Transactions" tip="Total on-chain transactions (via Dune Analytics)" value={chain.txnCount.toLocaleString()} />
+              <StatRow label="Transactions" tip="Total on-chain transactions (via Dune Analytics)" value={
+                duneLoading ? '...' : chain.txnCount.toLocaleString()
+              } />
               <StatRow label="Since" tip="Date of first on-chain transaction" value={
-                chain.firstSeenDate
+                duneLoading ? '...' : chain.firstSeenDate
                   ? new Date(chain.firstSeenDate).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
                   : '—'
               } />
@@ -610,7 +612,7 @@ export default function SailorStats({ address }: { address: string }) {
               <StatRow label="NFTs" tip="Non-fungible tokens held in wallet" value={chain.nftCount ?? 0} color={(chain.nftCount ?? 0) > 0 ? '#fbbf24' : undefined} />
               <StatRow label="Memecoins" tip="Tokens that aren't DeFi, stablecoins, or NFTs" value={chain.memecoins} color={chain.memecoins > 0 ? '#a78bfa' : undefined} />
               <StatRow label="DEXes Used" tip="DEX protocols traded on (via Dune)" value={
-                chain.dexProtocols && chain.dexProtocols.length > 0
+                duneLoading ? '...' : chain.dexProtocols && chain.dexProtocols.length > 0
                   ? chain.dexProtocols.slice(0, 3).map((d: { project: string }) => d.project).join(', ')
                   : chain.defiTokens.length > 0 ? chain.defiTokens.join(', ') : '—'
               } color={(chain.dexCount || 0) > 0 || chain.defiTokens.length > 0 ? '#88c0ff' : undefined} />
