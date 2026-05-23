@@ -50,38 +50,69 @@ const STAKING_MINTS = new Set(
 const DEFI_CATEGORIES = new Set(['staking', 'perps', 'governance']);
 
 // ============================================================================
-// Dune Analytics — txn count, first seen, DEX protocols
+// Dune Analytics — eventually consistent pattern
+//
+// Dune free tier takes 30-60s to run queries. Vercel functions timeout at ~10s.
+// Solution: fire queries, poll briefly (5s), cache execution IDs.
+// - 1st request: submits Dune queries, returns RPC-only data
+// - 2nd request: checks cached execution IDs, finds results ready, caches them
+// - 3rd+ requests: served from result cache (10 min TTL)
 // ============================================================================
 
 interface DuneData {
   txnCount: number;
   firstSeenDate: string | null;
-  lastSeenDate: string | null;
   dexProtocols: { project: string; trades: number }[];
 }
 
-async function queryDune(address: string): Promise<DuneData | null> {
+// Cache: completed results (10 min TTL)
+const duneResultCache = new Map<string, { data: DuneData; ts: number }>();
+const RESULT_TTL = 10 * 60 * 1000;
+
+// Cache: pending execution IDs (5 min TTL — enough for Dune to finish)
+const dunePendingCache = new Map<string, { activityId: string; dexId: string; ts: number }>();
+const PENDING_TTL = 5 * 60 * 1000;
+
+function duneHeaders() {
+  return {
+    'X-Dune-Api-Key': DUNE_API_KEY,
+    'Content-Type': 'application/json',
+  };
+}
+
+async function getDuneData(address: string): Promise<DuneData | null> {
   if (!DUNE_API_KEY) return null;
 
+  // 1. Check result cache
+  const cached = duneResultCache.get(address);
+  if (cached && Date.now() - cached.ts < RESULT_TTL) return cached.data;
+
+  // 2. Check if we have pending execution IDs to poll
+  const pending = dunePendingCache.get(address);
+  if (pending && Date.now() - pending.ts < PENDING_TTL) {
+    const data = await tryFetchDuneResults(pending.activityId, pending.dexId);
+    if (data) {
+      duneResultCache.set(address, { data, ts: Date.now() });
+      dunePendingCache.delete(address);
+      return data;
+    }
+    // Not ready yet — return null, next request will try again
+    return null;
+  }
+
+  // 3. No cache, no pending — submit new queries
   try {
-    // Fire both queries in parallel
     const [activityExec, dexExec] = await Promise.all([
       fetch('https://api.dune.com/api/v1/sql/execute', {
         method: 'POST',
-        headers: {
-          'X-Dune-Api-Key': DUNE_API_KEY,
-          'Content-Type': 'application/json',
-        },
+        headers: duneHeaders(),
         body: JSON.stringify({
-          sql: `SELECT COUNT(*) as total_txns, MIN(block_time) as first_seen, MAX(block_time) as last_seen FROM solana.account_activity WHERE address = '${address}'`,
+          sql: `SELECT COUNT(*) as total_txns, MIN(block_time) as first_seen FROM solana.account_activity WHERE address = '${address}'`,
         }),
       }).then(r => r.json()),
       fetch('https://api.dune.com/api/v1/sql/execute', {
         method: 'POST',
-        headers: {
-          'X-Dune-Api-Key': DUNE_API_KEY,
-          'Content-Type': 'application/json',
-        },
+        headers: duneHeaders(),
         body: JSON.stringify({
           sql: `SELECT project, COUNT(*) as trades FROM dex_solana.trades WHERE trader_id = '${address}' GROUP BY project ORDER BY trades DESC LIMIT 10`,
         }),
@@ -90,65 +121,62 @@ async function queryDune(address: string): Promise<DuneData | null> {
 
     if (!activityExec.execution_id || !dexExec.execution_id) return null;
 
-    // Poll both until done (max 60s)
-    const results = await Promise.all([
-      pollDuneResult(activityExec.execution_id),
-      pollDuneResult(dexExec.execution_id),
+    // Save execution IDs for next request to pick up
+    dunePendingCache.set(address, {
+      activityId: activityExec.execution_id,
+      dexId: dexExec.execution_id,
+      ts: Date.now(),
+    });
+
+    // Brief poll — maybe Dune is fast today (cached on their end)
+    const data = await tryFetchDuneResults(activityExec.execution_id, dexExec.execution_id);
+    if (data) {
+      duneResultCache.set(address, { data, ts: Date.now() });
+      dunePendingCache.delete(address);
+      return data;
+    }
+  } catch {
+    // Dune failure shouldn't block the response
+  }
+
+  return null;
+}
+
+// Try to fetch results for both execution IDs. Returns null if either isn't done.
+async function tryFetchDuneResults(activityId: string, dexId: string): Promise<DuneData | null> {
+  try {
+    const [activityRes, dexRes] = await Promise.all([
+      fetch(`https://api.dune.com/api/v1/execution/${activityId}/results`, {
+        headers: { 'X-Dune-Api-Key': DUNE_API_KEY },
+      }).then(r => r.json()),
+      fetch(`https://api.dune.com/api/v1/execution/${dexId}/results`, {
+        headers: { 'X-Dune-Api-Key': DUNE_API_KEY },
+      }).then(r => r.json()),
     ]);
 
-    const [activityRows, dexRows] = results;
-    if (!activityRows?.[0]) return null;
+    // Both must be finished
+    if (!activityRes.is_execution_finished || !dexRes.is_execution_finished) return null;
 
-    const row = activityRows[0] as Record<string, unknown>;
+    // Activity query
+    const activityRow = activityRes.result?.rows?.[0] as Record<string, unknown> | undefined;
+    if (!activityRow) return null;
+
+    // DEX query (may have 0 rows if wallet never traded)
+    const dexRows = (dexRes.result?.rows ?? []) as Record<string, unknown>[];
+
     return {
-      txnCount: Number(row.total_txns ?? 0),
-      firstSeenDate: row.first_seen ? new Date(String(row.first_seen)).toISOString() : null,
-      lastSeenDate: row.last_seen ? new Date(String(row.last_seen)).toISOString() : null,
-      dexProtocols: (dexRows ?? []).map((r) => ({
-        project: String((r as Record<string, unknown>).project ?? ''),
-        trades: Number((r as Record<string, unknown>).trades ?? 0),
+      txnCount: Number(activityRow.total_txns ?? 0),
+      firstSeenDate: activityRow.first_seen
+        ? new Date(String(activityRow.first_seen)).toISOString()
+        : null,
+      dexProtocols: dexRows.map(r => ({
+        project: String(r.project ?? ''),
+        trades: Number(r.trades ?? 0),
       })),
     };
   } catch {
-    return null; // Dune failure shouldn't block the response
+    return null;
   }
-}
-
-async function pollDuneResult(executionId: string, maxWaitMs = 60000): Promise<Record<string, unknown>[] | null> {
-  const start = Date.now();
-  while (Date.now() - start < maxWaitMs) {
-    const res = await fetch(
-      `https://api.dune.com/api/v1/execution/${executionId}/results`,
-      { headers: { 'X-Dune-Api-Key': DUNE_API_KEY } }
-    );
-    const data = await res.json();
-    if (data.is_execution_finished) {
-      if (data.state === 'QUERY_STATE_COMPLETED' && data.result?.rows) {
-        return data.result.rows;
-      }
-      return null; // failed or no rows
-    }
-    await new Promise(resolve => setTimeout(resolve, 2000));
-  }
-  return null; // timed out
-}
-
-// ============================================================================
-// Dune result cache — keyed by address, 10 min TTL
-// ============================================================================
-
-const duneCache = new Map<string, { data: DuneData; ts: number }>();
-const DUNE_CACHE_TTL = 10 * 60 * 1000;
-
-async function getDuneData(address: string): Promise<DuneData | null> {
-  const cached = duneCache.get(address);
-  if (cached && Date.now() - cached.ts < DUNE_CACHE_TTL) return cached.data;
-
-  const data = await queryDune(address);
-  if (data) {
-    duneCache.set(address, { data, ts: Date.now() });
-  }
-  return data;
 }
 
 // ============================================================================
@@ -198,12 +226,12 @@ export async function GET(
   try {
     const connection = new Connection(RPC, 'confirmed');
 
-    // Dune (txn history, DEX protocols) + RPC (live balances, tokens) in parallel
+    // Dune (async, may return null on first request) + RPC in parallel
     const [dune, tokenAccounts, balance, signatures] = await Promise.all([
       getDuneData(address),
       connection.getParsedTokenAccountsByOwner(pubkey, { programId: TOKEN_PROGRAM_ID }),
       connection.getBalance(pubkey),
-      connection.getSignaturesForAddress(pubkey, { limit: 1 }), // just for last activity
+      connection.getSignaturesForAddress(pubkey, { limit: 1 }),
     ]);
 
     // --- Last activity from most recent signature ---
@@ -213,15 +241,15 @@ export async function GET(
       ? Math.floor((now - lastSigTime) / 86400)
       : 999;
 
-    // --- Dune data (or fallback) ---
+    // --- Dune data (or zeroes while loading) ---
     const txnCount = dune?.txnCount ?? 0;
     const firstSeenDate = dune?.firstSeenDate ?? null;
     const walletAgeDays = firstSeenDate
       ? Math.floor((now - new Date(firstSeenDate).getTime() / 1000) / 86400)
       : 0;
     const dexProtocols = dune?.dexProtocols ?? [];
-    // Unique DEX categories for Navigation XP
     const dexCount = dexProtocols.length;
+    const duneLoaded = dune !== null;
 
     // --- Token analysis ---
     let tokenCount = 0;
@@ -284,9 +312,11 @@ export async function GET(
         stakedSol: Math.round(stakedSol * 100) / 100,
         nftCount,
         deadTokens,
+        duneLoaded, // tells frontend if Dune data is ready
       },
     }, {
-      headers: { 'Cache-Control': 'public, max-age=300' },
+      // Short cache when Dune isn't ready yet so next request picks it up
+      headers: { 'Cache-Control': `public, max-age=${duneLoaded ? 300 : 10}` },
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'RPC error';
