@@ -56,45 +56,46 @@ function computeSkills(chain: OnChainData, shipyard: CharacterStats | null): Ski
     {
       name: 'Sailing',
       icon: '⛵',
-      // Transaction volume — now powered by Dune (real total, not capped at 1k)
-      // 500 txns ≈ lvl 50, 5000 txns ≈ lvl 73, 50k txns ≈ lvl 88
+      // Transaction volume — 500 txns ≈ lvl 50, 5k ≈ 73, 50k ≈ 88
       xp: Math.min(chain.txnCount, 50000) * 20,
     },
     {
       name: 'Degenning',
       icon: '💎',
-      // Memecoins + dead tokens + token diversity
-      // 20 memecoins + 10 dead ≈ lvl 55, 40 meme + 20 dead ≈ lvl 63
+      // Memecoins + dead tokens + fav token obsession + volume
       xp: Math.log2((chain.tokenCount || 0) + 1) * 15000
         + (chain.memecoins || 0) * 8000
-        + (chain.deadTokens || 0) * 3000,
+        + (chain.deadTokens || 0) * 3000
+        + Math.min(chain.favTokenBuys || 0, 500) * 200,
     },
     {
       name: 'Plundering',
       icon: '🏴‍☠️',
-      // Log-scaled wealth — 1 SOL ≈ lvl 40, 100 SOL ≈ lvl 58, 1000 SOL ≈ lvl 63
-      xp: Math.log2((chain.solBalance + chain.stakedSol) + 1) * 50000,
+      // Log-scaled wealth + log-scaled trading volume
+      xp: Math.log2((chain.solBalance + chain.stakedSol) + 1) * 50000
+        + Math.log2((chain.totalVolumeUsd || 0) + 1) * 8000,
     },
     {
       name: 'Navigation',
       icon: '🧭',
-      // DEX protocol diversity (from Dune) + DeFi token diversity
-      // 3 DEXes ≈ lvl 50, 6 DEXes + DeFi tokens ≈ lvl 65
+      // DEX diversity + DeFi tokens + active months (consistency)
       xp: (chain.dexCount || 0) * 60000
-        + chain.defiCategories.length * 80000,
+        + chain.defiCategories.length * 80000
+        + Math.min(chain.activeMonths || 0, 24) * 15000,
     },
     {
       name: 'Anchoring',
       icon: '⚓',
-      // Wallet age + staking + NFTs — 1 year ≈ lvl 64, 3 years + staking ≈ lvl 77
+      // Wallet age + staking + NFTs + active months
       xp: Math.min(chain.walletAgeDays, 1000) * 1500
         + (chain.stakedSol > 0 ? 200000 : 0)
-        + (chain.nftCount || 0) * 10000,
+        + (chain.nftCount || 0) * 10000
+        + Math.min(chain.activeMonths || 0, 24) * 8000,
     },
     {
       name: 'Shipbuilding',
       icon: '🔨',
-      // Shipyard-specific — 1 pool ≈ lvl 40, 5 created + 2 launched ≈ lvl 64
+      // Shipyard-specific
       xp: shipyard
         ? shipyard.poolsCreated * 50000 + shipyard.poolsLaunched * 150000
         : 0,
@@ -148,6 +149,12 @@ const O = {
 };
 
 const FONT = "'Press Start 2P', monospace";
+
+function formatCompact(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return n.toFixed(0);
+}
 
 // ============================================================================
 // Sub-components
@@ -592,7 +599,7 @@ export default function SailorStats({ address }: { address: string }) {
             gap: '0 20px',
           }}>
             <div>
-              <StatRow label="Transactions" tip="Total on-chain transactions (via Dune Analytics)" value={
+              <StatRow label="Transactions" tip="Total on-chain transactions (via Dune)" value={
                 duneLoading ? '...' : chain.txnCount.toLocaleString()
               } />
               <StatRow label="Since" tip="Date of first on-chain transaction" value={
@@ -603,20 +610,35 @@ export default function SailorStats({ address }: { address: string }) {
               <StatRow label="Last Active" tip="Time since most recent transaction" value={
                 chain.lastActivityDays === 0 ? 'Today' : `${chain.lastActivityDays}d ago`
               } />
+              <StatRow label="Active Months" tip="Distinct months with at least 1 on-chain transaction" value={
+                duneLoading ? '...' : chain.activeMonths || 0
+              } color={(chain.activeMonths || 0) > 6 ? '#7ee787' : undefined} />
               <StatRow label="SOL" tip="Native SOL balance in wallet" value={chain.solBalance.toFixed(2)} color={O.gold} />
               <StatRow label="Staked" tip="SOL in liquid staking tokens (mSOL, jitoSOL, etc.)" value={chain.stakedSol > 0 ? chain.stakedSol.toFixed(2) : '—'} color={chain.stakedSol > 0 ? '#7ee787' : undefined} />
             </div>
             <div>
-              <StatRow label="Tokens" tip="SPL tokens with a non-zero balance" value={chain.tokenCount} />
-              <StatRow label="Dead Tokens" tip="Zero-balance token accounts — sold or rugged" value={chain.deadTokens ?? 0} color={(chain.deadTokens ?? 0) > 0 ? '#f97316' : undefined} />
-              <StatRow label="NFTs" tip="Non-fungible tokens held in wallet" value={chain.nftCount ?? 0} color={(chain.nftCount ?? 0) > 0 ? '#fbbf24' : undefined} />
-              <StatRow label="Memecoins" tip="Tokens that aren't DeFi, stablecoins, or NFTs" value={chain.memecoins} color={chain.memecoins > 0 ? '#a78bfa' : undefined} />
-              <StatRow label="DEXes Used" tip="DEX protocols traded on (via Dune)" value={
+              <StatRow label="Volume" tip="Total USD trading volume across all DEXes" value={
+                duneLoading ? '...' : chain.totalVolumeUsd > 0
+                  ? `$${formatCompact(chain.totalVolumeUsd)}`
+                  : '—'
+              } color={chain.totalVolumeUsd > 0 ? O.gold : undefined} />
+              <StatRow label="Biggest Trade" tip="Largest single DEX trade in USD" value={
+                duneLoading ? '...' : chain.biggestTradeUsd > 0
+                  ? `$${formatCompact(chain.biggestTradeUsd)}`
+                  : '—'
+              } color={chain.biggestTradeUsd > 1000 ? '#f97316' : undefined} />
+              <StatRow label="Fav Token" tip="Most-bought token (excluding SOL & stablecoins)" value={
+                duneLoading ? '...' : chain.favToken
+                  ? `${chain.favToken} (${chain.favTokenBuys})`
+                  : '—'
+              } color={chain.favToken ? '#a78bfa' : undefined} />
+              <StatRow label="DEXes" tip="DEX protocols traded on" value={
                 duneLoading ? '...' : chain.dexProtocols && chain.dexProtocols.length > 0
                   ? chain.dexProtocols.slice(0, 3).map((d: { project: string }) => d.project).join(', ')
-                  : chain.defiTokens.length > 0 ? chain.defiTokens.join(', ') : '—'
-              } color={(chain.dexCount || 0) > 0 || chain.defiTokens.length > 0 ? '#88c0ff' : undefined} />
-              <StatRow label="Total XP" tip="Combined experience points across all skills" value={totalXp.toLocaleString()} color={O.gold} />
+                  : '—'
+              } color={(chain.dexCount || 0) > 0 ? '#88c0ff' : undefined} />
+              <StatRow label="Tokens" tip="SPL tokens with a non-zero balance" value={chain.tokenCount} />
+              <StatRow label="Memecoins" tip="Tokens that aren't DeFi, stablecoins, or NFTs" value={chain.memecoins} color={chain.memecoins > 0 ? '#a78bfa' : undefined} />
             </div>
           </div>
         </div>

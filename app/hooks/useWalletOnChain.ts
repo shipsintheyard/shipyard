@@ -2,15 +2,8 @@
 import { useState, useEffect, useRef } from 'react';
 
 export interface OnChainData {
-  // Core (from Dune — arrives async)
-  txnCount: number;
-  walletAgeDays: number;
-  firstSeenDate: string | null;
+  // RPC (instant)
   lastActivityDays: number;
-  // DEX protocols (from Dune)
-  dexProtocols: { project: string; trades: number }[];
-  dexCount: number;
-  // Tokens (from RPC — instant)
   tokenCount: number;
   totalTokenAccounts: number;
   solBalance: number;
@@ -20,6 +13,54 @@ export interface OnChainData {
   stakedSol: number;
   nftCount: number;
   deadTokens: number;
+  // Dune (async — filled in by polling)
+  txnCount: number;
+  walletAgeDays: number;
+  firstSeenDate: string | null;
+  activeMonths: number;
+  totalTrades: number;
+  totalVolumeUsd: number;
+  biggestTradeUsd: number;
+  favToken: string | null;
+  favTokenBuys: number;
+  dexProtocols: { project: string; trades: number }[];
+  dexCount: number;
+}
+
+const DUNE_DEFAULTS = {
+  txnCount: 0,
+  walletAgeDays: 0,
+  firstSeenDate: null,
+  activeMonths: 0,
+  totalTrades: 0,
+  totalVolumeUsd: 0,
+  biggestTradeUsd: 0,
+  favToken: null,
+  favTokenBuys: 0,
+  dexProtocols: [],
+  dexCount: 0,
+};
+
+// Browser-side cache — avoids re-querying Dune for same wallet within 10 min
+const CACHE_TTL = 10 * 60 * 1000;
+
+function getCachedDune(address: string) {
+  try {
+    const raw = sessionStorage.getItem(`dune:${address}`);
+    if (!raw) return null;
+    const { data, ts } = JSON.parse(raw);
+    if (Date.now() - ts > CACHE_TTL) {
+      sessionStorage.removeItem(`dune:${address}`);
+      return null;
+    }
+    return data;
+  } catch { return null; }
+}
+
+function cacheDune(address: string, data: Record<string, unknown>) {
+  try {
+    sessionStorage.setItem(`dune:${address}`, JSON.stringify({ data, ts: Date.now() }));
+  } catch { /* quota exceeded, ignore */ }
 }
 
 export function useWalletOnChain(address: string | null) {
@@ -40,7 +81,6 @@ export function useWalletOnChain(address: string | null) {
     setLoading(true);
     setError(null);
 
-    // Clear any previous poll
     if (pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
@@ -55,14 +95,23 @@ export function useWalletOnChain(address: string | null) {
           return;
         }
 
-        setData(json.data);
+        const rpcData = json.data;
 
-        // If we got Dune execution IDs, start polling
-        const execIds = json.data.duneExecIds;
-        if (execIds?.activityId && execIds?.dexId) {
+        // Check browser cache for Dune data first
+        const cached = getCachedDune(address);
+        if (cached) {
+          setData({ ...rpcData, ...DUNE_DEFAULTS, ...cached });
+          return;
+        }
+
+        // Set RPC data with Dune defaults
+        setData({ ...rpcData, ...DUNE_DEFAULTS });
+
+        // Poll for Dune results if we got an execution ID
+        const execId = rpcData.duneExecId;
+        if (execId) {
           setDuneLoading(true);
           let attempts = 0;
-          const maxAttempts = 12; // 12 * 5s = 60s max
 
           pollRef.current = setInterval(async () => {
             if (cancelled) {
@@ -71,34 +120,26 @@ export function useWalletOnChain(address: string | null) {
             }
 
             attempts++;
-            if (attempts > maxAttempts) {
+            if (attempts > 12) { // 60s max
               if (pollRef.current) clearInterval(pollRef.current);
               setDuneLoading(false);
               return;
             }
 
             try {
-              const pollRes = await fetch(
-                `/api/dune-poll?activityId=${execIds.activityId}&dexId=${execIds.dexId}`
-              );
+              const pollRes = await fetch(`/api/dune-poll?id=${execId}`);
               const pollJson = await pollRes.json();
 
               if (pollJson.ready && !cancelled) {
-                // Merge Dune data into existing RPC data
-                setData(prev => prev ? {
-                  ...prev,
-                  txnCount: pollJson.data.txnCount,
-                  walletAgeDays: pollJson.data.walletAgeDays,
-                  firstSeenDate: pollJson.data.firstSeenDate,
-                  dexProtocols: pollJson.data.dexProtocols,
-                  dexCount: pollJson.data.dexCount,
-                } : prev);
+                const duneData = pollJson.data;
+                // Cache for future visits
+                cacheDune(address, duneData);
+                // Merge into state
+                setData(prev => prev ? { ...prev, ...duneData } : prev);
                 setDuneLoading(false);
                 if (pollRef.current) clearInterval(pollRef.current);
               }
-            } catch {
-              // Poll failed, will retry next interval
-            }
+            } catch { /* retry next interval */ }
           }, 5000);
         }
       })
