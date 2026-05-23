@@ -2,23 +2,22 @@
 import { useState, useEffect } from 'react';
 
 export interface OnChainData {
-  // Core
+  // Core (from Dune)
   txnCount: number;
-  txnCountCapped: boolean;
   walletAgeDays: number;
   firstSeenDate: string | null;
   lastActivityDays: number;
+  // DEX protocols (from Dune)
+  dexProtocols: { project: string; trades: number }[];
+  dexCount: number;
+  // Tokens (from RPC)
   tokenCount: number;
   totalTokenAccounts: number;
   solBalance: number;
-  // Memecoins (not DeFi, not stablecoin, not NFT)
   memecoins: number;
-  // DeFi
   defiTokens: string[];
   defiCategories: string[];
-  // Staking
   stakedSol: number;
-  // NFTs + dead tokens
   nftCount: number;
   deadTokens: number;
 }

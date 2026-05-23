@@ -56,8 +56,9 @@ function computeSkills(chain: OnChainData, shipyard: CharacterStats | null): Ski
     {
       name: 'Sailing',
       icon: '⛵',
-      // Transaction volume — 500 txns ≈ lvl 50, 5000 txns ≈ lvl 73
-      xp: Math.min(chain.txnCount, 5000) * 200,
+      // Transaction volume — now powered by Dune (real total, not capped at 1k)
+      // 500 txns ≈ lvl 50, 5000 txns ≈ lvl 73, 50k txns ≈ lvl 88
+      xp: Math.min(chain.txnCount, 50000) * 20,
     },
     {
       name: 'Degenning',
@@ -77,10 +78,10 @@ function computeSkills(chain: OnChainData, shipyard: CharacterStats | null): Ski
     {
       name: 'Navigation',
       icon: '🧭',
-      // DeFi diversity + capped txn activity
-      // 2 defi categories + 1k txns ≈ lvl 57, 4 categories + 2k txns ≈ lvl 65
-      xp: chain.defiCategories.length * 100000
-        + Math.min(chain.txnCount, 2000) * 80,
+      // DEX protocol diversity (from Dune) + DeFi token diversity
+      // 3 DEXes ≈ lvl 50, 6 DEXes + DeFi tokens ≈ lvl 65
+      xp: (chain.dexCount || 0) * 60000
+        + chain.defiCategories.length * 80000,
     },
     {
       name: 'Anchoring',
@@ -591,7 +592,7 @@ export default function SailorStats({ address }: { address: string }) {
             gap: '0 20px',
           }}>
             <div>
-              <StatRow label="Transactions" tip="Total on-chain transactions from this wallet" value={chain.txnCountCapped ? `${chain.txnCount.toLocaleString()}+` : chain.txnCount.toLocaleString()} />
+              <StatRow label="Transactions" tip="Total on-chain transactions (via Dune Analytics)" value={chain.txnCount.toLocaleString()} />
               <StatRow label="Since" tip="Date of first on-chain transaction" value={
                 chain.firstSeenDate
                   ? new Date(chain.firstSeenDate).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
@@ -608,7 +609,11 @@ export default function SailorStats({ address }: { address: string }) {
               <StatRow label="Dead Tokens" tip="Zero-balance token accounts — sold or rugged" value={chain.deadTokens ?? 0} color={(chain.deadTokens ?? 0) > 0 ? '#f97316' : undefined} />
               <StatRow label="NFTs" tip="Non-fungible tokens held in wallet" value={chain.nftCount ?? 0} color={(chain.nftCount ?? 0) > 0 ? '#fbbf24' : undefined} />
               <StatRow label="Memecoins" tip="Tokens that aren't DeFi, stablecoins, or NFTs" value={chain.memecoins} color={chain.memecoins > 0 ? '#a78bfa' : undefined} />
-              <StatRow label="DeFi" tip="Recognized DeFi protocol tokens (JUP, RAY, etc.)" value={chain.defiTokens.length > 0 ? chain.defiTokens.join(', ') : '—'} color={chain.defiTokens.length > 0 ? '#88c0ff' : undefined} />
+              <StatRow label="DEXes Used" tip="DEX protocols traded on (via Dune)" value={
+                chain.dexProtocols && chain.dexProtocols.length > 0
+                  ? chain.dexProtocols.slice(0, 3).map((d: { project: string }) => d.project).join(', ')
+                  : chain.defiTokens.length > 0 ? chain.defiTokens.join(', ') : '—'
+              } color={(chain.dexCount || 0) > 0 || chain.defiTokens.length > 0 ? '#88c0ff' : undefined} />
               <StatRow label="Total XP" tip="Combined experience points across all skills" value={totalXp.toLocaleString()} color={O.gold} />
             </div>
           </div>

@@ -3,9 +3,10 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 
 const RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+const DUNE_API_KEY = process.env.DUNE_API_KEY || '';
 
 // ============================================================================
-// Known DeFi token mints
+// Known token mints (DeFi, stablecoins, wrapped SOL)
 // ============================================================================
 
 const KNOWN_MINTS: Record<string, { name: string; category: string }> = {
@@ -49,6 +50,108 @@ const STAKING_MINTS = new Set(
 const DEFI_CATEGORIES = new Set(['staking', 'perps', 'governance']);
 
 // ============================================================================
+// Dune Analytics — txn count, first seen, DEX protocols
+// ============================================================================
+
+interface DuneData {
+  txnCount: number;
+  firstSeenDate: string | null;
+  lastSeenDate: string | null;
+  dexProtocols: { project: string; trades: number }[];
+}
+
+async function queryDune(address: string): Promise<DuneData | null> {
+  if (!DUNE_API_KEY) return null;
+
+  try {
+    // Fire both queries in parallel
+    const [activityExec, dexExec] = await Promise.all([
+      fetch('https://api.dune.com/api/v1/sql/execute', {
+        method: 'POST',
+        headers: {
+          'X-Dune-Api-Key': DUNE_API_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sql: `SELECT COUNT(*) as total_txns, MIN(block_time) as first_seen, MAX(block_time) as last_seen FROM solana.account_activity WHERE address = '${address}'`,
+        }),
+      }).then(r => r.json()),
+      fetch('https://api.dune.com/api/v1/sql/execute', {
+        method: 'POST',
+        headers: {
+          'X-Dune-Api-Key': DUNE_API_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sql: `SELECT project, COUNT(*) as trades FROM dex_solana.trades WHERE trader_id = '${address}' GROUP BY project ORDER BY trades DESC LIMIT 10`,
+        }),
+      }).then(r => r.json()),
+    ]);
+
+    if (!activityExec.execution_id || !dexExec.execution_id) return null;
+
+    // Poll both until done (max 60s)
+    const results = await Promise.all([
+      pollDuneResult(activityExec.execution_id),
+      pollDuneResult(dexExec.execution_id),
+    ]);
+
+    const [activityRows, dexRows] = results;
+    if (!activityRows?.[0]) return null;
+
+    const row = activityRows[0] as Record<string, unknown>;
+    return {
+      txnCount: Number(row.total_txns ?? 0),
+      firstSeenDate: row.first_seen ? new Date(String(row.first_seen)).toISOString() : null,
+      lastSeenDate: row.last_seen ? new Date(String(row.last_seen)).toISOString() : null,
+      dexProtocols: (dexRows ?? []).map((r) => ({
+        project: String((r as Record<string, unknown>).project ?? ''),
+        trades: Number((r as Record<string, unknown>).trades ?? 0),
+      })),
+    };
+  } catch {
+    return null; // Dune failure shouldn't block the response
+  }
+}
+
+async function pollDuneResult(executionId: string, maxWaitMs = 60000): Promise<Record<string, unknown>[] | null> {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    const res = await fetch(
+      `https://api.dune.com/api/v1/execution/${executionId}/results`,
+      { headers: { 'X-Dune-Api-Key': DUNE_API_KEY } }
+    );
+    const data = await res.json();
+    if (data.is_execution_finished) {
+      if (data.state === 'QUERY_STATE_COMPLETED' && data.result?.rows) {
+        return data.result.rows;
+      }
+      return null; // failed or no rows
+    }
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+  return null; // timed out
+}
+
+// ============================================================================
+// Dune result cache — keyed by address, 10 min TTL
+// ============================================================================
+
+const duneCache = new Map<string, { data: DuneData; ts: number }>();
+const DUNE_CACHE_TTL = 10 * 60 * 1000;
+
+async function getDuneData(address: string): Promise<DuneData | null> {
+  const cached = duneCache.get(address);
+  if (cached && Date.now() - cached.ts < DUNE_CACHE_TTL) return cached.data;
+
+  const data = await queryDune(address);
+  if (data) {
+    duneCache.set(address, { data, ts: Date.now() });
+  }
+  return data;
+}
+
+// ============================================================================
 // Token account type helpers
 // ============================================================================
 
@@ -76,8 +179,6 @@ function getTokenInfo(
 // Route handler
 // ============================================================================
 
-const MAX_PAGES = 20; // up to 20k txns
-
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ address: string }> }
@@ -97,48 +198,30 @@ export async function GET(
   try {
     const connection = new Connection(RPC, 'confirmed');
 
-    // 3 RPC calls in parallel
-    const [signatures, tokenAccounts, balance] = await Promise.all([
-      connection.getSignaturesForAddress(pubkey, { limit: 1000 }),
+    // Dune (txn history, DEX protocols) + RPC (live balances, tokens) in parallel
+    const [dune, tokenAccounts, balance, signatures] = await Promise.all([
+      getDuneData(address),
       connection.getParsedTokenAccountsByOwner(pubkey, { programId: TOKEN_PROGRAM_ID }),
       connection.getBalance(pubkey),
+      connection.getSignaturesForAddress(pubkey, { limit: 1 }), // just for last activity
     ]);
 
-    // --- Recent activity from first batch ---
+    // --- Last activity from most recent signature ---
     const now = Date.now() / 1000;
-    const recentTimes = signatures
-      .map(s => s.blockTime)
-      .filter((t): t is number => t !== null);
-    const lastActivityDays = recentTimes.length > 0
-      ? Math.floor((now - Math.max(...recentTimes)) / 86400)
+    const lastSigTime = signatures[0]?.blockTime;
+    const lastActivityDays = lastSigTime
+      ? Math.floor((now - lastSigTime) / 86400)
       : 999;
 
-    // --- Paginate backward to find first tx + total count ---
-    let totalTxns = signatures.length;
-    let lastBatch = signatures;
-    let pages = 1;
-    while (lastBatch.length >= 1000 && pages < MAX_PAGES) {
-      const oldestSig = lastBatch[lastBatch.length - 1].signature;
-      lastBatch = await connection.getSignaturesForAddress(pubkey, {
-        limit: 1000,
-        before: oldestSig,
-      });
-      totalTxns += lastBatch.length;
-      pages++;
-    }
-    const txnCountCapped = pages >= MAX_PAGES;
-
-    // First-seen date from the actual earliest batch
-    const earliestTimes = lastBatch.length > 0
-      ? lastBatch.map(s => s.blockTime).filter((t): t is number => t !== null)
-      : recentTimes;
-    const earliestTimestamp = earliestTimes.length > 0 ? Math.min(...earliestTimes) : null;
-    const walletAgeDays = earliestTimestamp
-      ? Math.floor((now - earliestTimestamp) / 86400)
+    // --- Dune data (or fallback) ---
+    const txnCount = dune?.txnCount ?? 0;
+    const firstSeenDate = dune?.firstSeenDate ?? null;
+    const walletAgeDays = firstSeenDate
+      ? Math.floor((now - new Date(firstSeenDate).getTime() / 1000) / 86400)
       : 0;
-    const firstSeenDate = earliestTimestamp
-      ? new Date(earliestTimestamp * 1000).toISOString()
-      : null;
+    const dexProtocols = dune?.dexProtocols ?? [];
+    // Unique DEX categories for Navigation XP
+    const dexCount = dexProtocols.length;
 
     // --- Token analysis ---
     let tokenCount = 0;
@@ -155,7 +238,6 @@ export async function GET(
 
       const amount = info.tokenAmount.uiAmount ?? 0;
 
-      // Dead tokens: zero-balance accounts (rugged/dumped)
       if (amount <= 0) {
         deadTokens++;
         continue;
@@ -163,13 +245,11 @@ export async function GET(
 
       tokenCount++;
 
-      // NFTs: decimals 0 and exactly 1 token
       if (info.tokenAmount.decimals === 0 && amount === 1) {
         nftCount++;
         continue;
       }
 
-      // Known tokens (DeFi, stablecoins, wrapped SOL)
       const known = KNOWN_MINTS[info.mint];
       if (known) {
         if (DEFI_CATEGORIES.has(known.category)) {
@@ -180,19 +260,16 @@ export async function GET(
           stakedSol += amount;
         }
       } else {
-        // Not a known token and not an NFT = memecoin
         memecoins++;
       }
     }
 
-    // --- SOL balance ---
     const solBalance = balance / 1e9;
 
     return NextResponse.json({
       success: true,
       data: {
-        txnCount: totalTxns,
-        txnCountCapped,
+        txnCount,
         walletAgeDays,
         firstSeenDate,
         lastActivityDays,
@@ -202,6 +279,8 @@ export async function GET(
         memecoins,
         defiTokens,
         defiCategories: Array.from(defiCategories),
+        dexProtocols,
+        dexCount,
         stakedSol: Math.round(stakedSol * 100) / 100,
         nftCount,
         deadTokens,
