@@ -100,16 +100,21 @@ async function getTokenSymbol(mint: string): Promise<string | null> {
 // Analyze swap transactions
 // ============================================================================
 
+// Normalize Helius source names — merge variants (e.g. PUMP_AMM → Pump.fun)
+const SOURCE_ALIASES: Record<string, string> = {
+  PUMP_FUN: 'Pump.fun', PUMP_AMM: 'Pump.fun', PUMPSWAP: 'Pump.fun',
+  RAYDIUM: 'Raydium', RAYDIUM_LAUNCHLAB: 'Raydium',
+  JUPITER: 'Jupiter', JUPITERZ: 'Jupiter',
+  ORCA: 'Orca', ORCA_WHIRLPOOLS: 'Orca',
+  METEORA: 'Meteora',
+  MAGIC_EDEN: 'Magic Eden', TENSOR: 'Tensor', MARINADE: 'Marinade',
+  DRIFT: 'Drift', KAMINO: 'Kamino', SANCTUM: 'Sanctum',
+  PHANTOM: 'Phantom', SOLFI: 'SolFi',
+  SOLANA_PROGRAM_LIBRARY: 'SPL',
+};
+
 function prettifySource(s: string): string {
-  const map: Record<string, string> = {
-    PUMP_FUN: 'Pump.fun', RAYDIUM: 'Raydium', JUPITER: 'Jupiter',
-    ORCA: 'Orca', ORCA_WHIRLPOOLS: 'Orca', METEORA: 'Meteora',
-    PUMPSWAP: 'PumpSwap', RAYDIUM_LAUNCHLAB: 'Raydium Launchlab',
-    MAGIC_EDEN: 'Magic Eden', TENSOR: 'Tensor', MARINADE: 'Marinade',
-    DRIFT: 'Drift', KAMINO: 'Kamino', SANCTUM: 'Sanctum',
-    PHANTOM: 'Phantom', SOLFI: 'SolFi',
-  };
-  return map[s] || s.charAt(0) + s.slice(1).toLowerCase().replace(/_/g, ' ');
+  return SOURCE_ALIASES[s] || s.charAt(0) + s.slice(1).toLowerCase().replace(/_/g, ' ');
 }
 
 function analyzeSwaps(swaps: HeliusTx[], address: string) {
@@ -119,7 +124,8 @@ function analyzeSwaps(swaps: HeliusTx[], address: string) {
   let biggestTradeLamports = 0;
 
   for (const swap of swaps) {
-    protocols[swap.source] = (protocols[swap.source] || 0) + 1;
+    const src = prettifySource(swap.source);
+    protocols[src] = (protocols[src] || 0) + 1;
 
     // Volume = absolute SOL balance change per swap
     const userData = swap.accountData?.find(a => a.account === address);
@@ -139,7 +145,7 @@ function analyzeSwaps(swaps: HeliusTx[], address: string) {
 
   const dexProtocols = Object.entries(protocols)
     .sort(([, a], [, b]) => b - a)
-    .map(([project, trades]) => ({ project: prettifySource(project), trades }));
+    .map(([project, trades]) => ({ project, trades }));
 
   // Fav token = most bought (excluding stablecoins/wrapped SOL)
   let favMint: string | null = null;
@@ -167,12 +173,14 @@ function analyzeActivity(allTxns: HeliusTx[]) {
   const sources = new Set<string>();
   for (const tx of allTxns) {
     if (tx.source && tx.source !== 'SYSTEM_PROGRAM' && tx.source !== 'UNKNOWN') {
-      sources.add(tx.source);
+      sources.add(prettifySource(tx.source));
     }
   }
+  // Remove generic "SPL" — not a real dapp
+  sources.delete('SPL');
   return {
     uniqueDapps: sources.size,
-    uniqueDappsList: [...sources].map(prettifySource),
+    uniqueDappsList: [...sources],
   };
 }
 
