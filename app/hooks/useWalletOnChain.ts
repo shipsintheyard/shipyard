@@ -42,6 +42,7 @@ export interface OnChainData {
   pfHoldingsValueSol: number;
   pfTopHoldings: { symbol: string; name: string; valueSol: number }[];
   pfCoins: { name: string; symbol: string; complete: boolean; marketCapSol: number; athUsd: number; koth: boolean; replies: number }[];
+  pfCommunities: { symbol: string; name: string; usdMarketCap: number }[];
 }
 
 // Browser cache — same wallet won't re-query within 10 min

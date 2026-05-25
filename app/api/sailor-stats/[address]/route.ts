@@ -102,6 +102,28 @@ async function fetchPFBalances(address: string): Promise<PFBalance[]> {
   } catch { return []; }
 }
 
+async function fetchTopPFCoins(): Promise<Map<string, { symbol: string; name: string; usdMarketCap: number }>> {
+  try {
+    // Fetch top graduated PF coins — same for every user, Next.js caches via fetch dedup
+    const res = await fetch(
+      'https://frontend-api-v3.pump.fun/coins?complete=true&limit=100&sort=usd_market_cap&order=DESC&includeNsfw=true',
+      { headers: PF_HEADERS, next: { revalidate: 600 } },
+    );
+    if (!res.ok) return new Map();
+    const data = await res.json();
+    if (!Array.isArray(data)) return new Map();
+    // Sort client-side in case API ignores sort param
+    data.sort((a: PFCoin, b: PFCoin) => (b.usd_market_cap || 0) - (a.usd_market_cap || 0));
+    const map = new Map<string, { symbol: string; name: string; usdMarketCap: number }>();
+    for (const c of data.slice(0, 100)) {
+      if (c.mint) {
+        map.set(c.mint, { symbol: c.symbol, name: c.name, usdMarketCap: c.usd_market_cap || 0 });
+      }
+    }
+    return map;
+  } catch { return new Map(); }
+}
+
 function analyzePumpFun(coins: PFCoin[], balances: PFBalance[]) {
   const graduated = coins.filter(c => c.complete);
   const kothCoins = coins.filter(c => c.king_of_the_hill_timestamp != null);
@@ -383,7 +405,7 @@ export async function GET(
     const connection = new Connection(RPC, 'confirmed');
 
     // Phase 1: everything in parallel (RPC + Helius + Pump.fun)
-    const [sigStats, tokenAccounts, balance, swaps, allTxns, pfCoins, pfBalances] = await Promise.all([
+    const [sigStats, tokenAccounts, balance, swaps, allTxns, pfCoins, pfBalances, topPFMints] = await Promise.all([
       getSignatureStats(connection, pubkey),
       connection.getParsedTokenAccountsByOwner(pubkey, { programId: TOKEN_PROGRAM_ID }),
       connection.getBalance(pubkey),
@@ -391,6 +413,7 @@ export async function GET(
       fetchHelius(address),
       fetchPFCoins(address),
       fetchPFBalances(address),
+      fetchTopPFCoins(),
     ]);
 
     // Analyze Helius data
@@ -422,6 +445,20 @@ export async function GET(
       } else { memecoins++; }
     }
 
+    // Cross-reference user's tokens with top PF coins → communities
+    const pfCommunities: { symbol: string; name: string; usdMarketCap: number }[] = [];
+    if (topPFMints.size > 0) {
+      for (const ta of tokenAccounts.value) {
+        const info = getTokenInfo(ta);
+        if (!info) continue;
+        const amount = info.tokenAmount.uiAmount ?? 0;
+        if (amount <= 0) continue;
+        const top = topPFMints.get(info.mint);
+        if (top) pfCommunities.push(top);
+      }
+      pfCommunities.sort((a, b) => b.usdMarketCap - a.usdMarketCap);
+    }
+
     return NextResponse.json({
       success: true,
       data: {
@@ -450,6 +487,8 @@ export async function GET(
         uniqueDappsList: activity.uniqueDappsList,
         // Pump.fun creator + holdings
         ...pf,
+        // Top PF communities user belongs to
+        pfCommunities,
       },
     }, {
       headers: { 'Cache-Control': 'public, max-age=300' },

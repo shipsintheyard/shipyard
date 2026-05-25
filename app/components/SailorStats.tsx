@@ -702,7 +702,7 @@ export default function SailorStats({ address }: { address: string }) {
         </div>
 
         {/* 6. Pump.fun Stats */}
-        {(chain.pfCoinsCreated > 0 || chain.pfHoldingsCount > 0) && (
+        {(chain.pfCoinsCreated > 0 || chain.pfHoldingsCount > 0 || (chain.pfCommunities && chain.pfCommunities.length > 0)) && (
           <div className="osrs-panel" style={{
             padding: '14px 16px',
             marginBottom: '16px',
@@ -812,6 +812,39 @@ export default function SailorStats({ address }: { address: string }) {
                     <span style={{ color: h.valueSol > 0.1 ? O.gold : O.dim }}>{h.valueSol} SOL</span>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Top PF communities */}
+            {chain.pfCommunities && chain.pfCommunities.length > 0 && (
+              <div style={{ marginTop: '12px', borderTop: `1px solid ${O.bevelDark}`, paddingTop: '10px' }}>
+                <div style={{
+                  fontFamily: FONT,
+                  fontSize: '6px',
+                  color: O.dim,
+                  marginBottom: '8px',
+                  letterSpacing: '1px',
+                }}>
+                  TOP COMMUNITIES
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  {chain.pfCommunities.map((c, i) => (
+                    <div key={i} style={{
+                      padding: '4px 8px',
+                      background: 'rgba(255, 255, 0, 0.08)',
+                      border: `1px solid ${O.bevelDark}`,
+                      fontFamily: FONT,
+                      fontSize: '7px',
+                      color: O.gold,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}>
+                      <span>{c.symbol}</span>
+                      <span style={{ color: O.dim, fontSize: '6px' }}>${formatCompact(c.usdMarketCap)}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
