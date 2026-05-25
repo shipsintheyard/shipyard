@@ -111,6 +111,9 @@ const SOURCE_ALIASES: Record<string, string> = {
   DRIFT: 'Drift', KAMINO: 'Kamino', SANCTUM: 'Sanctum',
   PHANTOM: 'Phantom', SOLFI: 'SolFi',
   SOLANA_PROGRAM_LIBRARY: 'SPL',
+  ASSOCIATED_TOKEN_PROGRAM: 'SPL',
+  TOKEN_PROGRAM: 'SPL',
+  COMPUTE_BUDGET: 'SPL',
 };
 
 function prettifySource(s: string): string {
@@ -192,7 +195,7 @@ async function getSignatureStats(connection: Connection, pubkey: PublicKey) {
   const allSigs: { blockTime?: number | null | undefined; signature: string }[] = [];
   let before: string | undefined;
 
-  for (let page = 0; page < 5; page++) {
+  for (let page = 0; page < 10; page++) {
     const sigs = await connection.getSignaturesForAddress(pubkey, { limit: 1000, before });
     if (sigs.length === 0) break;
     allSigs.push(...sigs);
@@ -201,7 +204,7 @@ async function getSignatureStats(connection: Connection, pubkey: PublicKey) {
   }
 
   if (allSigs.length === 0) {
-    return { txnCount: 0, txnCountCapped: false, walletAgeDays: 0, firstSeenDate: null, lastActivityDays: 999, activeMonths: 0, uniqueActiveDays: 0 };
+    return { txnCount: 0, txnCountCapped: false, walletAgeDays: 0, firstSeenDate: null, lastActivityDays: 999, activeMonths: 0, uniqueActiveDays: 0, activeWeeks: 0 };
   }
 
   const now = Date.now() / 1000;
@@ -209,22 +212,28 @@ async function getSignatureStats(connection: Connection, pubkey: PublicKey) {
   const oldest = allSigs[allSigs.length - 1].blockTime ?? now;
 
   const days = new Set<string>();
+  const weeks = new Set<string>();
   const months = new Set<string>();
   for (const sig of allSigs) {
     if (sig.blockTime) {
       const d = new Date(sig.blockTime * 1000);
       days.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
+      // ISO week number
+      const jan1 = new Date(d.getFullYear(), 0, 1);
+      const weekNum = Math.ceil(((d.getTime() - jan1.getTime()) / 86400000 + jan1.getDay() + 1) / 7);
+      weeks.add(`${d.getFullYear()}-W${weekNum}`);
       months.add(`${d.getFullYear()}-${d.getMonth()}`);
     }
   }
 
   return {
     txnCount: allSigs.length,
-    txnCountCapped: allSigs.length >= 5000,
+    txnCountCapped: allSigs.length >= 10000,
     walletAgeDays: Math.floor((now - oldest) / 86400),
     firstSeenDate: new Date(oldest * 1000).toISOString(),
     lastActivityDays: Math.floor((now - newest) / 86400),
     activeMonths: months.size,
+    activeWeeks: weeks.size,
     uniqueActiveDays: days.size,
   };
 }

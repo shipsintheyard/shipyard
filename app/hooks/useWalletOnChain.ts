@@ -9,6 +9,7 @@ export interface OnChainData {
   firstSeenDate: string | null;
   lastActivityDays: number;
   activeMonths: number;
+  activeWeeks: number;
   uniqueActiveDays: number;
   // Token holdings (RPC)
   tokenCount: number;
