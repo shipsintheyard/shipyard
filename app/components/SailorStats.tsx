@@ -62,12 +62,11 @@ function computeSkills(chain: OnChainData, shipyard: CharacterStats | null): Ski
     {
       name: 'Degenning',
       icon: '💎',
-      // Memecoins + dead tokens + fav token + PF coins created/graduated
+      // Memecoins + dead tokens + fav token + graduated PF coins
       xp: Math.log2((chain.tokenCount || 0) + 1) * 15000
         + (chain.memecoins || 0) * 8000
         + (chain.deadTokens || 0) * 3000
         + Math.min(chain.favTokenBuys || 0, 500) * 200
-        + (chain.pfCoinsCreated || 0) * 20000
         + (chain.pfCoinsGraduated || 0) * 80000,
     },
     {
@@ -429,6 +428,62 @@ export default function SailorStats({ address }: { address: string }) {
 
   const rankInfo = useMemo(() => getRankFromLevel(totalLevel), [totalLevel]);
 
+  // Quest badges from on-chain data (merged with Shipyard badges)
+  const questBadges = useMemo(() => {
+    if (!chain) return [];
+    return [
+      {
+        id: 'coin_minter',
+        name: 'Coin Minter',
+        icon: '🪙',
+        description: 'Created a coin on Pump.fun',
+        earned: (chain.pfCoinsCreated || 0) >= 1,
+      },
+      {
+        id: 'graduated',
+        name: 'Graduated',
+        icon: '🎓',
+        description: 'Graduated a coin past the bonding curve',
+        earned: (chain.pfCoinsGraduated || 0) >= 1,
+      },
+      {
+        id: 'king_of_hill',
+        name: 'King of the Hill',
+        icon: '♛',
+        description: 'Had a coin reach KOTH on Pump.fun',
+        earned: (chain.pfKothCount || 0) >= 1,
+      },
+      {
+        id: 'serial_launcher',
+        name: 'Serial Launcher',
+        icon: '🚀',
+        description: 'Graduated 3+ coins',
+        earned: (chain.pfCoinsGraduated || 0) >= 3,
+      },
+      {
+        id: 'dapp_explorer',
+        name: 'Explorer',
+        icon: '🗺️',
+        description: 'Interacted with 5+ unique dapps',
+        earned: (chain.uniqueDapps || 0) >= 5,
+      },
+      {
+        id: 'diamond_hands',
+        name: 'Diamond Hands',
+        icon: '💎',
+        description: 'Wallet older than 1 year',
+        earned: chain.walletAgeDays >= 365,
+      },
+      {
+        id: 'dex_hopper',
+        name: 'DEX Hopper',
+        icon: '🔄',
+        description: 'Traded on 3+ different DEXes',
+        earned: (chain.dexCount || 0) >= 3,
+      },
+    ];
+  }, [chain]);
+
   const shortenAddr = (a: string) => `${a.slice(0, 6)}...${a.slice(-4)}`;
 
   const handleCopy = useCallback(() => {
@@ -579,6 +634,7 @@ export default function SailorStats({ address }: { address: string }) {
             BADGES
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {questBadges.map(b => <BadgeIcon key={b.id} badge={b} />)}
             {badges.map(b => <BadgeIcon key={b.id} badge={b} />)}
           </div>
         </div>
