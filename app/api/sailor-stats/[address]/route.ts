@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 
-const RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+const HELIUS_RPC = process.env.HELIUS_API_KEY
+  ? `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
+  : null;
+const RPC = HELIUS_RPC || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 const HELIUS_API_KEY = process.env.HELIUS_API_KEY || '';
 
 // ============================================================================
@@ -195,7 +198,9 @@ async function getSignatureStats(connection: Connection, pubkey: PublicKey) {
   const allSigs: { blockTime?: number | null | undefined; signature: string }[] = [];
   let before: string | undefined;
 
-  for (let page = 0; page < 10; page++) {
+  // Use up to 25 pages (25,000 sigs) to find the true funding date.
+  // With Helius RPC this typically takes 5-8s for active wallets.
+  for (let page = 0; page < 25; page++) {
     const sigs = await connection.getSignaturesForAddress(pubkey, { limit: 1000, before });
     if (sigs.length === 0) break;
     allSigs.push(...sigs);
@@ -228,7 +233,7 @@ async function getSignatureStats(connection: Connection, pubkey: PublicKey) {
 
   return {
     txnCount: allSigs.length,
-    txnCountCapped: allSigs.length >= 10000,
+    txnCountCapped: allSigs.length >= 25000,
     walletAgeDays: Math.floor((now - oldest) / 86400),
     firstSeenDate: new Date(oldest * 1000).toISOString(),
     lastActivityDays: Math.floor((now - newest) / 86400),
