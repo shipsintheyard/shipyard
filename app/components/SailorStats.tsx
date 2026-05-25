@@ -62,11 +62,13 @@ function computeSkills(chain: OnChainData, shipyard: CharacterStats | null): Ski
     {
       name: 'Degenning',
       icon: '💎',
-      // Memecoins + dead tokens + fav token obsession
+      // Memecoins + dead tokens + fav token + PF coins created/graduated
       xp: Math.log2((chain.tokenCount || 0) + 1) * 15000
         + (chain.memecoins || 0) * 8000
         + (chain.deadTokens || 0) * 3000
-        + Math.min(chain.favTokenBuys || 0, 500) * 200,
+        + Math.min(chain.favTokenBuys || 0, 500) * 200
+        + (chain.pfCoinsCreated || 0) * 20000
+        + (chain.pfCoinsGraduated || 0) * 80000,
     },
     {
       name: 'Plundering',
@@ -642,6 +644,122 @@ export default function SailorStats({ address }: { address: string }) {
             </div>
           </div>
         </div>
+
+        {/* 6. Pump.fun Stats */}
+        {(chain.pfCoinsCreated > 0 || chain.pfHoldingsCount > 0) && (
+          <div className="osrs-panel" style={{
+            padding: '14px 16px',
+            marginBottom: '16px',
+          }}>
+            <div style={{
+              fontFamily: FONT,
+              fontSize: '7px',
+              color: O.dim,
+              marginBottom: '10px',
+              letterSpacing: '2px',
+            }}>
+              PUMP.FUN
+            </div>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '0 20px',
+            }}>
+              <div>
+                {chain.pfCoinsCreated > 0 && (
+                  <>
+                    <StatRow label="Coins Created" value={chain.pfCoinsCreated} color={O.gold} tip="Total coins launched on Pump.fun" />
+                    <StatRow label="Graduated" value={`${chain.pfCoinsGraduated} (${chain.pfGradRate}%)`} color={chain.pfCoinsGraduated > 0 ? '#7ee787' : undefined} tip="Coins that filled the bonding curve and migrated to DEX" />
+                    <StatRow label="KOTH" value={chain.pfKothCount} color={chain.pfKothCount > 0 ? '#f97316' : undefined} tip="Coins that reached King of the Hill" />
+                  </>
+                )}
+                {chain.pfCoinsCreated === 0 && (
+                  <StatRow label="Creator" value="—" tip="No coins created on Pump.fun" />
+                )}
+              </div>
+              <div>
+                <StatRow label="PF Holdings" value={chain.pfHoldingsCount} tip="Pump.fun tokens currently held" />
+                <StatRow label="Holdings Value" value={chain.pfHoldingsValueSol > 0 ? `${chain.pfHoldingsValueSol} SOL` : '—'} color={chain.pfHoldingsValueSol > 0 ? O.gold : undefined} tip="Total value of Pump.fun token holdings" />
+                {chain.pfBestCoin && chain.pfBestCoin.athUsd > 0 && (
+                  <StatRow label="Best Coin" value={`${chain.pfBestCoin.symbol} ($${formatCompact(chain.pfBestCoin.athUsd)})`} color="#a78bfa" tip={`${chain.pfBestCoin.name} — highest ATH market cap`} />
+                )}
+              </div>
+            </div>
+
+            {/* Created coins list */}
+            {chain.pfCoins && chain.pfCoins.length > 0 && (
+              <div style={{ marginTop: '12px', borderTop: `1px solid ${O.bevelDark}`, paddingTop: '10px' }}>
+                <div style={{
+                  fontFamily: FONT,
+                  fontSize: '6px',
+                  color: O.dim,
+                  marginBottom: '6px',
+                  letterSpacing: '1px',
+                }}>
+                  CREATED COINS
+                </div>
+                {chain.pfCoins.map((coin, i) => (
+                  <div key={i} style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '3px 0',
+                    borderBottom: i < chain.pfCoins.length - 1 ? `1px solid ${O.deepest}` : 'none',
+                    fontFamily: FONT,
+                    fontSize: '7px',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                      <span style={{ color: coin.complete ? '#7ee787' : coin.koth ? '#f97316' : O.dim }}>
+                        {coin.complete ? '✓' : coin.koth ? '♛' : '·'}
+                      </span>
+                      <span style={{ color: O.label, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {coin.symbol}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '12px', flexShrink: 0 }}>
+                      <span style={{ color: O.dim, fontSize: '6px' }}>
+                        {coin.marketCapSol > 0 ? `${formatCompact(coin.marketCapSol)} SOL` : 'dead'}
+                      </span>
+                      {coin.athUsd > 0 && (
+                        <span style={{ color: O.text, fontSize: '6px' }}>
+                          ATH ${formatCompact(coin.athUsd)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Top PF holdings */}
+            {chain.pfTopHoldings && chain.pfTopHoldings.length > 0 && chain.pfCoinsCreated === 0 && (
+              <div style={{ marginTop: '12px', borderTop: `1px solid ${O.bevelDark}`, paddingTop: '10px' }}>
+                <div style={{
+                  fontFamily: FONT,
+                  fontSize: '6px',
+                  color: O.dim,
+                  marginBottom: '6px',
+                  letterSpacing: '1px',
+                }}>
+                  TOP HOLDINGS
+                </div>
+                {chain.pfTopHoldings.map((h, i) => (
+                  <div key={i} style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    padding: '3px 0',
+                    borderBottom: i < chain.pfTopHoldings.length - 1 ? `1px solid ${O.deepest}` : 'none',
+                    fontFamily: FONT,
+                    fontSize: '7px',
+                  }}>
+                    <span style={{ color: O.label }}>{h.symbol}</span>
+                    <span style={{ color: h.valueSol > 0.1 ? O.gold : O.dim }}>{h.valueSol} SOL</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Shipyard-specific stats (if any) */}
         {stats && (stats.poolsCreated > 0 || stats.poolsJoined > 0) && (

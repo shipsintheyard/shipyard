@@ -42,6 +42,113 @@ const SKIP_MINTS = new Set([
 ]);
 
 // ============================================================================
+// Pump.fun API — free, no auth
+// ============================================================================
+
+const PF_HEADERS: Record<string, string> = {
+  'Accept': 'application/json',
+  'Origin': 'https://pump.fun',
+  'Referer': 'https://pump.fun/',
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+};
+
+interface PFCoin {
+  mint: string;
+  name: string;
+  symbol: string;
+  image_uri: string;
+  creator: string;
+  created_timestamp: number;
+  complete: boolean;
+  market_cap: number;       // SOL
+  usd_market_cap: number;
+  ath_market_cap: number;    // USD
+  king_of_the_hill_timestamp: number | null;
+  raydium_pool: string | null;
+  pump_swap_pool: string | null;
+  reply_count: number;
+}
+
+interface PFBalance {
+  mint: string;
+  balance: number;
+  symbol: string;
+  name: string;
+  market_cap: number; // SOL
+  value: number;      // SOL
+}
+
+async function fetchPFCoins(address: string): Promise<PFCoin[]> {
+  try {
+    const res = await fetch(
+      `https://frontend-api-v3.pump.fun/coins?creator=${address}&limit=50&offset=0&sort=created_timestamp&order=DESC&includeNsfw=true`,
+      { headers: PF_HEADERS },
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch { return []; }
+}
+
+async function fetchPFBalances(address: string): Promise<PFBalance[]> {
+  try {
+    const res = await fetch(
+      `https://frontend-api-v3.pump.fun/balances/${address}?offset=0&limit=50&minBalance=0`,
+      { headers: PF_HEADERS },
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch { return []; }
+}
+
+function analyzePumpFun(coins: PFCoin[], balances: PFBalance[]) {
+  const graduated = coins.filter(c => c.complete);
+  const kothCoins = coins.filter(c => c.king_of_the_hill_timestamp != null);
+
+  // Best coin by ATH market cap (USD)
+  let bestCoin: { name: string; symbol: string; athUsd: number } | null = null;
+  for (const c of coins) {
+    if (!bestCoin || (c.ath_market_cap || 0) > bestCoin.athUsd) {
+      bestCoin = { name: c.name, symbol: c.symbol, athUsd: c.ath_market_cap || 0 };
+    }
+  }
+
+  // Holdings value (SOL)
+  const totalHoldingsValue = balances.reduce((sum, b) => sum + (b.value || 0), 0);
+
+  // Top holdings by value
+  const topHoldings = [...balances]
+    .sort((a, b) => (b.value || 0) - (a.value || 0))
+    .slice(0, 5)
+    .map(b => ({
+      symbol: b.symbol,
+      name: b.name,
+      valueSol: Math.round((b.value || 0) * 1000) / 1000,
+    }));
+
+  return {
+    pfCoinsCreated: coins.length,
+    pfCoinsGraduated: graduated.length,
+    pfGradRate: coins.length > 0 ? Math.round((graduated.length / coins.length) * 100) : 0,
+    pfKothCount: kothCoins.length,
+    pfBestCoin: bestCoin,
+    pfHoldingsCount: balances.length,
+    pfHoldingsValueSol: Math.round(totalHoldingsValue * 1000) / 1000,
+    pfTopHoldings: topHoldings,
+    pfCoins: coins.slice(0, 10).map(c => ({
+      name: c.name,
+      symbol: c.symbol,
+      complete: c.complete,
+      marketCapSol: Math.round((c.market_cap || 0) * 100) / 100,
+      athUsd: Math.round((c.ath_market_cap || 0) * 100) / 100,
+      koth: c.king_of_the_hill_timestamp != null,
+      replies: c.reply_count || 0,
+    })),
+  };
+}
+
+// ============================================================================
 // Helius types
 // ============================================================================
 
@@ -275,18 +382,21 @@ export async function GET(
   try {
     const connection = new Connection(RPC, 'confirmed');
 
-    // Phase 1: everything in parallel
-    const [sigStats, tokenAccounts, balance, swaps, allTxns] = await Promise.all([
+    // Phase 1: everything in parallel (RPC + Helius + Pump.fun)
+    const [sigStats, tokenAccounts, balance, swaps, allTxns, pfCoins, pfBalances] = await Promise.all([
       getSignatureStats(connection, pubkey),
       connection.getParsedTokenAccountsByOwner(pubkey, { programId: TOKEN_PROGRAM_ID }),
       connection.getBalance(pubkey),
       fetchHelius(address, 'SWAP'),
       fetchHelius(address),
+      fetchPFCoins(address),
+      fetchPFBalances(address),
     ]);
 
     // Analyze Helius data
     const swapStats = analyzeSwaps(swaps, address);
     const activity = analyzeActivity(allTxns);
+    const pf = analyzePumpFun(pfCoins, pfBalances);
 
     // Resolve fav token symbol
     const favToken = swapStats.favMint
@@ -338,6 +448,8 @@ export async function GET(
         // Dapp diversity (Helius all)
         uniqueDapps: activity.uniqueDapps,
         uniqueDappsList: activity.uniqueDappsList,
+        // Pump.fun creator + holdings
+        ...pf,
       },
     }, {
       headers: { 'Cache-Control': 'public, max-age=300' },

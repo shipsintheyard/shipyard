@@ -32,6 +32,16 @@ export interface OnChainData {
   // Dapp diversity (Helius)
   uniqueDapps: number;
   uniqueDappsList: string[];
+  // Pump.fun
+  pfCoinsCreated: number;
+  pfCoinsGraduated: number;
+  pfGradRate: number;
+  pfKothCount: number;
+  pfBestCoin: { name: string; symbol: string; athUsd: number } | null;
+  pfHoldingsCount: number;
+  pfHoldingsValueSol: number;
+  pfTopHoldings: { symbol: string; name: string; valueSol: number }[];
+  pfCoins: { name: string; symbol: string; complete: boolean; marketCapSol: number; athUsd: number; koth: boolean; replies: number }[];
 }
 
 // Browser cache — same wallet won't re-query within 10 min
