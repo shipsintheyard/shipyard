@@ -288,11 +288,12 @@ function BadgeIcon({ badge }: { badge: { id: string; name: string; icon: string;
 }
 
 function StatRow({ label, value, color, tip }: { label: string; value: string | number; color?: string; tip?: string }) {
-  const [hovered, setHovered] = useState(false);
+  const [show, setShow] = useState(false);
   return (
     <div
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+      onClick={() => { if (tip) setShow(v => !v); }}
       style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -302,11 +303,12 @@ function StatRow({ label, value, color, tip }: { label: string; value: string | 
         fontSize: '7px',
         position: 'relative',
         cursor: tip ? 'help' : 'default',
+        WebkitTapHighlightColor: 'transparent',
       }}
     >
       <span style={{ color: O.label, borderBottom: tip ? `1px dotted ${O.dim}` : 'none' }}>{label}</span>
       <span style={{ color: color ?? O.text }}>{value}</span>
-      {tip && hovered && (
+      {tip && show && (
         <div style={{
           position: 'absolute',
           bottom: '100%',
