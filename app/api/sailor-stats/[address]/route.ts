@@ -3,10 +3,10 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 
 const RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
-const DUNE_API_KEY = process.env.DUNE_API_KEY || '';
+const HELIUS_API_KEY = process.env.HELIUS_API_KEY || '';
 
 // ============================================================================
-// Known token mints (DeFi, stablecoins, wrapped SOL)
+// Known token mints
 // ============================================================================
 
 const KNOWN_MINTS: Record<string, { name: string; category: string }> = {
@@ -31,96 +31,194 @@ const KNOWN_MINTS: Record<string, { name: string; category: string }> = {
 };
 
 const STAKING_MINTS = new Set(
-  Object.entries(KNOWN_MINTS)
-    .filter(([, v]) => v.category === 'staking')
-    .map(([k]) => k)
+  Object.entries(KNOWN_MINTS).filter(([, v]) => v.category === 'staking').map(([k]) => k)
 );
-
 const DEFI_CATEGORIES = new Set(['staking', 'perps', 'governance']);
+const SKIP_MINTS = new Set([
+  ...Object.entries(KNOWN_MINTS).filter(([, v]) => v.category === 'stablecoin' || v.category === 'wrapped').map(([k]) => k),
+]);
 
 // ============================================================================
-// Dune Analytics — single rich query
-//
-// One CTE query pulls everything: txn count, wallet age, active months,
-// DEX protocols, total volume, biggest trade, favorite token.
-// Returns execution ID to frontend for polling.
+// Helius types
 // ============================================================================
 
-function buildDuneSQL(address: string): string {
-  return `
-WITH activity AS (
-  SELECT
-    COUNT(*) as total_txns,
-    CAST(MIN(block_time) AS VARCHAR) as first_seen,
-    COUNT(DISTINCT DATE_TRUNC('month', block_time)) as active_months
-  FROM solana.account_activity
-  WHERE address = '${address}'
-),
-dex_stats AS (
-  SELECT
-    COUNT(*) as total_trades,
-    ROUND(COALESCE(SUM(amount_usd), 0), 2) as total_volume_usd,
-    ROUND(COALESCE(MAX(amount_usd), 0), 2) as biggest_trade_usd
-  FROM dex_solana.trades
-  WHERE trader_id = '${address}'
-),
-dex_projects AS (
-  SELECT project as label, COUNT(*) as num
-  FROM dex_solana.trades
-  WHERE trader_id = '${address}'
-  GROUP BY project
-  ORDER BY num DESC
-  LIMIT 10
-),
-fav_token AS (
-  SELECT token_bought_symbol as label, COUNT(*) as num
-  FROM dex_solana.trades
-  WHERE trader_id = '${address}'
-    AND token_bought_symbol IS NOT NULL
-    AND token_bought_symbol NOT IN ('SOL', 'WSOL', 'USDC', 'USDT')
-  GROUP BY token_bought_symbol
-  ORDER BY num DESC
-  LIMIT 1
-)
-
-SELECT 'stats' as row_type,
-  CAST(a.total_txns AS VARCHAR) as col1,
-  a.first_seen as col2,
-  CAST(a.active_months AS VARCHAR) as col3,
-  CAST(d.total_trades AS VARCHAR) as col4,
-  CAST(d.total_volume_usd AS VARCHAR) as col5,
-  CAST(d.biggest_trade_usd AS VARCHAR) as col6
-FROM activity a CROSS JOIN dex_stats d
-
-UNION ALL
-
-SELECT 'project', label, CAST(num AS VARCHAR), NULL, NULL, NULL, NULL
-FROM dex_projects
-
-UNION ALL
-
-SELECT 'fav_token', label, CAST(num AS VARCHAR), NULL, NULL, NULL, NULL
-FROM fav_token
-`.trim();
+interface HeliusTx {
+  signature: string;
+  type: string;
+  source: string;
+  timestamp: number;
+  fee: number;
+  tokenTransfers: { mint: string; tokenAmount: number; fromUserAccount: string; toUserAccount: string }[];
+  nativeTransfers: { amount: number; fromUserAccount: string; toUserAccount: string }[];
+  accountData: { account: string; nativeBalanceChange: number }[];
 }
 
-async function fireDuneQuery(address: string): Promise<string | null> {
-  if (!DUNE_API_KEY) return null;
+// ============================================================================
+// Helius — fetch parsed transaction history
+// ============================================================================
+
+const HELIUS_BASE = 'https://api.helius.xyz/v0/addresses';
+
+async function fetchHelius(address: string, type?: string): Promise<HeliusTx[]> {
+  if (!HELIUS_API_KEY) return [];
+  const typeParam = type ? `&type=${type}` : '';
+  try {
+    const res = await fetch(
+      `${HELIUS_BASE}/${address}/transactions?api-key=${HELIUS_API_KEY}&limit=100${typeParam}`
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch { return []; }
+}
+
+// ============================================================================
+// Helius — resolve token symbol via DAS
+// ============================================================================
+
+async function getTokenSymbol(mint: string): Promise<string | null> {
+  const known = KNOWN_MINTS[mint];
+  if (known) return known.name;
+  if (!HELIUS_API_KEY) return null;
 
   try {
-    const res = await fetch('https://api.dune.com/api/v1/sql/execute', {
+    const res = await fetch(`https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`, {
       method: 'POST',
-      headers: {
-        'X-Dune-Api-Key': DUNE_API_KEY,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ sql: buildDuneSQL(address) }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: '1',
+        method: 'getAsset',
+        params: { id: mint },
+      }),
     });
     const json = await res.json();
-    return json.execution_id ?? null;
-  } catch {
-    return null;
+    return json.result?.content?.metadata?.symbol || null;
+  } catch { return null; }
+}
+
+// ============================================================================
+// Analyze swap transactions
+// ============================================================================
+
+function prettifySource(s: string): string {
+  const map: Record<string, string> = {
+    PUMP_FUN: 'Pump.fun', RAYDIUM: 'Raydium', JUPITER: 'Jupiter',
+    ORCA: 'Orca', ORCA_WHIRLPOOLS: 'Orca', METEORA: 'Meteora',
+    PUMPSWAP: 'PumpSwap', RAYDIUM_LAUNCHLAB: 'Raydium Launchlab',
+    MAGIC_EDEN: 'Magic Eden', TENSOR: 'Tensor', MARINADE: 'Marinade',
+    DRIFT: 'Drift', KAMINO: 'Kamino', SANCTUM: 'Sanctum',
+    PHANTOM: 'Phantom', SOLFI: 'SolFi',
+  };
+  return map[s] || s.charAt(0) + s.slice(1).toLowerCase().replace(/_/g, ' ');
+}
+
+function analyzeSwaps(swaps: HeliusTx[], address: string) {
+  const protocols: Record<string, number> = {};
+  const tokenBuys: Record<string, number> = {};
+  let totalVolumeLamports = 0;
+  let biggestTradeLamports = 0;
+
+  for (const swap of swaps) {
+    protocols[swap.source] = (protocols[swap.source] || 0) + 1;
+
+    // Volume = absolute SOL balance change per swap
+    const userData = swap.accountData?.find(a => a.account === address);
+    if (userData) {
+      const abs = Math.abs(userData.nativeBalanceChange);
+      totalVolumeLamports += abs;
+      if (abs > biggestTradeLamports) biggestTradeLamports = abs;
+    }
+
+    // Track tokens bought (received by user)
+    for (const tt of swap.tokenTransfers || []) {
+      if (tt.toUserAccount === address && tt.mint && !SKIP_MINTS.has(tt.mint)) {
+        tokenBuys[tt.mint] = (tokenBuys[tt.mint] || 0) + 1;
+      }
+    }
   }
+
+  const dexProtocols = Object.entries(protocols)
+    .sort(([, a], [, b]) => b - a)
+    .map(([project, trades]) => ({ project: prettifySource(project), trades }));
+
+  // Fav token = most bought (excluding stablecoins/wrapped SOL)
+  let favMint: string | null = null;
+  let favBuys = 0;
+  for (const [mint, count] of Object.entries(tokenBuys)) {
+    if (count > favBuys) { favBuys = count; favMint = mint; }
+  }
+
+  return {
+    dexProtocols,
+    dexCount: dexProtocols.length,
+    totalTrades: swaps.length,
+    solVolume: Math.round(totalVolumeLamports / 1e9 * 100) / 100,
+    biggestTrade: Math.round(biggestTradeLamports / 1e9 * 100) / 100,
+    favMint,
+    favBuys,
+  };
+}
+
+// ============================================================================
+// Analyze all transactions for unique dapps + activity
+// ============================================================================
+
+function analyzeActivity(allTxns: HeliusTx[]) {
+  const sources = new Set<string>();
+  for (const tx of allTxns) {
+    if (tx.source && tx.source !== 'SYSTEM_PROGRAM' && tx.source !== 'UNKNOWN') {
+      sources.add(tx.source);
+    }
+  }
+  return {
+    uniqueDapps: sources.size,
+    uniqueDappsList: [...sources].map(prettifySource),
+  };
+}
+
+// ============================================================================
+// RPC — paginate signatures for wallet age + txn count + active days
+// ============================================================================
+
+async function getSignatureStats(connection: Connection, pubkey: PublicKey) {
+  const allSigs: { blockTime?: number | null | undefined; signature: string }[] = [];
+  let before: string | undefined;
+
+  for (let page = 0; page < 5; page++) {
+    const sigs = await connection.getSignaturesForAddress(pubkey, { limit: 1000, before });
+    if (sigs.length === 0) break;
+    allSigs.push(...sigs);
+    before = sigs[sigs.length - 1].signature;
+    if (sigs.length < 1000) break;
+  }
+
+  if (allSigs.length === 0) {
+    return { txnCount: 0, txnCountCapped: false, walletAgeDays: 0, firstSeenDate: null, lastActivityDays: 999, activeMonths: 0, uniqueActiveDays: 0 };
+  }
+
+  const now = Date.now() / 1000;
+  const newest = allSigs[0].blockTime ?? now;
+  const oldest = allSigs[allSigs.length - 1].blockTime ?? now;
+
+  const days = new Set<string>();
+  const months = new Set<string>();
+  for (const sig of allSigs) {
+    if (sig.blockTime) {
+      const d = new Date(sig.blockTime * 1000);
+      days.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
+      months.add(`${d.getFullYear()}-${d.getMonth()}`);
+    }
+  }
+
+  return {
+    txnCount: allSigs.length,
+    txnCountCapped: allSigs.length >= 5000,
+    walletAgeDays: Math.floor((now - oldest) / 86400),
+    firstSeenDate: new Date(oldest * 1000).toISOString(),
+    lastActivityDays: Math.floor((now - newest) / 86400),
+    activeMonths: months.size,
+    uniqueActiveDays: days.size,
+  };
 }
 
 // ============================================================================
@@ -130,12 +228,7 @@ async function fireDuneQuery(address: string): Promise<string | null> {
 interface ParsedTokenInfo {
   mint: string;
   owner: string;
-  tokenAmount: {
-    amount: string;
-    decimals: number;
-    uiAmount: number | null;
-    uiAmountString: string;
-  };
+  tokenAmount: { amount: string; decimals: number; uiAmount: number | null; uiAmountString: string };
 }
 
 function getTokenInfo(ta: { account: { data: unknown } }): ParsedTokenInfo | null {
@@ -154,39 +247,32 @@ export async function GET(
   const { address } = await params;
 
   let pubkey: PublicKey;
-  try {
-    pubkey = new PublicKey(address);
-  } catch {
-    return NextResponse.json(
-      { success: false, error: 'Invalid Solana address' },
-      { status: 400 }
-    );
-  }
+  try { pubkey = new PublicKey(address); }
+  catch { return NextResponse.json({ success: false, error: 'Invalid Solana address' }, { status: 400 }); }
 
   try {
     const connection = new Connection(RPC, 'confirmed');
 
-    // Fire single Dune query + RPC calls in parallel
-    const [duneExecId, tokenAccounts, balance, signatures] = await Promise.all([
-      fireDuneQuery(address),
+    // Phase 1: everything in parallel
+    const [sigStats, tokenAccounts, balance, swaps, allTxns] = await Promise.all([
+      getSignatureStats(connection, pubkey),
       connection.getParsedTokenAccountsByOwner(pubkey, { programId: TOKEN_PROGRAM_ID }),
       connection.getBalance(pubkey),
-      connection.getSignaturesForAddress(pubkey, { limit: 1 }),
+      fetchHelius(address, 'SWAP'),
+      fetchHelius(address),
     ]);
 
-    // --- Last activity ---
-    const now = Date.now() / 1000;
-    const lastSigTime = signatures[0]?.blockTime;
-    const lastActivityDays = lastSigTime
-      ? Math.floor((now - lastSigTime) / 86400)
-      : 999;
+    // Analyze Helius data
+    const swapStats = analyzeSwaps(swaps, address);
+    const activity = analyzeActivity(allTxns);
 
-    // --- Token analysis ---
-    let tokenCount = 0;
-    let memecoins = 0;
-    let stakedSol = 0;
-    let nftCount = 0;
-    let deadTokens = 0;
+    // Resolve fav token symbol
+    const favToken = swapStats.favMint
+      ? await getTokenSymbol(swapStats.favMint)
+      : null;
+
+    // Token analysis from RPC
+    let tokenCount = 0, memecoins = 0, stakedSol = 0, nftCount = 0, deadTokens = 0;
     const defiTokens: string[] = [];
     const defiCategories = new Set<string>();
 
@@ -194,27 +280,22 @@ export async function GET(
       const info = getTokenInfo(ta);
       if (!info) continue;
       const amount = info.tokenAmount.uiAmount ?? 0;
-
       if (amount <= 0) { deadTokens++; continue; }
       tokenCount++;
       if (info.tokenAmount.decimals === 0 && amount === 1) { nftCount++; continue; }
-
       const known = KNOWN_MINTS[info.mint];
       if (known) {
-        if (DEFI_CATEGORIES.has(known.category)) {
-          defiTokens.push(known.name);
-          defiCategories.add(known.category);
-        }
+        if (DEFI_CATEGORIES.has(known.category)) { defiTokens.push(known.name); defiCategories.add(known.category); }
         if (STAKING_MINTS.has(info.mint)) stakedSol += amount;
-      } else {
-        memecoins++;
-      }
+      } else { memecoins++; }
     }
 
     return NextResponse.json({
       success: true,
       data: {
-        lastActivityDays,
+        // Signature stats (RPC)
+        ...sigStats,
+        // Token holdings (RPC)
         tokenCount,
         totalTokenAccounts: tokenAccounts.value.length,
         solBalance: balance / 1e9,
@@ -224,17 +305,23 @@ export async function GET(
         stakedSol: Math.round(stakedSol * 100) / 100,
         nftCount,
         deadTokens,
-        // Single execution ID for frontend to poll
-        duneExecId,
+        // DEX stats (Helius swaps)
+        dexProtocols: swapStats.dexProtocols,
+        dexCount: swapStats.dexCount,
+        totalTrades: swapStats.totalTrades,
+        solVolume: swapStats.solVolume,
+        biggestTrade: swapStats.biggestTrade,
+        favToken,
+        favTokenBuys: swapStats.favBuys,
+        // Dapp diversity (Helius all)
+        uniqueDapps: activity.uniqueDapps,
+        uniqueDappsList: activity.uniqueDappsList,
       },
     }, {
       headers: { 'Cache-Control': 'public, max-age=300' },
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'RPC error';
-    return NextResponse.json(
-      { success: false, error: message },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
