@@ -221,6 +221,12 @@ async function fetchPnL(address: string): Promise<{
     const summary: SolTrackerPnL | null = data.summary || null;
     const tokens: Record<string, SolTrackerToken> = data.tokens || {};
 
+    // Skip cashback/reward tokens from best/worst trade (inflated PnL)
+    const PNL_SKIP = new Set([
+      'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', // BONK
+      '4bXCaDUciWA5Qj1zmcZ9ryJsoqv4rahKD4r8zYYsbonk',  // BONK (vanity)
+    ]);
+
     // Find best and worst trades
     let bestTrade: { token: string; pnl: number } | null = null;
     let worstTrade: { token: string; pnl: number } | null = null;
@@ -231,6 +237,7 @@ async function fetchPnL(address: string): Promise<{
       const invested = t.total_invested ?? 0;
       const roi = invested > 0 ? (pnl / invested) * 100 : 0;
       tokenEntries.push({ address: addr, pnl, invested, roi });
+      if (PNL_SKIP.has(addr)) continue; // skip cashback tokens for best/worst
       if (!bestTrade || pnl > bestTrade.pnl) bestTrade = { token: addr, pnl };
       if (!worstTrade || pnl < worstTrade.pnl) worstTrade = { token: addr, pnl };
     }
