@@ -222,33 +222,66 @@ async function fetchPnL(address: string): Promise<{
     const summary: SolTrackerPnL | null = data.summary || null;
     const tokens: Record<string, SolTrackerToken> = data.tokens || {};
 
-    // Skip cashback/reward tokens from best/worst trade (inflated PnL)
+    // Filter out airdrop/cashback/reward tokens:
+    // Tokens with $0 invested AND 0 buy transactions are "free" tokens
+    // (airdrops, BonkBot cashback, referral rewards). Selling these inflates
+    // realized PnL — e.g. $305K of $449K "realized" was from free tokens.
     const PNL_SKIP = new Set([
       'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', // BONK
       '4bXCaDUciWA5Qj1zmcZ9ryJsoqv4rahKD4r8zYYsbonk',  // BONK (vanity)
     ]);
 
-    // Find best and worst trades
     let bestTrade: { token: string; pnl: number } | null = null;
     let worstTrade: { token: string; pnl: number } | null = null;
     const tokenEntries: { address: string; pnl: number; invested: number; roi: number }[] = [];
 
+    // Recompute PnL ourselves — exclude tokens that were never bought (airdrops/rewards)
+    let realRealized = 0;
+    let realUnrealized = 0;
+    let realInvested = 0;
+    let wins = 0;
+    let losses = 0;
+
     for (const [addr, t] of Object.entries(tokens)) {
-      const pnl = t.total ?? (t.realized + t.unrealized);
       const invested = t.total_invested ?? 0;
+      const buys = t.buy_transactions ?? 0;
+      const pnl = t.total ?? (t.realized + t.unrealized);
       const roi = invested > 0 ? (pnl / invested) * 100 : 0;
+
+      // Skip free tokens (airdrops, cashback) — never bought, just received
+      const isFreeToken = invested === 0 && buys === 0;
+      if (isFreeToken || PNL_SKIP.has(addr)) continue;
+
       tokenEntries.push({ address: addr, pnl, invested, roi });
-      if (PNL_SKIP.has(addr)) continue; // skip cashback tokens for best/worst
+      realRealized += t.realized ?? 0;
+      realUnrealized += t.unrealized ?? 0;
+      realInvested += invested;
+      if (pnl > 0) wins++;
+      else if (pnl < 0) losses++;
+
       if (!bestTrade || pnl > bestTrade.pnl) bestTrade = { token: addr, pnl };
       if (!worstTrade || pnl < worstTrade.pnl) worstTrade = { token: addr, pnl };
     }
+
+    // Build a clean summary from real trades only
+    const cleanSummary: SolTrackerPnL = {
+      realized: realRealized,
+      unrealized: realUnrealized,
+      total: realRealized + realUnrealized,
+      totalInvested: realInvested,
+      totalWins: wins,
+      totalLosses: losses,
+      winPercentage: (wins + losses) > 0 ? (wins / (wins + losses)) * 100 : 0,
+      lossPercentage: (wins + losses) > 0 ? (losses / (wins + losses)) * 100 : 0,
+      averageBuyAmount: summary?.averageBuyAmount ?? 0,
+    };
 
     // Top 5 by PnL (best first) + bottom 3 (worst losses)
     tokenEntries.sort((a, b) => b.pnl - a.pnl);
     const topTokens = tokenEntries.slice(0, 5);
     const bottomTokens = tokenEntries.filter(t => t.pnl < 0).slice(-3).reverse();
 
-    return { summary, bestTrade, worstTrade, topTokens, bottomTokens, totalTokensTraded: tokenEntries.length };
+    return { summary: cleanSummary, bestTrade, worstTrade, topTokens, bottomTokens, totalTokensTraded: tokenEntries.length };
   } catch { return { summary: null, bestTrade: null, worstTrade: null, topTokens: [], bottomTokens: [], totalTokensTraded: 0 }; }
 }
 
