@@ -515,7 +515,7 @@ export default function SailorStats({ address }: { address: string }) {
         </div>
 
         {/* 5. PnL Panel */}
-        {chain.pnlRealized !== null && (
+        {(chain.pnlRealized !== null || chain.pnlTotal !== null) && (
           <div className="osrs-panel" style={{
             padding: '14px 16px',
             marginBottom: '16px',
