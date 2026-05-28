@@ -72,9 +72,10 @@ function computeSkills(chain: OnChainData, shipyard: CharacterStats | null): Ski
     {
       name: 'Plundering',
       icon: '🏴‍☠️',
-      // Log-scaled wealth + log-scaled SOL volume
+      // Log-scaled wealth + volume + realized PnL
       xp: Math.log2((chain.solBalance + chain.stakedSol) + 1) * 50000
-        + Math.log2((chain.solVolume || 0) + 1) * 15000,
+        + Math.log2((chain.solVolume || 0) + 1) * 15000
+        + Math.log2(Math.max(chain.pnlRealized ?? 0, 0) + 1) * 20000,
     },
     {
       name: 'Navigation',
@@ -639,7 +640,82 @@ export default function SailorStats({ address }: { address: string }) {
           </div>
         </div>
 
-        {/* 5. Stats Panel */}
+        {/* 5. PnL Panel */}
+        {chain.pnlTotal !== null && (
+          <div className="osrs-panel" style={{
+            padding: '14px 16px',
+            marginBottom: '16px',
+          }}>
+            <div style={{
+              fontFamily: FONT,
+              fontSize: '7px',
+              color: O.dim,
+              marginBottom: '10px',
+              letterSpacing: '2px',
+            }}>
+              PROFIT & LOSS
+            </div>
+
+            {/* Big PnL number */}
+            <div style={{
+              textAlign: 'center',
+              padding: '8px 0 12px',
+              borderBottom: `1px solid ${O.bevelDark}`,
+              marginBottom: '10px',
+            }}>
+              <div style={{
+                fontFamily: FONT,
+                fontSize: '7px',
+                color: O.dim,
+                marginBottom: '4px',
+              }}>
+                TOTAL PnL
+              </div>
+              <div style={{
+                fontFamily: FONT,
+                fontSize: '18px',
+                fontWeight: 'bold',
+                textShadow: '1px 1px 0 #000',
+                color: (chain.pnlTotal ?? 0) >= 0 ? '#7ee787' : '#f85149',
+              }}>
+                {(chain.pnlTotal ?? 0) >= 0 ? '+' : ''}{formatCompact(chain.pnlTotal ?? 0)} USD
+              </div>
+            </div>
+
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '0 20px',
+            }}>
+              <div>
+                <StatRow label="Realized" value={
+                  chain.pnlRealized !== null ? `$${formatCompact(chain.pnlRealized)}` : '—'
+                } color={(chain.pnlRealized ?? 0) >= 0 ? '#7ee787' : '#f85149'} tip="Profit/loss from closed positions" />
+                <StatRow label="Unrealized" value={
+                  chain.pnlUnrealized !== null ? `$${formatCompact(chain.pnlUnrealized)}` : '—'
+                } color={(chain.pnlUnrealized ?? 0) >= 0 ? '#7ee787' : '#f85149'} tip="Paper gains/losses on current holdings" />
+                <StatRow label="Invested" value={
+                  chain.pnlTotalInvested !== null ? `$${formatCompact(chain.pnlTotalInvested)}` : '—'
+                } color={O.gold} tip="Total USD invested across all tokens" />
+              </div>
+              <div>
+                <StatRow label="Win Rate" value={
+                  chain.pnlWinRate !== null ? `${Math.round(chain.pnlWinRate)}%` : '—'
+                } color={(chain.pnlWinRate ?? 0) >= 50 ? '#7ee787' : '#f85149'} tip={`${chain.pnlWins}W / ${chain.pnlLosses}L`} />
+                <StatRow label="Best Trade" value={
+                  chain.pnlBestTrade ? `+$${formatCompact(chain.pnlBestTrade.pnl)}` : '—'
+                } color="#7ee787" tip="Highest profit on a single token" />
+                <StatRow label="Worst Trade" value={
+                  chain.pnlWorstTrade ? `-$${formatCompact(Math.abs(chain.pnlWorstTrade.pnl))}` : '—'
+                } color="#f85149" tip="Biggest loss on a single token" />
+              </div>
+            </div>
+
+            <StatRow label="Tokens Traded" value={chain.pnlTokensTraded} tip="Total unique tokens bought/sold" />
+          </div>
+        )}
+
+        {/* 6. Stats Panel */}
         <div className="osrs-panel" style={{
           padding: '14px 16px',
           marginBottom: '16px',

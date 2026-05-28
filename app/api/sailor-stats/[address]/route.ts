@@ -7,6 +7,8 @@ const HELIUS_RPC = process.env.HELIUS_API_KEY
   : null;
 const RPC = HELIUS_RPC || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 const HELIUS_API_KEY = process.env.HELIUS_API_KEY || '';
+// Solana Tracker — custom subdomain URL acts as auth (no separate API key needed)
+const SOLTRACKER_URL = process.env.SOLANA_TRACKER_URL || '';
 
 // ============================================================================
 // Known token mints
@@ -168,6 +170,77 @@ function analyzePumpFun(coins: PFCoin[], balances: PFBalance[]) {
       replies: c.reply_count || 0,
     })),
   };
+}
+
+// ============================================================================
+// Solana Tracker — pre-computed PnL + win rate
+// ============================================================================
+
+interface SolTrackerPnL {
+  realized: number;
+  unrealized: number;
+  total: number;
+  totalInvested: number;
+  totalWins: number;
+  totalLosses: number;
+  winPercentage: number;
+  lossPercentage: number;
+  averageBuyAmount: number;
+}
+
+interface SolTrackerToken {
+  holding: number;
+  realized: number;
+  unrealized: number;
+  total: number;            // realized + unrealized
+  total_invested: number;
+  current_value: number;
+  cost_basis: number;
+  buy_transactions: number;
+  sell_transactions: number;
+  total_transactions: number;
+  first_buy_time: number;
+  last_trade_time: number;
+  [key: string]: unknown;   // API may include extra fields
+}
+
+async function fetchPnL(address: string): Promise<{
+  summary: SolTrackerPnL | null;
+  bestTrade: { token: string; pnl: number } | null;
+  worstTrade: { token: string; pnl: number } | null;
+  topTokens: { address: string; pnl: number; invested: number; roi: number }[];
+  totalTokensTraded: number;
+}> {
+  if (!SOLTRACKER_URL) return { summary: null, bestTrade: null, worstTrade: null, topTokens: [], totalTokensTraded: 0 };
+  try {
+    const res = await fetch(
+      `${SOLTRACKER_URL}/pnl/${address}?holdingCheck=true`,
+    );
+    if (!res.ok) return { summary: null, bestTrade: null, worstTrade: null, topTokens: [], totalTokensTraded: 0 };
+    const data = await res.json();
+    const summary: SolTrackerPnL | null = data.summary || null;
+    const tokens: Record<string, SolTrackerToken> = data.tokens || {};
+
+    // Find best and worst trades
+    let bestTrade: { token: string; pnl: number } | null = null;
+    let worstTrade: { token: string; pnl: number } | null = null;
+    const tokenEntries: { address: string; pnl: number; invested: number; roi: number }[] = [];
+
+    for (const [addr, t] of Object.entries(tokens)) {
+      const pnl = t.total ?? (t.realized + t.unrealized);
+      const invested = t.total_invested ?? 0;
+      const roi = invested > 0 ? (pnl / invested) * 100 : 0;
+      tokenEntries.push({ address: addr, pnl, invested, roi });
+      if (!bestTrade || pnl > bestTrade.pnl) bestTrade = { token: addr, pnl };
+      if (!worstTrade || pnl < worstTrade.pnl) worstTrade = { token: addr, pnl };
+    }
+
+    // Top 5 by absolute PnL
+    tokenEntries.sort((a, b) => b.pnl - a.pnl);
+    const topTokens = tokenEntries.slice(0, 5);
+
+    return { summary, bestTrade, worstTrade, topTokens, totalTokensTraded: tokenEntries.length };
+  } catch { return { summary: null, bestTrade: null, worstTrade: null, topTokens: [], totalTokensTraded: 0 }; }
 }
 
 // ============================================================================
@@ -404,8 +477,8 @@ export async function GET(
   try {
     const connection = new Connection(RPC, 'confirmed');
 
-    // Phase 1: everything in parallel (RPC + Helius + Pump.fun)
-    const [sigStats, tokenAccounts, balance, swaps, allTxns, pfCoins, pfBalances, topPFMints] = await Promise.all([
+    // Phase 1: everything in parallel (RPC + Helius + Pump.fun + Solana Tracker)
+    const [sigStats, tokenAccounts, balance, swaps, allTxns, pfCoins, pfBalances, topPFMints, pnlData] = await Promise.all([
       getSignatureStats(connection, pubkey),
       connection.getParsedTokenAccountsByOwner(pubkey, { programId: TOKEN_PROGRAM_ID }),
       connection.getBalance(pubkey),
@@ -414,6 +487,7 @@ export async function GET(
       fetchPFCoins(address),
       fetchPFBalances(address),
       fetchTopPFCoins(),
+      fetchPnL(address),
     ]);
 
     // Analyze Helius data
@@ -489,6 +563,18 @@ export async function GET(
         ...pf,
         // Top PF communities user belongs to
         pfCommunities,
+        // PnL (Solana Tracker)
+        pnlRealized: pnlData.summary?.realized ?? null,
+        pnlUnrealized: pnlData.summary?.unrealized ?? null,
+        pnlTotal: pnlData.summary?.total ?? null,
+        pnlTotalInvested: pnlData.summary?.totalInvested ?? null,
+        pnlWinRate: pnlData.summary?.winPercentage ?? null,
+        pnlWins: pnlData.summary?.totalWins ?? 0,
+        pnlLosses: pnlData.summary?.totalLosses ?? 0,
+        pnlBestTrade: pnlData.bestTrade,
+        pnlWorstTrade: pnlData.worstTrade,
+        pnlTopTokens: pnlData.topTokens,
+        pnlTokensTraded: pnlData.totalTokensTraded,
       },
     }, {
       headers: { 'Cache-Control': 'public, max-age=300' },
