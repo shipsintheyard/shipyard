@@ -288,10 +288,12 @@ async function fetchHelius(address: string, type?: string): Promise<HeliusTx[]> 
 // Helius — resolve token symbol via DAS
 // ============================================================================
 
-async function getTokenSymbol(mint: string): Promise<string | null> {
+interface TokenMeta { symbol: string | null; image: string | null; name: string | null }
+
+async function getTokenMeta(mint: string): Promise<TokenMeta> {
   const known = KNOWN_MINTS[mint];
-  if (known) return known.name;
-  if (!HELIUS_API_KEY) return null;
+  if (known) return { symbol: known.name, image: null, name: known.name };
+  if (!HELIUS_API_KEY) return { symbol: null, image: null, name: null };
 
   try {
     const res = await fetch(`https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`, {
@@ -304,8 +306,20 @@ async function getTokenSymbol(mint: string): Promise<string | null> {
       }),
     });
     const json = await res.json();
-    return json.result?.content?.metadata?.symbol || null;
-  } catch { return null; }
+    const meta = json.result?.content?.metadata;
+    const links = json.result?.content?.links;
+    const files = json.result?.content?.files;
+    return {
+      symbol: meta?.symbol || null,
+      name: meta?.name || null,
+      image: links?.image || files?.[0]?.uri || null,
+    };
+  } catch { return { symbol: null, image: null, name: null }; }
+}
+
+async function getTokenSymbol(mint: string): Promise<string | null> {
+  const meta = await getTokenMeta(mint);
+  return meta.symbol;
 }
 
 // ============================================================================
@@ -502,10 +516,20 @@ export async function GET(
     const activity = analyzeActivity(allTxns);
     const pf = analyzePumpFun(pfCoins, pfBalances);
 
-    // Resolve fav token symbol
-    const favToken = swapStats.favMint
-      ? await getTokenSymbol(swapStats.favMint)
-      : null;
+    // Resolve token metadata in parallel: fav token + top PnL tokens
+    const metaPromises: Promise<TokenMeta>[] = [];
+    const metaKeys: string[] = [];
+
+    if (swapStats.favMint) { metaKeys.push(swapStats.favMint); metaPromises.push(getTokenMeta(swapStats.favMint)); }
+    if (pnlData.bestTrade) { metaKeys.push(pnlData.bestTrade.token); metaPromises.push(getTokenMeta(pnlData.bestTrade.token)); }
+    if (pnlData.worstTrade) { metaKeys.push(pnlData.worstTrade.token); metaPromises.push(getTokenMeta(pnlData.worstTrade.token)); }
+    for (const t of pnlData.topTokens.slice(0, 3)) { metaKeys.push(t.address); metaPromises.push(getTokenMeta(t.address)); }
+
+    const metaResults = await Promise.all(metaPromises);
+    const metaMap = new Map<string, TokenMeta>();
+    metaKeys.forEach((k, i) => metaMap.set(k, metaResults[i]));
+
+    const favToken = swapStats.favMint ? metaMap.get(swapStats.favMint)?.symbol ?? null : null;
 
     // Token analysis from RPC
     let tokenCount = 0, memecoins = 0, stakedSol = 0, nftCount = 0, deadTokens = 0;
@@ -578,9 +602,22 @@ export async function GET(
         pnlWinRate: pnlData.summary?.winPercentage ?? null,
         pnlWins: pnlData.summary?.totalWins ?? 0,
         pnlLosses: pnlData.summary?.totalLosses ?? 0,
-        pnlBestTrade: pnlData.bestTrade,
-        pnlWorstTrade: pnlData.worstTrade,
-        pnlTopTokens: pnlData.topTokens,
+        pnlBestTrade: pnlData.bestTrade ? {
+          ...pnlData.bestTrade,
+          symbol: metaMap.get(pnlData.bestTrade.token)?.symbol ?? null,
+          image: metaMap.get(pnlData.bestTrade.token)?.image ?? null,
+        } : null,
+        pnlWorstTrade: pnlData.worstTrade ? {
+          ...pnlData.worstTrade,
+          symbol: metaMap.get(pnlData.worstTrade.token)?.symbol ?? null,
+          image: metaMap.get(pnlData.worstTrade.token)?.image ?? null,
+        } : null,
+        pnlTopTokens: pnlData.topTokens.slice(0, 3).map(t => ({
+          ...t,
+          symbol: metaMap.get(t.address)?.symbol ?? null,
+          name: metaMap.get(t.address)?.name ?? null,
+          image: metaMap.get(t.address)?.image ?? null,
+        })),
         pnlTokensTraded: pnlData.totalTokensTraded,
       },
     }, {

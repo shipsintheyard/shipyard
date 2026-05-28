@@ -703,15 +703,81 @@ export default function SailorStats({ address }: { address: string }) {
                   chain.pnlWinRate !== null ? `${Math.round(chain.pnlWinRate)}%` : '—'
                 } color={(chain.pnlWinRate ?? 0) >= 50 ? '#7ee787' : '#f85149'} tip={`${chain.pnlWins}W / ${chain.pnlLosses}L`} />
                 <StatRow label="Best Trade" value={
-                  chain.pnlBestTrade ? `+$${formatCompact(chain.pnlBestTrade.pnl)}` : '—'
+                  chain.pnlBestTrade
+                    ? `${chain.pnlBestTrade.symbol || '???'} +$${formatCompact(chain.pnlBestTrade.pnl)}`
+                    : '—'
                 } color="#7ee787" tip="Highest profit on a single token" />
                 <StatRow label="Worst Trade" value={
-                  chain.pnlWorstTrade ? `-$${formatCompact(Math.abs(chain.pnlWorstTrade.pnl))}` : '—'
+                  chain.pnlWorstTrade
+                    ? `${chain.pnlWorstTrade.symbol || '???'} -$${formatCompact(Math.abs(chain.pnlWorstTrade.pnl))}`
+                    : '—'
                 } color="#f85149" tip="Biggest loss on a single token" />
               </div>
             </div>
 
             <StatRow label="Tokens Traded" value={chain.pnlTokensTraded} tip="Total unique tokens bought/sold" />
+
+            {/* Top 3 tokens by PnL */}
+            {chain.pnlTopTokens && chain.pnlTopTokens.length > 0 && (
+              <div style={{ marginTop: '10px', borderTop: `1px solid ${O.bevelDark}`, paddingTop: '10px' }}>
+                <div style={{
+                  fontFamily: FONT,
+                  fontSize: '6px',
+                  color: O.dim,
+                  marginBottom: '8px',
+                  letterSpacing: '1px',
+                }}>
+                  TOP TRADES
+                </div>
+                {chain.pnlTopTokens.map((t, i) => (
+                  <div key={i} style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '5px 0',
+                    borderBottom: i < chain.pnlTopTokens.length - 1 ? `1px solid ${O.deepest}` : 'none',
+                  }}>
+                    {t.image && (
+                      <img
+                        src={t.image}
+                        alt={t.symbol || ''}
+                        style={{ width: 20, height: 20, borderRadius: 0, border: `1px solid ${O.bevelDark}` }}
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontFamily: FONT, fontSize: '8px', color: O.label }}>
+                        {t.symbol || t.address.slice(0, 8) + '...'}
+                      </div>
+                      {t.name && t.name !== t.symbol && (
+                        <div style={{ fontFamily: FONT, fontSize: '6px', color: O.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {t.name}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{
+                        fontFamily: FONT,
+                        fontSize: '8px',
+                        fontWeight: 'bold',
+                        color: t.pnl >= 0 ? '#7ee787' : '#f85149',
+                      }}>
+                        {t.pnl >= 0 ? '+' : ''}${formatCompact(t.pnl)}
+                      </div>
+                      {t.roi !== 0 && (
+                        <div style={{
+                          fontFamily: FONT,
+                          fontSize: '6px',
+                          color: t.roi >= 0 ? '#7ee787' : '#f85149',
+                        }}>
+                          {t.roi >= 0 ? '+' : ''}{Math.round(t.roi)}% ROI
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -863,33 +929,7 @@ export default function SailorStats({ address }: { address: string }) {
               </div>
             )}
 
-            {/* Top PF holdings */}
-            {chain.pfTopHoldings && chain.pfTopHoldings.length > 0 && chain.pfCoinsCreated === 0 && (
-              <div style={{ marginTop: '12px', borderTop: `1px solid ${O.bevelDark}`, paddingTop: '10px' }}>
-                <div style={{
-                  fontFamily: FONT,
-                  fontSize: '6px',
-                  color: O.dim,
-                  marginBottom: '6px',
-                  letterSpacing: '1px',
-                }}>
-                  TOP HOLDINGS
-                </div>
-                {chain.pfTopHoldings.map((h, i) => (
-                  <div key={i} style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    padding: '3px 0',
-                    borderBottom: i < chain.pfTopHoldings.length - 1 ? `1px solid ${O.deepest}` : 'none',
-                    fontFamily: FONT,
-                    fontSize: '7px',
-                  }}>
-                    <span style={{ color: O.label }}>{h.symbol}</span>
-                    <span style={{ color: h.valueSol > 0.1 ? O.gold : O.dim }}>{h.valueSol} SOL</span>
-                  </div>
-                ))}
-              </div>
-            )}
+            {/* PF top holdings removed — balances endpoint returns stale data */}
 
             {/* Top PF communities */}
             {chain.pfCommunities && chain.pfCommunities.length > 0 && (

@@ -51,9 +51,9 @@ export interface OnChainData {
   pnlWinRate: number | null;
   pnlWins: number;
   pnlLosses: number;
-  pnlBestTrade: { token: string; pnl: number } | null;
-  pnlWorstTrade: { token: string; pnl: number } | null;
-  pnlTopTokens: { address: string; pnl: number; invested: number; roi: number }[];
+  pnlBestTrade: { token: string; pnl: number; symbol: string | null; image: string | null } | null;
+  pnlWorstTrade: { token: string; pnl: number; symbol: string | null; image: string | null } | null;
+  pnlTopTokens: { address: string; pnl: number; invested: number; roi: number; symbol: string | null; name: string | null; image: string | null }[];
   pnlTokensTraded: number;
 }
 
