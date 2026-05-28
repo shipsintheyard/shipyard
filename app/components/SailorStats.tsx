@@ -4,128 +4,8 @@ import { useCharacterStats, RANK_PROGRESSION } from '../hooks/useCharacter';
 import { useWalletOnChain } from '../hooks/useWalletOnChain';
 import type { CharacterStats } from '../hooks/useCharacter';
 import type { OnChainData } from '../hooks/useWalletOnChain';
-
-// ============================================================================
-// XP / Level system — real OSRS exponential curve
-// XP doubles every 7 levels. Level 92 = halfway to 99. Level 99 = 13,034,431.
-// ============================================================================
-
-// Precompute the OSRS XP table once (levels 1–99)
-const OSRS_XP_TABLE: number[] = [0]; // index 0 → level 1 = 0 XP
-let _xpAccum = 0;
-for (let l = 1; l < 99; l++) {
-  _xpAccum += Math.floor(l + 300 * Math.pow(2, l / 7));
-  OSRS_XP_TABLE.push(Math.floor(_xpAccum / 4));
-}
-// OSRS_XP_TABLE[98] = 13,034,431 (level 99)
-
-function xpForLevel(level: number): number {
-  return OSRS_XP_TABLE[Math.max(0, Math.min(level - 1, 98))];
-}
-
-function levelFromXp(xp: number): number {
-  for (let l = 98; l >= 0; l--) {
-    if (xp >= OSRS_XP_TABLE[l]) return l + 1;
-  }
-  return 1;
-}
-
-function progressToNext(xp: number): number {
-  const level = levelFromXp(xp);
-  if (level >= 99) return 1;
-  const cur = xpForLevel(level);
-  const next = xpForLevel(level + 1);
-  return next > cur ? (xp - cur) / (next - cur) : 0;
-}
-
-// ============================================================================
-// Skill mapping — scaled for the OSRS exponential curve
-// XP multipliers tuned so: casual wallet ~30-50, active ~50-70, extreme ~80-90+
-// ============================================================================
-
-interface SkillData {
-  name: string;
-  icon: string;
-  xp: number;
-  level: number;
-  progress: number;
-}
-
-function computeSkills(chain: OnChainData, shipyard: CharacterStats | null): SkillData[] {
-  const raw = [
-    {
-      name: 'Sailing',
-      icon: '⛵',
-      // Transaction volume — 500 txns ≈ lvl 50, 5k ≈ 73
-      xp: Math.min(chain.txnCount, 50000) * 20,
-    },
-    {
-      name: 'Degenning',
-      icon: '💎',
-      // Memecoins + dead tokens + fav token + graduated PF coins
-      xp: Math.log2((chain.tokenCount || 0) + 1) * 15000
-        + (chain.memecoins || 0) * 8000
-        + (chain.deadTokens || 0) * 3000
-        + Math.min(chain.favTokenBuys || 0, 500) * 200
-        + (chain.pfCoinsGraduated || 0) * 80000,
-    },
-    {
-      name: 'Plundering',
-      icon: '🏴‍☠️',
-      // Log-scaled wealth + volume + realized PnL
-      xp: Math.log2((chain.solBalance + chain.stakedSol) + 1) * 50000
-        + Math.log2((chain.solVolume || 0) + 1) * 15000
-        + Math.log2(Math.max(chain.pnlRealized ?? 0, 0) + 1) * 20000,
-    },
-    {
-      name: 'Navigation',
-      icon: '🧭',
-      // DEX diversity + unique dapps + DeFi tokens
-      xp: (chain.dexCount || 0) * 60000
-        + (chain.uniqueDapps || 0) * 40000
-        + chain.defiCategories.length * 80000,
-    },
-    {
-      name: 'Anchoring',
-      icon: '⚓',
-      // Wallet age + unique active days + staking + NFTs
-      xp: Math.min(chain.walletAgeDays, 1000) * 1500
-        + Math.min(chain.uniqueActiveDays || 0, 365) * 2000
-        + (chain.stakedSol > 0 ? 200000 : 0)
-        + (chain.nftCount || 0) * 10000,
-    },
-    {
-      name: 'Shipbuilding',
-      icon: '🔨',
-      // Shipyard-specific
-      xp: shipyard
-        ? shipyard.poolsCreated * 50000 + shipyard.poolsLaunched * 150000
-        : 0,
-    },
-  ];
-
-  return raw.map(s => {
-    const xp = Math.round(s.xp);
-    return {
-      ...s,
-      xp,
-      level: levelFromXp(xp),
-      progress: progressToNext(xp),
-    };
-  });
-}
-
-// Rank based on total level (not Shipyard pools)
-function getRankFromLevel(totalLevel: number) {
-  if (totalLevel >= 551) return { title: 'Shipwright', icon: '🔨', color: '#ec4899' };
-  if (totalLevel >= 451) return { title: 'Admiral',    icon: '⭐', color: '#f97316' };
-  if (totalLevel >= 351) return { title: 'Captain',    icon: '🎖️', color: '#fbbf24' };
-  if (totalLevel >= 251) return { title: 'Navigator',  icon: '🧭', color: '#a78bfa' };
-  if (totalLevel >= 176) return { title: 'Boatswain',  icon: '🪢', color: '#7ee787' };
-  if (totalLevel >= 101) return { title: 'Sailor',     icon: '⛵', color: '#88c0ff' };
-  if (totalLevel >= 51)  return { title: 'Deckhand',   icon: '🧹', color: '#c9d1d9' };
-  return { title: 'Stowaway', icon: '🐀', color: '#6e7b8b' };
-}
+import { computeSkills, getRankFromLevel, formatCompact } from '../lib/sailor-xp';
+import type { SkillData } from '../lib/sailor-xp';
 
 // ============================================================================
 // OSRS palette — corrected colors
@@ -151,12 +31,6 @@ const O = {
 };
 
 const FONT = "'Press Start 2P', monospace";
-
-function formatCompact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toFixed(0);
-}
 
 // ============================================================================
 // Sub-components
@@ -375,7 +249,7 @@ function LoadingSkeleton() {
         </div>
         {/* Skill grid skeleton */}
         <div className="sailor-skill-grid" style={{ marginBottom: '16px' }}>
-          {[...Array(6)].map((_, i) => <SkeletonTile key={i} />)}
+          {[...Array(5)].map((_, i) => <SkeletonTile key={i} />)}
         </div>
         {/* Combat level skeleton */}
         <div className="osrs-bevel" style={{ background: O.deepest, padding: '12px', marginBottom: '16px', textAlign: 'center' }}>
@@ -412,14 +286,14 @@ export default function SailorStats({ address }: { address: string }) {
 
   const skills = useMemo(() => {
     if (!chain) return [];
-    return computeSkills(chain, stats);
+    return computeSkills(chain);
   }, [chain, stats]);
 
   const totalLevel = useMemo(() => skills.reduce((s, sk) => s + sk.level, 0), [skills]);
   const totalXp = useMemo(() => skills.reduce((s, sk) => s + sk.xp, 0), [skills]);
 
   const combatLevel = useMemo(() => {
-    if (skills.length < 6) return 0;
+    if (skills.length < 5) return 0;
     const [sailing, degenning, plundering, navigation] = skills;
     return Math.floor(
       (sailing.level + degenning.level + plundering.level) / 3 +
@@ -641,7 +515,7 @@ export default function SailorStats({ address }: { address: string }) {
         </div>
 
         {/* 5. PnL Panel */}
-        {chain.pnlTotal !== null && (
+        {chain.pnlRealized !== null && (
           <div className="osrs-panel" style={{
             padding: '14px 16px',
             marginBottom: '16px',
@@ -669,16 +543,16 @@ export default function SailorStats({ address }: { address: string }) {
                 color: O.dim,
                 marginBottom: '4px',
               }}>
-                TOTAL PnL
+                REALIZED PnL
               </div>
               <div style={{
                 fontFamily: FONT,
                 fontSize: '18px',
                 fontWeight: 'bold',
                 textShadow: '1px 1px 0 #000',
-                color: (chain.pnlTotal ?? 0) >= 0 ? '#7ee787' : '#f85149',
+                color: (chain.pnlRealized ?? 0) >= 0 ? '#7ee787' : '#f85149',
               }}>
-                {(chain.pnlTotal ?? 0) >= 0 ? '+' : ''}{formatCompact(chain.pnlTotal ?? 0)} USD
+                {(chain.pnlRealized ?? 0) >= 0 ? '+' : ''}{formatCompact(chain.pnlRealized ?? 0)} USD
               </div>
             </div>
 
@@ -727,7 +601,7 @@ export default function SailorStats({ address }: { address: string }) {
                   marginBottom: '8px',
                   letterSpacing: '1px',
                 }}>
-                  TOP TRADES
+                  TOP WINS
                 </div>
                 {chain.pnlTopTokens.map((t, i) => (
                   <div key={i} style={{
@@ -771,6 +645,68 @@ export default function SailorStats({ address }: { address: string }) {
                           color: t.roi >= 0 ? '#7ee787' : '#f85149',
                         }}>
                           {t.roi >= 0 ? '+' : ''}{Math.round(t.roi)}% ROI
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Bottom 3 tokens by PnL — biggest losses */}
+            {chain.pnlBottomTokens && chain.pnlBottomTokens.length > 0 && (
+              <div style={{ marginTop: '10px', borderTop: `1px solid ${O.bevelDark}`, paddingTop: '10px' }}>
+                <div style={{
+                  fontFamily: FONT,
+                  fontSize: '6px',
+                  color: '#f85149',
+                  marginBottom: '8px',
+                  letterSpacing: '1px',
+                }}>
+                  BIGGEST LOSSES
+                </div>
+                {chain.pnlBottomTokens.map((t, i) => (
+                  <div key={i} style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '5px 0',
+                    borderBottom: i < chain.pnlBottomTokens.length - 1 ? `1px solid ${O.deepest}` : 'none',
+                  }}>
+                    {t.image && (
+                      <img
+                        src={t.image}
+                        alt={t.symbol || ''}
+                        style={{ width: 20, height: 20, borderRadius: 0, border: `1px solid ${O.bevelDark}` }}
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontFamily: FONT, fontSize: '8px', color: O.label }}>
+                        {t.symbol || t.address.slice(0, 8) + '...'}
+                      </div>
+                      {t.name && t.name !== t.symbol && (
+                        <div style={{ fontFamily: FONT, fontSize: '6px', color: O.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {t.name}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{
+                        fontFamily: FONT,
+                        fontSize: '8px',
+                        fontWeight: 'bold',
+                        color: '#f85149',
+                      }}>
+                        -${formatCompact(Math.abs(t.pnl))}
+                      </div>
+                      {t.roi !== 0 && (
+                        <div style={{
+                          fontFamily: FONT,
+                          fontSize: '6px',
+                          color: '#f85149',
+                        }}>
+                          {Math.round(t.roi)}% ROI
                         </div>
                       )}
                     </div>

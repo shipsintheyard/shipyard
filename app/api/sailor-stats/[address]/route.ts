@@ -209,14 +209,15 @@ async function fetchPnL(address: string): Promise<{
   bestTrade: { token: string; pnl: number } | null;
   worstTrade: { token: string; pnl: number } | null;
   topTokens: { address: string; pnl: number; invested: number; roi: number }[];
+  bottomTokens: { address: string; pnl: number; invested: number; roi: number }[];
   totalTokensTraded: number;
 }> {
-  if (!SOLTRACKER_URL) return { summary: null, bestTrade: null, worstTrade: null, topTokens: [], totalTokensTraded: 0 };
+  if (!SOLTRACKER_URL) return { summary: null, bestTrade: null, worstTrade: null, topTokens: [], bottomTokens: [], totalTokensTraded: 0 };
   try {
     const res = await fetch(
       `${SOLTRACKER_URL}/pnl/${address}?holdingCheck=true`,
     );
-    if (!res.ok) return { summary: null, bestTrade: null, worstTrade: null, topTokens: [], totalTokensTraded: 0 };
+    if (!res.ok) return { summary: null, bestTrade: null, worstTrade: null, topTokens: [], bottomTokens: [], totalTokensTraded: 0 };
     const data = await res.json();
     const summary: SolTrackerPnL | null = data.summary || null;
     const tokens: Record<string, SolTrackerToken> = data.tokens || {};
@@ -242,12 +243,13 @@ async function fetchPnL(address: string): Promise<{
       if (!worstTrade || pnl < worstTrade.pnl) worstTrade = { token: addr, pnl };
     }
 
-    // Top 5 by absolute PnL
+    // Top 5 by PnL (best first) + bottom 3 (worst losses)
     tokenEntries.sort((a, b) => b.pnl - a.pnl);
     const topTokens = tokenEntries.slice(0, 5);
+    const bottomTokens = tokenEntries.filter(t => t.pnl < 0).slice(-3).reverse();
 
-    return { summary, bestTrade, worstTrade, topTokens, totalTokensTraded: tokenEntries.length };
-  } catch { return { summary: null, bestTrade: null, worstTrade: null, topTokens: [], totalTokensTraded: 0 }; }
+    return { summary, bestTrade, worstTrade, topTokens, bottomTokens, totalTokensTraded: tokenEntries.length };
+  } catch { return { summary: null, bestTrade: null, worstTrade: null, topTokens: [], bottomTokens: [], totalTokensTraded: 0 }; }
 }
 
 // ============================================================================
@@ -524,6 +526,9 @@ export async function GET(
     if (pnlData.bestTrade) { metaKeys.push(pnlData.bestTrade.token); metaPromises.push(getTokenMeta(pnlData.bestTrade.token)); }
     if (pnlData.worstTrade) { metaKeys.push(pnlData.worstTrade.token); metaPromises.push(getTokenMeta(pnlData.worstTrade.token)); }
     for (const t of pnlData.topTokens.slice(0, 3)) { metaKeys.push(t.address); metaPromises.push(getTokenMeta(t.address)); }
+    for (const t of pnlData.bottomTokens.slice(0, 3)) {
+      if (!metaKeys.includes(t.address)) { metaKeys.push(t.address); metaPromises.push(getTokenMeta(t.address)); }
+    }
 
     const metaResults = await Promise.all(metaPromises);
     const metaMap = new Map<string, TokenMeta>();
@@ -613,6 +618,12 @@ export async function GET(
           image: metaMap.get(pnlData.worstTrade.token)?.image ?? null,
         } : null,
         pnlTopTokens: pnlData.topTokens.slice(0, 3).map(t => ({
+          ...t,
+          symbol: metaMap.get(t.address)?.symbol ?? null,
+          name: metaMap.get(t.address)?.name ?? null,
+          image: metaMap.get(t.address)?.image ?? null,
+        })),
+        pnlBottomTokens: pnlData.bottomTokens.slice(0, 3).map(t => ({
           ...t,
           symbol: metaMap.get(t.address)?.symbol ?? null,
           name: metaMap.get(t.address)?.name ?? null,

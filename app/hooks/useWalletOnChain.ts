@@ -54,6 +54,7 @@ export interface OnChainData {
   pnlBestTrade: { token: string; pnl: number; symbol: string | null; image: string | null } | null;
   pnlWorstTrade: { token: string; pnl: number; symbol: string | null; image: string | null } | null;
   pnlTopTokens: { address: string; pnl: number; invested: number; roi: number; symbol: string | null; name: string | null; image: string | null }[];
+  pnlBottomTokens: { address: string; pnl: number; invested: number; roi: number; symbol: string | null; name: string | null; image: string | null }[];
   pnlTokensTraded: number;
 }
 
