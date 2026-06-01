@@ -100,7 +100,7 @@ async function fetchZerionPortfolio(addr: string): Promise<ZerionPortfolio | nul
 async function fetchZerionPositions(addr: string): Promise<ZerionPosition[]> {
   try {
     const res = await fetch(
-      `${ZERION_BASE}/${addr}/positions/?filter[positions]=no_filter&currency=usd&page[size]=100`,
+      `${ZERION_BASE}/${addr}/positions?filter[positions]=no_filter&currency=usd&page[size]=100`,
       { headers: zerionHeaders() },
     );
     if (!res.ok) return [];
@@ -112,7 +112,7 @@ async function fetchZerionPositions(addr: string): Promise<ZerionPosition[]> {
 async function fetchZerionTrades(addr: string): Promise<{ data: ZerionTransaction[]; totalCount: number }> {
   try {
     const res = await fetch(
-      `${ZERION_BASE}/${addr}/transactions/?filter[operation_types]=trade&currency=usd&page[size]=100`,
+      `${ZERION_BASE}/${addr}/transactions?filter[operation_types]=trade&currency=usd&page[size]=100`,
       { headers: zerionHeaders() },
     );
     if (!res.ok) return { data: [], totalCount: 0 };
@@ -124,7 +124,7 @@ async function fetchZerionTrades(addr: string): Promise<{ data: ZerionTransactio
 async function fetchZerionAllTxns(addr: string): Promise<{ data: ZerionTransaction[]; totalCount: number }> {
   try {
     const res = await fetch(
-      `${ZERION_BASE}/${addr}/transactions/?currency=usd&page[size]=100`,
+      `${ZERION_BASE}/${addr}/transactions?currency=usd&page[size]=100`,
       { headers: zerionHeaders() },
     );
     if (!res.ok) return { data: [], totalCount: 0 };
@@ -138,7 +138,7 @@ async function fetchZerionAllTxns(addr: string): Promise<{ data: ZerionTransacti
 async function fetchZerionNFTs(addr: string): Promise<ZerionNFTPosition[]> {
   try {
     const res = await fetch(
-      `${ZERION_BASE}/${addr}/nft-positions/?page[size]=100`,
+      `${ZERION_BASE}/${addr}/nft-positions?page[size]=100`,
       { headers: zerionHeaders() },
     );
     if (!res.ok) return [];
@@ -171,32 +171,55 @@ interface ZerionPnLData {
 
 async function fetchZerionPnL(addr: string): Promise<ZerionPnLData | null> {
   try {
+    // Fetch aggregate PnL
     const res = await fetch(
-      `${ZERION_BASE}/${addr}/pnl/?currency=usd`,
-      { headers: zerionHeaders() },
+      `${ZERION_BASE}/${addr}/pnl?currency=usd`,
+      { headers: zerionHeaders(), redirect: 'follow' },
     );
     if (!res.ok) return null;
     const json = await res.json();
     const attrs = json.data?.attributes;
     if (!attrs) return null;
 
-    // Per-token breakdown
-    const byId = attrs.positions_pnl ?? [];
+    // Per-token breakdown: try positions_pnl, breakdown, or included
+    const byId = attrs.positions_pnl ?? attrs.breakdown?.by_id ?? json.included ?? [];
     const tokens: ZerionPnLData['tokens'] = [];
-    for (const entry of byId) {
-      const a = entry.attributes ?? entry;
-      if (!a) continue;
-      tokens.push({
-        symbol: a.fungible_info?.symbol ?? a.symbol ?? '???',
-        name: a.fungible_info?.name ?? a.name ?? '',
-        icon: a.fungible_info?.icon?.url ?? null,
-        realizedGain: a.realized_gain ?? 0,
-        unrealizedGain: a.unrealized_gain ?? 0,
-        totalInvested: a.total_invested ?? 0,
-        avgBuyPrice: a.average_buy_price ?? 0,
-        avgSellPrice: a.average_sell_price ?? 0,
-        relativeRealized: a.relative_realized_gain_percentage ?? 0,
-      });
+
+    if (Array.isArray(byId)) {
+      for (const entry of byId) {
+        const a = entry.attributes ?? entry;
+        if (!a) continue;
+        tokens.push({
+          symbol: a.fungible_info?.symbol ?? a.symbol ?? '???',
+          name: a.fungible_info?.name ?? a.name ?? '',
+          icon: a.fungible_info?.icon?.url ?? null,
+          realizedGain: a.realized_gain ?? 0,
+          unrealizedGain: a.unrealized_gain ?? 0,
+          totalInvested: a.total_invested ?? 0,
+          avgBuyPrice: a.average_buy_price ?? 0,
+          avgSellPrice: a.average_sell_price ?? 0,
+          relativeRealized: a.relative_realized_gain_percentage ?? 0,
+        });
+      }
+    } else if (typeof byId === 'object') {
+      // Handle { tokenId: { ... } } shape
+      for (const entry of Object.values(byId)) {
+        const a = (entry as Record<string, unknown>)?.attributes ?? entry;
+        if (!a || typeof a !== 'object') continue;
+        const e = a as Record<string, unknown>;
+        const fi = e.fungible_info as Record<string, unknown> | undefined;
+        tokens.push({
+          symbol: (fi?.symbol as string) ?? (e.symbol as string) ?? '???',
+          name: (fi?.name as string) ?? (e.name as string) ?? '',
+          icon: ((fi?.icon as Record<string, string>)?.url) ?? null,
+          realizedGain: (e.realized_gain as number) ?? 0,
+          unrealizedGain: (e.unrealized_gain as number) ?? 0,
+          totalInvested: (e.total_invested as number) ?? 0,
+          avgBuyPrice: (e.average_buy_price as number) ?? 0,
+          avgSellPrice: (e.average_sell_price as number) ?? 0,
+          relativeRealized: (e.relative_realized_gain_percentage as number) ?? 0,
+        });
+      }
     }
 
     // Sort by realized gain descending
@@ -246,6 +269,7 @@ const ETHERSCAN_BASE = 'https://api.etherscan.io/v2/api';
 interface EtherscanTx {
   from: string;
   to: string;
+  value: string;
   gasUsed: string;
   gasPrice: string;
   timeStamp: string;
@@ -271,6 +295,7 @@ async function fetchEtherscanTxns(addr: string): Promise<EtherscanTx[]> {
 
 function analyzeEtherscanTxns(txns: EtherscanTx[], address: string) {
   let gasBurnedWei = BigInt(0);
+  let volumeWei = BigInt(0);
   const contracts = new Set<string>();
   const months = new Set<string>();
   const days = new Set<string>();
@@ -282,6 +307,10 @@ function analyzeEtherscanTxns(txns: EtherscanTx[], address: string) {
       gasBurnedWei += BigInt(tx.gasUsed) * BigInt(tx.gasPrice);
       if (tx.to) contracts.add(tx.to.toLowerCase());
     }
+    // Volume = absolute ETH value moved in all txns involving this address
+    if (tx.value && tx.value !== '0') {
+      volumeWei += BigInt(tx.value);
+    }
     const ts = parseInt(tx.timeStamp);
     if (ts) {
       const d = new Date(ts * 1000);
@@ -291,11 +320,12 @@ function analyzeEtherscanTxns(txns: EtherscanTx[], address: string) {
     }
   }
 
-  // BigInt → number: multiply by 10000 then divide by 1e18 to keep 4 decimals
   const gasBurnedEth = Number(gasBurnedWei * BigInt(10000) / BigInt('1000000000000000000')) / 10000;
+  const volumeEth = Number(volumeWei * BigInt(10000) / BigInt('1000000000000000000')) / 10000;
 
   return {
     gasBurnedEth,
+    volumeEth,
     uniqueContracts: contracts.size,
     activeMonths: months.size,
     uniqueActiveDays: days.size,
@@ -377,6 +407,8 @@ export interface EVMDisplayData {
   // New — Snapshot
   governanceVotes: number;
   governanceSpaces: string[];
+  // Etherscan volume
+  volumeEth: number;
   // New — Zerion PnL (spot trading)
   spotPnl: ZerionPnLData | null;
 }
@@ -612,10 +644,12 @@ export async function fetchEVMSailorData(address: string): Promise<{
   const totalPortfolioUsd = portfolioFromEndpoint > 0 ? portfolioFromEndpoint : portfolioFromPositions;
   const chainDist = portfolio?.attributes?.positions_distribution_by_chain ?? {};
 
-  // Convert trade volume from USD to ETH-equivalent for solVolume field
-  // The scoring engine uses solVolume as a log-scale measure — 1000 SOL ≈ $200K
-  // Map so that $200K trade volume ≈ 1000 "SOL units"
-  const solVolumeEquiv = tradeVolumeUsd / 200;
+  // Convert trade volume to scoring units for solVolume field
+  // The scoring engine uses log scale: 1000 SOL ≈ 1000 units = max score
+  // Zerion trade volume (USD) or Etherscan ETH volume as fallback
+  const solVolumeEquiv = tradeVolumeUsd > 0
+    ? tradeVolumeUsd / 200       // USD → scoring units ($200K ≈ 1000)
+    : etherscanStats.volumeEth;  // ETH volume maps ~1:1 to SOL units
 
   // Use Etherscan data when available (much more accurate than Zerion's 100-txn window)
   const bestTxnCount = etherscanStats.txnCount > 0 ? etherscanStats.txnCount : allTxnsResult.totalCount;
@@ -624,8 +658,10 @@ export async function fetchEVMSailorData(address: string): Promise<{
     : walletAgeDays;
   const bestActiveDays = etherscanStats.uniqueActiveDays > 0 ? etherscanStats.uniqueActiveDays : activeDays.size;
 
-  // Governance votes boost uniqueDapps count
-  const totalUniqueDapps = allDapps.size + (snapshotData.spaces.length > 0 ? 1 : 0);
+  // Use best available dapp/contract count
+  // Etherscan unique contracts is a superset — use it when Zerion is sparse
+  const zerionDapps = allDapps.size + (snapshotData.spaces.length > 0 ? 1 : 0);
+  const totalUniqueDapps = Math.max(zerionDapps, Math.min(etherscanStats.uniqueContracts, 50));
 
   // ---- Build SailorChainData ----
   const chainData: SailorChainData = {
@@ -645,7 +681,7 @@ export async function fetchEVMSailorData(address: string): Promise<{
     pnlWins,
     pnlLosses,
     pnlTotalInvested,
-    pnlTokensTraded: uniqueTokensTraded.size,
+    pnlTokensTraded: zerionPnl?.tokens?.length ?? uniqueTokensTraded.size,
     dexCount: dappNames.size,
     uniqueDapps: totalUniqueDapps,
     defiCategories: snapshotData.totalVotes > 0
@@ -666,6 +702,7 @@ export async function fetchEVMSailorData(address: string): Promise<{
     hyperliquidPnl: hlPnl,
     hyperliquidVolume: hlVolume,
     ensName,
+    volumeEth: etherscanStats.volumeEth,
     spotPnl: zerionPnl,
     gasBurnedEth: etherscanStats.gasBurnedEth,
     uniqueContracts: etherscanStats.uniqueContracts,
