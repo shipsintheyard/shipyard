@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
-import { detectChain } from '../../../lib/chain-detect';
+import { detectChain, isENS, resolveENS } from '../../../lib/chain-detect';
 import { fetchEVMSailorData } from '../../../lib/evm-sailor';
 import { computeDegenScore } from '../../../lib/sailor-xp';
 
@@ -495,7 +495,17 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ address: string }> }
 ) {
-  const { address } = await params;
+  let { address } = await params;
+
+  // Resolve ENS names to 0x addresses
+  if (isENS(address)) {
+    const resolved = await resolveENS(address);
+    if (!resolved) {
+      return NextResponse.json({ success: false, error: `Could not resolve ${address}` }, { status: 400 });
+    }
+    address = resolved;
+  }
+
   const chain = detectChain(address);
 
   if (!chain) {
