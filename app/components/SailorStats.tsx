@@ -191,10 +191,13 @@ export default function SailorStats({ address }: { address: string }) {
   const { data: chain, loading, error } = useWalletOnChain(address);
   const [copied, setCopied] = useState(false);
 
+  const chainType = chain?.chain ?? 'solana';
+  const isEvm = chainType === 'evm';
+
   const score: DegenScore | null = useMemo(() => {
     if (!chain) return null;
-    return computeDegenScore(chain);
-  }, [chain]);
+    return computeDegenScore(chain, chainType);
+  }, [chain, chainType]);
 
   const shortenAddr = (a: string) => `${a.slice(0, 6)}...${a.slice(-4)}`;
 
@@ -246,7 +249,17 @@ export default function SailorStats({ address }: { address: string }) {
             </div>
             <div style={{
               fontFamily: FONT, fontSize: '7px', color: O.dim, marginTop: '6px',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
             }}>
+              <span style={{
+                fontSize: '6px', padding: '2px 5px',
+                background: isEvm ? 'rgba(98, 126, 234, 0.15)' : 'rgba(153, 69, 255, 0.15)',
+                border: `1px solid ${isEvm ? '#627eea44' : '#9945ff44'}`,
+                color: isEvm ? '#627eea' : '#9945ff',
+                letterSpacing: '1px',
+              }}>
+                {isEvm ? 'EVM' : 'SOL'}
+              </span>
               {shortenAddr(address)}
             </div>
           </div>
@@ -480,16 +493,18 @@ export default function SailorStats({ address }: { address: string }) {
                 chain.lastActivityDays === 0 ? 'Today' : `${chain.lastActivityDays}d ago`
               } />
               <StatRow label="Active Days" value={chain.uniqueActiveDays || 0} color={(chain.uniqueActiveDays || 0) > 30 ? '#7ee787' : undefined} />
-              <StatRow label="SOL" value={chain.solBalance.toFixed(2)} color={O.gold} />
-              <StatRow label="Staked" value={chain.stakedSol > 0 ? chain.stakedSol.toFixed(2) : '—'} color={chain.stakedSol > 0 ? '#7ee787' : undefined} />
+              <StatRow label={isEvm ? 'ETH' : 'SOL'} value={chain.solBalance.toFixed(isEvm ? 4 : 2)} color={O.gold} />
+              <StatRow label="Staked" value={chain.stakedSol > 0 ? chain.stakedSol.toFixed(isEvm ? 4 : 2) : '—'} color={chain.stakedSol > 0 ? '#7ee787' : undefined} />
               <StatRow label="Tokens" value={chain.tokenCount} />
             </div>
             <div>
               <StatRow label="Volume" value={
-                chain.solVolume > 0 ? `${formatCompact(chain.solVolume)} SOL` : '—'
+                chain.solVolume > 0
+                  ? isEvm ? `$${formatCompact(chain.solVolume * 200)} USD` : `${formatCompact(chain.solVolume)} SOL`
+                  : '—'
               } color={chain.solVolume > 0 ? O.gold : undefined} />
               <StatRow label="Biggest Trade" value={
-                chain.biggestTrade > 0 ? `${formatCompact(chain.biggestTrade)} SOL` : '—'
+                chain.biggestTrade > 0 ? `${formatCompact(chain.biggestTrade)} ${isEvm ? 'USD' : 'SOL'}` : '—'
               } color={chain.biggestTrade > 1 ? '#f97316' : undefined} />
               <StatRow label="Fav Token" value={
                 chain.favToken ? `${chain.favToken} (${chain.favTokenBuys})` : '—'
@@ -510,8 +525,92 @@ export default function SailorStats({ address }: { address: string }) {
           </div>
         </div>
 
-        {/* 6. Pump.fun Stats */}
-        {(chain.pfCoinsCreated > 0 || chain.pfHoldingsCount > 0 || (chain.pfCommunities && chain.pfCommunities.length > 0)) && (
+        {/* 6a. EVM Portfolio Panel */}
+        {isEvm && chain.evmDisplay && (
+          <div className="osrs-panel" style={{ padding: '14px 16px', marginBottom: '16px' }}>
+            <div style={{
+              fontFamily: FONT, fontSize: '7px', color: O.dim,
+              marginBottom: '10px', letterSpacing: '2px',
+            }}>
+              PORTFOLIO
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 20px' }}>
+              <div>
+                <StatRow label="Total Value" value={`$${formatCompact(chain.evmDisplay.totalPortfolioUsd)}`} color={O.gold} />
+                <StatRow label="ETH Balance" value={chain.evmDisplay.ethBalance.toFixed(4)} color={O.gold} />
+                <StatRow label="DeFi Protocols" value={chain.evmDisplay.defiProtocols.length || '—'} color={chain.evmDisplay.defiProtocols.length > 0 ? '#88c0ff' : undefined} />
+              </div>
+              <div>
+                {Object.entries(chain.evmDisplay.chainDistribution).length > 0 && (
+                  <>
+                    {Object.entries(chain.evmDisplay.chainDistribution)
+                      .sort(([, a], [, b]) => b - a)
+                      .slice(0, 3)
+                      .map(([chainName, pct]) => (
+                        <StatRow
+                          key={chainName}
+                          label={chainName.charAt(0).toUpperCase() + chainName.slice(1)}
+                          value={`${Math.round(pct * 100)}%`}
+                          color="#a78bfa"
+                        />
+                      ))}
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Top positions */}
+            {chain.evmDisplay.topPositions.length > 0 && (
+              <div style={{ marginTop: '10px', borderTop: `1px solid ${O.bevelDark}`, paddingTop: '10px' }}>
+                <div style={{ fontFamily: FONT, fontSize: '6px', color: O.dim, marginBottom: '6px', letterSpacing: '1px' }}>
+                  TOP POSITIONS
+                </div>
+                {chain.evmDisplay.topPositions.map((pos, i) => (
+                  <div key={i} style={{
+                    display: 'flex', justifyContent: 'space-between',
+                    padding: '3px 0',
+                    borderBottom: i < chain.evmDisplay!.topPositions.length - 1 ? `1px solid ${O.deepest}` : 'none',
+                    fontFamily: FONT, fontSize: '7px',
+                  }}>
+                    <span style={{ color: O.label }}>{pos.symbol}</span>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <span style={{ color: O.text, fontSize: '6px' }}>${formatCompact(pos.value)}</span>
+                      {pos.protocol && <span style={{ color: O.dim, fontSize: '6px' }}>{pos.protocol}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 6b. EVM Perps Panel (Hyperliquid) */}
+        {isEvm && chain.evmDisplay && (chain.evmDisplay.hyperliquidPnl !== null || chain.evmDisplay.hyperliquidVolume !== null) && (
+          <div className="osrs-panel" style={{ padding: '14px 16px', marginBottom: '16px' }}>
+            <div style={{
+              fontFamily: FONT, fontSize: '7px', color: O.dim,
+              marginBottom: '10px', letterSpacing: '2px',
+            }}>
+              PERPS — HYPERLIQUID
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 20px' }}>
+              <div>
+                {chain.evmDisplay.hyperliquidPnl !== null && (
+                  <StatRow label="Perp PnL" value={`$${formatCompact(chain.evmDisplay.hyperliquidPnl)}`}
+                    color={chain.evmDisplay.hyperliquidPnl >= 0 ? '#7ee787' : '#f85149'} />
+                )}
+              </div>
+              <div>
+                {chain.evmDisplay.hyperliquidVolume !== null && (
+                  <StatRow label="Perp Volume" value={`$${formatCompact(chain.evmDisplay.hyperliquidVolume)}`} color={O.gold} />
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 6c. Pump.fun Stats (Solana only) */}
+        {!isEvm && (chain.pfCoinsCreated > 0 || chain.pfHoldingsCount > 0 || (chain.pfCommunities && chain.pfCommunities.length > 0)) && (
           <div className="osrs-panel" style={{ padding: '14px 16px', marginBottom: '16px' }}>
             <div style={{
               fontFamily: FONT, fontSize: '7px', color: O.dim,

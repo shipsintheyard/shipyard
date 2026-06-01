@@ -203,7 +203,7 @@ function getGrade(score: number): string {
 // Wallet story — auto-generated one-liners from data
 // ============================================================================
 
-function generateStories(d: SailorChainData): string[] {
+function generateStories(d: SailorChainData, chain: 'solana' | 'evm' = 'solana'): string[] {
   const stories: string[] = [];
 
   // Age
@@ -237,26 +237,36 @@ function generateStories(d: SailorChainData): string[] {
     else if (d.pnlRealized < -10000) stories.push(`Down $${formatCompact(Math.abs(d.pnlRealized))} — battle scars`);
   }
 
-  // PF coins
-  if (d.pfCoinsGraduated >= 3) stories.push(`Graduated ${d.pfCoinsGraduated} coins — serial launcher`);
-  else if (d.pfCoinsGraduated >= 1) stories.push(`Graduated a coin on Pump.fun`);
-  else if (d.pfCoinsCreated >= 5) stories.push(`${d.pfCoinsCreated} coins launched, none graduated yet`);
+  if (chain === 'solana') {
+    // Solana-specific: Pump.fun stories
+    if (d.pfCoinsGraduated >= 3) stories.push(`Graduated ${d.pfCoinsGraduated} coins — serial launcher`);
+    else if (d.pfCoinsGraduated >= 1) stories.push(`Graduated a coin on Pump.fun`);
+    else if (d.pfCoinsCreated >= 5) stories.push(`${d.pfCoinsCreated} coins launched, none graduated yet`);
 
-  // KOTH
-  if (d.pfKothCount >= 1) stories.push(`Hit King of the Hill ${d.pfKothCount}x`);
+    if (d.pfKothCount >= 1) stories.push(`Hit King of the Hill ${d.pfKothCount}x`);
 
-  // Staking
-  if (d.stakedSol > 100) stories.push(`${Math.round(d.stakedSol)} SOL staked — long-term thinker`);
-  else if (d.stakedSol > 0) stories.push(`Staking SOL`);
+    // Staking (SOL)
+    if (d.stakedSol > 100) stories.push(`${Math.round(d.stakedSol)} SOL staked — long-term thinker`);
+    else if (d.stakedSol > 0) stories.push(`Staking SOL`);
+
+    // Volume (SOL)
+    if (d.solVolume >= 1000) stories.push(`${formatCompact(d.solVolume)} SOL in trade volume`);
+  } else {
+    // EVM-specific stories
+    if (d.defiCategories.length >= 3) stories.push(`Active across ${d.defiCategories.length} DeFi categories`);
+
+    if (d.stakedSol > 0) stories.push('Staking ETH — long-term thinker');
+
+    if (d.pnlWins + d.pnlLosses > 0) stories.push('Trading perps on Hyperliquid');
+
+    if (d.pfCoinsCreated > 0) stories.push(`Deployed ${d.pfCoinsCreated} contract${d.pfCoinsCreated > 1 ? 's' : ''}`);
+  }
 
   // DEX diversity
   if (d.dexCount >= 5) stories.push(`Trades on ${d.dexCount} different DEXes`);
 
   // Dapp diversity
   if (d.uniqueDapps >= 8) stories.push(`Active across ${d.uniqueDapps} protocols`);
-
-  // Volume
-  if (d.solVolume >= 1000) stories.push(`${formatCompact(d.solVolume)} SOL in trade volume`);
 
   // Active days
   if (d.uniqueActiveDays >= 200) stories.push(`Active ${d.uniqueActiveDays} unique days`);
@@ -270,7 +280,7 @@ function generateStories(d: SailorChainData): string[] {
 // Main score computation
 // ============================================================================
 
-export function computeDegenScore(d: SailorChainData): DegenScore {
+export function computeDegenScore(d: SailorChainData, chain: 'solana' | 'evm' = 'solana'): DegenScore {
   const trading = computeTrading(d);
   const conviction = computeConviction(d);
   const survival = computeSurvival(d);
@@ -290,7 +300,7 @@ export function computeDegenScore(d: SailorChainData): DegenScore {
     grade: getGrade(total),
     factors,
     tier: getTier(total),
-    stories: generateStories(d),
+    stories: generateStories(d, chain),
   };
 }
 

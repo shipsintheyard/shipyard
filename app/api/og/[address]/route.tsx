@@ -55,9 +55,11 @@ export async function GET(
     );
   }
 
-  const score = computeDegenScore(data);
+  const chainType = (data as Record<string, unknown>).chain === 'evm' ? 'evm' : 'solana' as const;
+  const score = computeDegenScore(data, chainType);
   const pnlRealized = typeof data.pnlRealized === 'number' ? data.pnlRealized : null;
   const winRate = typeof data.pnlWinRate === 'number' ? data.pnlWinRate as number : null;
+  const chainLabel = chainType === 'evm' ? 'EVM' : 'SOL';
 
   return new ImageResponse(
     (
@@ -100,9 +102,19 @@ export async function GET(
               <span style={{ fontSize: '24px', color: '#5c503c', marginTop: '4px' }}>
                 Grade: {score.grade}
               </span>
-              <span style={{ fontSize: '16px', color: '#8b7355', marginTop: '4px' }}>
-                {shortAddr}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                <span style={{
+                  fontSize: '12px', padding: '2px 8px',
+                  backgroundColor: chainType === 'evm' ? '#627eea22' : '#9945ff22',
+                  color: chainType === 'evm' ? '#627eea' : '#9945ff',
+                  border: `1px solid ${chainType === 'evm' ? '#627eea44' : '#9945ff44'}`,
+                }}>
+                  {chainLabel}
+                </span>
+                <span style={{ fontSize: '16px', color: '#8b7355' }}>
+                  {shortAddr}
+                </span>
+              </div>
             </div>
           </div>
 

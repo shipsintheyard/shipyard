@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { detectChain } from '../../../lib/chain-detect';
+import { fetchEVMSailorData } from '../../../lib/evm-sailor';
+import { computeDegenScore } from '../../../lib/sailor-xp';
 
 const HELIUS_RPC = process.env.HELIUS_API_KEY
   ? `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
@@ -493,7 +496,87 @@ export async function GET(
   { params }: { params: Promise<{ address: string }> }
 ) {
   const { address } = await params;
+  const chain = detectChain(address);
 
+  if (!chain) {
+    return NextResponse.json({ success: false, error: 'Invalid wallet address' }, { status: 400 });
+  }
+
+  // ---- EVM path ----
+  if (chain === 'evm') {
+    try {
+      const { chainData, evmDisplay } = await fetchEVMSailorData(address);
+      const score = computeDegenScore(chainData);
+      return NextResponse.json({
+        success: true,
+        data: {
+          chain: 'evm',
+          // Core scoring data
+          txnCount: chainData.txnCount,
+          tokenCount: chainData.tokenCount,
+          memecoins: chainData.memecoins,
+          deadTokens: chainData.deadTokens,
+          favTokenBuys: chainData.favTokenBuys,
+          pfCoinsCreated: chainData.pfCoinsCreated,
+          pfCoinsGraduated: 0,
+          pfGradRate: 0,
+          pfKothCount: 0,
+          pfBestCoin: null,
+          pfHoldingsCount: 0,
+          pfHoldingsValueSol: 0,
+          pfTopHoldings: [],
+          pfCoins: [],
+          pfCommunities: [],
+          solBalance: chainData.solBalance,
+          stakedSol: chainData.stakedSol,
+          solVolume: chainData.solVolume,
+          dexCount: chainData.dexCount,
+          dexProtocols: evmDisplay.defiProtocols.map(p => ({ project: p, trades: 0 })),
+          totalTrades: chainData.totalTrades,
+          biggestTrade: 0,
+          favToken: chainData.favTokenBuys > 0 ? null : null,
+          uniqueDapps: chainData.uniqueDapps,
+          uniqueDappsList: evmDisplay.defiProtocols,
+          defiTokens: [],
+          defiCategories: chainData.defiCategories,
+          nftCount: chainData.nftCount,
+          // Wallet age
+          walletAgeDays: chainData.walletAgeDays,
+          txnCountCapped: false,
+          firstSeenDate: chainData.walletAgeDays > 0
+            ? new Date(Date.now() - chainData.walletAgeDays * 86400000).toISOString()
+            : null,
+          lastActivityDays: 0,
+          activeMonths: 0,
+          activeWeeks: 0,
+          uniqueActiveDays: chainData.uniqueActiveDays,
+          totalTokenAccounts: chainData.tokenCount,
+          // PnL
+          pnlRealized: chainData.pnlRealized,
+          pnlUnrealized: null,
+          pnlTotal: chainData.pnlRealized,
+          pnlTotalInvested: chainData.pnlTotalInvested,
+          pnlWinRate: chainData.pnlWinRate,
+          pnlWins: chainData.pnlWins,
+          pnlLosses: chainData.pnlLosses,
+          pnlBestTrade: null,
+          pnlWorstTrade: null,
+          pnlTopTokens: [],
+          pnlBottomTokens: [],
+          pnlTokensTraded: chainData.pnlTokensTraded,
+          // EVM-specific display
+          evmDisplay,
+        },
+      }, {
+        headers: { 'Cache-Control': 'public, max-age=300' },
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'EVM data fetch error';
+      return NextResponse.json({ success: false, error: message }, { status: 500 });
+    }
+  }
+
+  // ---- Solana path ----
   let pubkey: PublicKey;
   try { pubkey = new PublicKey(address); }
   catch { return NextResponse.json({ success: false, error: 'Invalid Solana address' }, { status: 400 }); }
@@ -573,6 +656,7 @@ export async function GET(
     return NextResponse.json({
       success: true,
       data: {
+        chain: 'solana',
         // Signature stats (RPC)
         ...sigStats,
         // Token holdings (RPC)

@@ -1,7 +1,10 @@
 "use client";
 import { useState, useEffect } from 'react';
+import type { EVMDisplayData } from '../lib/evm-sailor';
 
 export interface OnChainData {
+  // Chain identifier
+  chain: 'solana' | 'evm';
   // Signature stats (RPC — up to 5000 sigs)
   txnCount: number;
   txnCountCapped: boolean;
@@ -56,6 +59,8 @@ export interface OnChainData {
   pnlTopTokens: { address: string; pnl: number; invested: number; roi: number; symbol: string | null; name: string | null; image: string | null }[];
   pnlBottomTokens: { address: string; pnl: number; invested: number; roi: number; symbol: string | null; name: string | null; image: string | null }[];
   pnlTokensTraded: number;
+  // EVM-only display data
+  evmDisplay?: EVMDisplayData;
 }
 
 // Browser cache — same wallet won't re-query within 10 min

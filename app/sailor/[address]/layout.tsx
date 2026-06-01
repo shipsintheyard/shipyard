@@ -10,7 +10,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   return {
     title: `Sailor Stats | ${short}`,
-    description: 'On-chain wallet stats for Solana degens — skills, PnL, win rate, and more.',
+    description: 'On-chain wallet stats — degen score, PnL, win rate, and more.',
     openGraph: {
       title: `Sailor Stats | ${short}`,
       description: 'Check your on-chain degen score',
@@ -20,7 +20,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     twitter: {
       card: 'summary_large_image',
       title: `Sailor Stats | ${short}`,
-      description: 'On-chain wallet stats for Solana degens',
+      description: 'On-chain wallet stats — degen score and more',
       images: [`/api/og/${address}`],
     },
   };
