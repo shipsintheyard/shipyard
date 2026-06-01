@@ -3,7 +3,7 @@ import React, { useMemo, useState, useCallback } from 'react';
 import { useWalletOnChain } from '../hooks/useWalletOnChain';
 import type { OnChainData } from '../hooks/useWalletOnChain';
 import { computeDegenScore, formatCompact } from '../lib/sailor-xp';
-import type { DegenScore, FactorScore } from '../lib/sailor-xp';
+import type { DegenScore, SkillScore } from '../lib/sailor-xp';
 
 // ============================================================================
 // OSRS palette
@@ -27,11 +27,13 @@ const O = {
 const FONT = "'Press Start 2P', monospace";
 
 // ============================================================================
-// Score ring — SVG circle showing the score
+// Score ring — total level
 // ============================================================================
 
-function ScoreRing({ score, grade, color }: { score: number; grade: string; color: string }) {
-  const pct = Math.min(score / 850, 1);
+function ScoreRing({ total, combatLevel, grade, color }: {
+  total: number; combatLevel: number; grade: string; color: string;
+}) {
+  const pct = Math.min(total / 1980, 1);
   const r = 70;
   const circ = 2 * Math.PI * r;
   const offset = circ * (1 - pct);
@@ -39,9 +41,7 @@ function ScoreRing({ score, grade, color }: { score: number; grade: string; colo
   return (
     <div style={{ position: 'relative', width: 180, height: 180, margin: '0 auto' }}>
       <svg width="180" height="180" viewBox="0 0 180 180" style={{ transform: 'rotate(-90deg)' }}>
-        {/* Background track */}
         <circle cx="90" cy="90" r={r} fill="none" stroke={O.deepest} strokeWidth="12" />
-        {/* Score arc */}
         <circle
           cx="90" cy="90" r={r} fill="none"
           stroke={color} strokeWidth="12"
@@ -51,20 +51,30 @@ function ScoreRing({ score, grade, color }: { score: number; grade: string; colo
           style={{ transition: 'stroke-dashoffset 1.5s ease-out' }}
         />
       </svg>
-      {/* Center text */}
       <div style={{
         position: 'absolute', inset: 0,
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
       }}>
         <div style={{
-          fontFamily: FONT, fontSize: '28px', fontWeight: 'bold',
-          color: O.gold, textShadow: '2px 2px 0 #000',
+          fontFamily: FONT, fontSize: '6px', color: O.dim,
+          letterSpacing: '1px', marginBottom: '2px',
         }}>
-          {score}
+          TOTAL
         </div>
         <div style={{
-          fontFamily: FONT, fontSize: '11px', color, marginTop: '4px',
+          fontFamily: FONT, fontSize: '26px', fontWeight: 'bold',
+          color: O.gold, textShadow: '2px 2px 0 #000',
+        }}>
+          {total}
+        </div>
+        <div style={{
+          fontFamily: FONT, fontSize: '7px', color: O.dim, marginTop: '4px',
+        }}>
+          ⚔️ {combatLevel}
+        </div>
+        <div style={{
+          fontFamily: FONT, fontSize: '10px', color, marginTop: '2px',
           textShadow: '1px 1px 0 #000',
         }}>
           {grade}
@@ -75,37 +85,79 @@ function ScoreRing({ score, grade, color }: { score: number; grade: string; colo
 }
 
 // ============================================================================
-// Factor bar
+// Skill cell — one cell in the 4×5 grid
 // ============================================================================
 
-function FactorBar({ factor, delay }: { factor: FactorScore; delay: number }) {
+function SkillCell({ skill }: { skill: SkillScore }) {
+  const [hover, setHover] = useState(false);
+  const levelColor = skill.level >= 99 ? O.gold
+    : skill.level >= 70 ? '#7ee787'
+    : skill.level >= 30 ? O.text
+    : O.dim;
+
   return (
-    <div style={{
-      opacity: 0,
-      animation: `fadeUp 0.35s ease-out ${delay}s forwards`,
-    }}>
+    <div
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        background: O.deepest,
+        border: `1px solid ${O.bevelDark}`,
+        padding: '6px 7px 4px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '2px',
+        position: 'relative',
+        cursor: 'default',
+      }}
+    >
       <div style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-        fontFamily: FONT, marginBottom: '4px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
       }}>
-        <span style={{ fontSize: '8px', color: O.label }}>
-          {factor.icon} {factor.name}
-        </span>
-        <span style={{ fontSize: '8px', color: factor.color, fontWeight: 'bold' }}>
-          {factor.score}/{Math.round(212.5)}
+        <span style={{ fontSize: '11px', lineHeight: 1 }}>{skill.icon}</span>
+        <span style={{
+          fontFamily: FONT,
+          fontSize: '10px',
+          fontWeight: 'bold',
+          color: levelColor,
+          textShadow: skill.level >= 99 ? '0 0 6px #ffd70066' : '1px 1px 0 #000',
+        }}>
+          {skill.level}
         </span>
       </div>
       <div style={{
-        height: '8px', background: O.deepest,
-        border: `1px solid ${O.bevelDark}`,
+        fontFamily: FONT,
+        fontSize: '5px',
+        color: O.dim,
+        textAlign: 'center',
+        lineHeight: 1,
       }}>
-        <div className="xp-fill" style={{
+        {skill.name}
+      </div>
+      {/* Mini XP bar */}
+      <div style={{ height: '2px', background: O.panelBg, marginTop: '1px' }}>
+        <div style={{
           height: '100%',
-          width: `${factor.pct}%`,
-          background: `linear-gradient(90deg, ${factor.color}88, ${factor.color})`,
-          boxShadow: `0 0 6px ${factor.color}44`,
+          width: `${(skill.level / 99) * 100}%`,
+          background: `linear-gradient(90deg, ${skill.color}88, ${skill.color})`,
+          transition: 'width 0.8s ease-out',
         }} />
       </div>
+      {/* Tooltip */}
+      {hover && (
+        <div style={{
+          position: 'absolute', bottom: '100%', left: '50%',
+          transform: 'translateX(-50%)',
+          marginBottom: '4px', padding: '4px 8px',
+          background: O.panelBg, border: `1px solid ${O.outer}`,
+          zIndex: 10, fontFamily: FONT, fontSize: '6px',
+          color: O.text, whiteSpace: 'nowrap',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+        }}>
+          {skill.desc}
+        </div>
+      )}
     </div>
   );
 }
@@ -154,25 +206,21 @@ function LoadingSkeleton() {
   return (
     <div style={{ maxWidth: '640px', margin: '0 auto', padding: '24px 16px 60px' }}>
       <div className="osrs-scroll" style={{ padding: '24px 20px' }}>
-        {/* Score ring skeleton */}
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
           <div className="osrs-skeleton" style={{ width: 180, height: 180, borderRadius: '50%' }} />
         </div>
-        {/* Title skeleton */}
         <div style={{ textAlign: 'center', marginBottom: '20px' }}>
           <div className="osrs-skeleton" style={{ width: 120, height: 14, margin: '0 auto 8px' }} />
           <div className="osrs-skeleton" style={{ width: 200, height: 8, margin: '0 auto' }} />
         </div>
-        {/* Factor bars skeleton */}
+        {/* Skill grid skeleton */}
         <div className="osrs-panel" style={{ padding: '14px 16px', marginBottom: '16px' }}>
-          {[...Array(4)].map((_, i) => (
-            <div key={i} style={{ marginBottom: i < 3 ? 14 : 0 }}>
-              <div className="osrs-skeleton" style={{ height: 8, width: '40%', marginBottom: 4 }} />
-              <div className="osrs-skeleton" style={{ height: 8, width: '100%' }} />
-            </div>
-          ))}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px' }}>
+            {[...Array(20)].map((_, i) => (
+              <div key={i} className="osrs-skeleton" style={{ height: 38 }} />
+            ))}
+          </div>
         </div>
-        {/* Stories skeleton */}
         <div className="osrs-panel" style={{ padding: '14px 16px' }}>
           {[...Array(3)].map((_, i) => (
             <div key={i} className="osrs-skeleton" style={{ height: 7, width: `${60 + Math.random() * 30}%`, marginBottom: 10 }} />
@@ -203,7 +251,7 @@ export default function SailorStats({ address }: { address: string }) {
 
   const handleCopy = useCallback(() => {
     if (!score) return;
-    const text = `${score.tier.icon} Degen Score: ${score.total}/850 — ${score.tier.title} | ${score.grade}\nshipyardtools.xyz/sailor/${address}`;
+    const text = `${score.tier.icon} Total Level: ${score.total} — ${score.tier.title} | ${score.grade}\nshipyardtools.xyz/sailor/${address}`;
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -211,7 +259,7 @@ export default function SailorStats({ address }: { address: string }) {
 
   const handleShareX = useCallback(() => {
     if (!score) return;
-    const text = encodeURIComponent(`${score.tier.icon} Degen Score: ${score.total}/850 — ${score.tier.title}\n\n${score.tier.roast}`);
+    const text = encodeURIComponent(`${score.tier.icon} Total Level: ${score.total} — ${score.tier.title}\n\n${score.tier.roast}`);
     const url = encodeURIComponent(`https://shipyardtools.xyz/sailor/${address}`);
     window.open(`https://twitter.com/intent/tweet?text=${text}&url=${url}`, '_blank', 'noopener');
   }, [score, address]);
@@ -232,13 +280,22 @@ export default function SailorStats({ address }: { address: string }) {
     );
   }
 
+  // Find highest skill for highlight
+  const maxSkill = [...score.skills].sort((a, b) => b.level - a.level)[0];
+  const skills99 = score.skills.filter(s => s.level >= 99).length;
+
   return (
     <div style={{ maxWidth: '640px', margin: '0 auto', padding: '24px 16px 60px' }}>
       <div className="osrs-scroll" style={{ padding: '24px 20px' }}>
 
         {/* 1. Score Ring + Tier */}
         <div style={{ marginBottom: '20px' }}>
-          <ScoreRing score={score.total} grade={score.grade} color={score.tier.color} />
+          <ScoreRing
+            total={score.total}
+            combatLevel={score.combatLevel}
+            grade={score.grade}
+            color={score.tier.color}
+          />
 
           <div style={{ textAlign: 'center', marginTop: '12px' }}>
             <div style={{
@@ -278,19 +335,27 @@ export default function SailorStats({ address }: { address: string }) {
           </div>
         </div>
 
-        {/* 2. Factor Bars */}
+        {/* 2. OSRS Skill Grid — 4 columns × 5 rows */}
         <div className="osrs-panel" style={{
-          padding: '14px 16px', marginBottom: '16px',
+          padding: '14px 12px', marginBottom: '16px',
         }}>
           <div style={{
             fontFamily: FONT, fontSize: '7px', color: O.dim,
-            marginBottom: '12px', letterSpacing: '2px',
+            marginBottom: '10px', letterSpacing: '2px',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
           }}>
-            SCORE BREAKDOWN
+            <span>SKILLS</span>
+            <span style={{ fontSize: '6px', color: O.label }}>
+              {skills99 > 0 ? `${skills99} MAXED` : `BEST: ${maxSkill.icon} ${maxSkill.level}`}
+            </span>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {score.factors.map((f, i) => (
-              <FactorBar key={f.name} factor={f} delay={0.1 + i * 0.1} />
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, 1fr)',
+            gap: '3px',
+          }}>
+            {score.skills.map(s => (
+              <SkillCell key={s.id} skill={s} />
             ))}
           </div>
         </div>

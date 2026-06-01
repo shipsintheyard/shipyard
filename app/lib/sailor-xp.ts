@@ -1,20 +1,22 @@
 // ============================================================================
-// Degen Credit Score — 0 to 850
-// 4 factors: Trading, Conviction, Survival, Reputation
-// Each factor scores 0-212.5 → total 0-850
+// Degen Score — 20 OSRS-style Skills
+// Each skill: Level 1-99 | Total Level: 20-1980
 // ============================================================================
 
-const FACTOR_MAX = 212.5;
-
-// Clamp a value into 0..max range
-function clamp(v: number, max: number = FACTOR_MAX): number {
-  return Math.max(0, Math.min(v, max));
+// Clamp a value into min..max range
+function clamp(v: number, min: number, max: number): number {
+  return Math.max(min, Math.min(v, max));
 }
 
 // Log scale helper — maps 0..cap to 0..1 on a log curve
 function logScale(value: number, cap: number): number {
   if (value <= 0) return 0;
   return Math.min(Math.log2(value + 1) / Math.log2(cap + 1), 1);
+}
+
+// Convert a 0..1 ratio to a level 1..99
+function toLevel(ratio: number): number {
+  return clamp(Math.floor(ratio * 98) + 1, 1, 99);
 }
 
 // ============================================================================
@@ -49,23 +51,25 @@ export interface SailorChainData {
 }
 
 // ============================================================================
-// Factor computation
+// Skill score — one per skill
 // ============================================================================
 
-export interface FactorScore {
+export interface SkillScore {
+  id: string;
   name: string;
   icon: string;
-  score: number;     // 0-212.5
-  pct: number;       // 0-100
+  level: number;    // 1-99
   color: string;
+  desc: string;     // what this skill measures
 }
 
 export interface DegenScore {
-  total: number;         // 0-850
-  grade: string;         // A+ to F
-  factors: FactorScore[];
+  total: number;         // total level (20-1980)
+  combatLevel: number;   // average of combat skills (1-99)
+  grade: string;
+  skills: SkillScore[];
   tier: TierInfo;
-  stories: string[];     // auto-generated wallet story one-liners
+  stories: string[];
 }
 
 export interface TierInfo {
@@ -75,104 +79,115 @@ export interface TierInfo {
   roast: string;
 }
 
-function computeTrading(d: SailorChainData): number {
-  // Txn volume — log scale, 10K txns = full marks on this sub
-  const txnScore = logScale(d.txnCount, 10000) * 60;
-  // Trade count from Helius swaps
-  const tradeScore = logScale(d.totalTrades, 200) * 40;
-  // SOL volume — log scale, 1000 SOL = full
-  const volScore = logScale(d.solVolume, 1000) * 50;
-  // DEX diversity — each DEX = 8 pts, max 5
-  const dexScore = Math.min(d.dexCount, 5) * 8;
-  // Tokens traded (PnL data) — log scale
-  const tokenScore = logScale(d.pnlTokensTraded, 500) * 22.5;
+// ============================================================================
+// 20 Skill Definitions — ordered for display (4 cols × 5 rows)
+// ============================================================================
 
-  return clamp(txnScore + tradeScore + volScore + dexScore + tokenScore);
-}
+// Row 1: Core Combat
+// Row 2: Support Combat
+// Row 3: Gathering
+// Row 4: Artisan
+// Row 5: Support
 
-function computeConviction(d: SailorChainData): number {
-  // Wallet age — log scale, 2 years = full
-  const ageScore = logScale(d.walletAgeDays, 730) * 60;
-  // Active days — log scale, 200 unique days = full
-  const activityScore = logScale(d.uniqueActiveDays, 200) * 50;
-  // Staking — binary bonus + amount
-  const stakeScore = d.stakedSol > 0
-    ? 20 + logScale(d.stakedSol, 100) * 20
-    : 0;
-  // NFT holdings — has skin in the game
-  const nftScore = logScale(d.nftCount, 20) * 22.5;
-  // DeFi categories — governance, perps, staking
-  const defiScore = Math.min(d.defiCategories.length, 3) * 10;
+const COMBAT_SKILL_IDS = ['attack', 'strength', 'defence', 'hitpoints', 'ranged', 'magic', 'prayer'];
 
-  return clamp(ageScore + activityScore + stakeScore + nftScore + defiScore);
-}
-
-function computeSurvival(d: SailorChainData): number {
-  // Win rate — center around 50%, reward above
-  const wr = d.pnlWinRate ?? 0;
-  const totalTrades = d.pnlWins + d.pnlLosses;
-  // Need at least 10 trades for win rate to matter
-  const winScore = totalTrades >= 10
-    ? (wr / 100) * 80
-    : logScale(totalTrades, 10) * 30;
-
-  // Realized PnL — log scale, positive is good
-  const realized = d.pnlRealized ?? 0;
-  let pnlScore = 0;
-  if (realized > 0) {
-    pnlScore = logScale(realized, 100000) * 70;
-  } else if (realized < 0) {
-    // Negative PnL still gets some survival credit for staying in the game
-    pnlScore = Math.max(0, 20 - logScale(Math.abs(realized), 50000) * 20);
-  } else {
-    pnlScore = 10; // neutral
-  }
-
-  // ROI efficiency — how much they made vs invested
+function computeSkills(d: SailorChainData): SkillScore[] {
+  // Pre-compute ROI
   const invested = d.pnlTotalInvested ?? 0;
-  let roiScore = 0;
-  if (invested > 0 && realized > 0) {
-    const roi = realized / invested;
-    roiScore = logScale(roi * 100, 500) * 42.5;
-  }
+  const realized = d.pnlRealized ?? 0;
+  const roi = invested > 0 && realized > 0 ? (realized / invested) * 100 : 0;
 
-  // Dead token ratio — survived rugs (having dead tokens but still positive = battle-tested)
-  const deadRatio = d.tokenCount > 0 ? d.deadTokens / (d.tokenCount + d.deadTokens) : 0;
-  const rugScore = deadRatio > 0 && realized > 0
-    ? Math.min(deadRatio * 40, 20)
-    : 0;
+  // Pre-compute trade count for defence
+  const tradeCount = d.pnlWins + d.pnlLosses;
 
-  return clamp(winScore + pnlScore + roiScore + rugScore);
-}
+  return [
+    // ═══ Row 1: Core Combat ═══
+    { id: 'attack', name: 'Attack', icon: '⚔️', color: '#c75011', desc: 'Trade Volume',
+      level: toLevel(logScale(d.solVolume, 1000)) },
 
-function computeReputation(d: SailorChainData): number {
-  // PF coins created — shows builder intent
-  const createScore = logScale(d.pfCoinsCreated, 10) * 40;
-  // Graduated coins — actual success
-  const gradScore = Math.min(d.pfCoinsGraduated, 5) * 25;
-  // KOTH — viral moment
-  const kothScore = Math.min(d.pfKothCount, 3) * 15;
-  // Dapp diversity — protocol citizen
-  const dappScore = logScale(d.uniqueDapps, 10) * 40;
-  // Community tokens held (memecoins)
-  const communityScore = logScale(d.memecoins, 30) * 22.5;
+    { id: 'strength', name: 'Strength', icon: '💪', color: '#047857', desc: 'Realized PnL',
+      level: (() => {
+        const pnl = d.pnlRealized ?? 0;
+        if (pnl <= 0) return 1;
+        return toLevel(logScale(pnl, 100000));
+      })() },
 
-  return clamp(createScore + gradScore + kothScore + dappScore + communityScore);
+    { id: 'defence', name: 'Defence', icon: '🛡️', color: '#6b9bd2', desc: 'Win Rate',
+      level: (() => {
+        if (tradeCount < 10) return clamp(tradeCount, 1, 10);
+        return toLevel((d.pnlWinRate ?? 0) / 100);
+      })() },
+
+    { id: 'hitpoints', name: 'Hitpoints', icon: '❤️', color: '#b91c1c', desc: 'Wallet Age',
+      level: toLevel(logScale(d.walletAgeDays, 1825)) },
+
+    // ═══ Row 2: Support Combat ═══
+    { id: 'ranged', name: 'Ranged', icon: '🏹', color: '#4d7c0f', desc: 'Tokens Sniped',
+      level: toLevel(logScale(d.pnlTokensTraded, 500)) },
+
+    { id: 'magic', name: 'Magic', icon: '🔮', color: '#6d28d9', desc: 'DeFi Mastery',
+      level: toLevel(Math.min(d.defiCategories.length, 5) / 5) },
+
+    { id: 'prayer', name: 'Prayer', icon: '✨', color: '#ca8a04', desc: 'Diamond Hands',
+      level: toLevel(logScale(d.stakedSol, 100)) },
+
+    { id: 'agility', name: 'Agility', icon: '🏃', color: '#3730a3', desc: 'DEX Diversity',
+      level: toLevel(logScale(d.dexCount, 10)) },
+
+    // ═══ Row 3: Gathering ═══
+    { id: 'woodcutting', name: 'Woodcutting', icon: '🪓', color: '#78350f', desc: 'Transactions',
+      level: toLevel(logScale(d.txnCount, 10000)) },
+
+    { id: 'mining', name: 'Mining', icon: '⛏️', color: '#57534e', desc: 'Daily Grind',
+      level: toLevel(logScale(d.uniqueActiveDays, 365)) },
+
+    { id: 'fishing', name: 'Fishing', icon: '🎣', color: '#0369a1', desc: 'NFT Collector',
+      level: toLevel(logScale(d.nftCount, 50)) },
+
+    { id: 'farming', name: 'Farming', icon: '🌱', color: '#166534', desc: 'Bag Holder',
+      level: toLevel(logScale(d.tokenCount, 50)) },
+
+    // ═══ Row 4: Artisan ═══
+    { id: 'cooking', name: 'Cooking', icon: '🍳', color: '#92400e', desc: 'Token Chef',
+      level: toLevel(logScale(d.pfCoinsCreated, 10)) },
+
+    { id: 'firemaking', name: 'Firemaking', icon: '🔥', color: '#d97706', desc: 'Rug Survivor',
+      level: toLevel(logScale(d.deadTokens, 50)) },
+
+    { id: 'herblore', name: 'Herblore', icon: '🧪', color: '#15803d', desc: 'Degen Potions',
+      level: toLevel(logScale(d.memecoins, 30)) },
+
+    { id: 'crafting', name: 'Crafting', icon: '🔨', color: '#854d0e', desc: 'Graduated',
+      level: toLevel(logScale(d.pfCoinsGraduated, 5)) },
+
+    // ═══ Row 5: Support ═══
+    { id: 'fletching', name: 'Fletching', icon: '🪶', color: '#0f766e', desc: 'Swap Speed',
+      level: toLevel(logScale(d.totalTrades, 500)) },
+
+    { id: 'slayer', name: 'Slayer', icon: '💀', color: '#475569', desc: 'Kill Count',
+      level: toLevel(logScale(tradeCount, 200)) },
+
+    { id: 'thieving', name: 'Thieving', icon: '🗡️', color: '#5b21b6', desc: 'Alpha',
+      level: toLevel(logScale(Math.max(0, roi), 500)) },
+
+    { id: 'hunter', name: 'Hunter', icon: '🦊', color: '#c2410c', desc: 'Protocol Hunter',
+      level: toLevel(logScale(d.uniqueDapps, 20)) },
+  ];
 }
 
 // ============================================================================
-// Tiers + roasts
+// Tiers + roasts — thresholds based on total level (20-1980)
 // ============================================================================
 
 const TIERS: { min: number; title: string; icon: string; color: string; roast: string }[] = [
-  { min: 750, title: 'Pirate King',    icon: '👑', color: '#ffd700', roast: 'The ocean bends to your will. Wallets tremble when you connect.' },
-  { min: 650, title: 'Fleet Admiral',  icon: '⚔️', color: '#ec4899', roast: 'Battle-tested and profitable. Your portfolio has seen things.' },
-  { min: 550, title: 'Captain',        icon: '🎖️', color: '#f97316', roast: 'You actually know what you\'re doing. Rare on Solana.' },
-  { min: 450, title: 'First Mate',     icon: '🧭', color: '#fbbf24', roast: 'Solid sailor. You\'ve survived enough rugs to earn respect.' },
-  { min: 350, title: 'Deckhand',       icon: '⛵', color: '#a78bfa', roast: 'Getting your sea legs. Still buying tops sometimes.' },
-  { min: 250, title: 'Cabin Boy',      icon: '🪣', color: '#88c0ff', roast: 'Learning the ropes. Your worst trades are still ahead of you.' },
-  { min: 150, title: 'Stowaway',       icon: '🐀', color: '#7ee787', roast: 'Snuck aboard somehow. Mostly watching from the shadows.' },
-  { min: 0,   title: 'Barnacle',       icon: '🪸', color: '#6e7b8b', roast: 'Attached to the hull doing nothing. Touch some grass... or a DEX.' },
+  { min: 1400, title: 'Pirate King',   icon: '👑', color: '#ffd700', roast: 'The ocean bends to your will. Wallets tremble when you connect.' },
+  { min: 1150, title: 'Fleet Admiral', icon: '⚔️', color: '#ec4899', roast: 'Battle-tested and profitable. Your portfolio has seen things.' },
+  { min: 950,  title: 'Captain',       icon: '🎖️', color: '#f97316', roast: 'You actually know what you\'re doing. Rare in DeFi.' },
+  { min: 750,  title: 'First Mate',    icon: '🧭', color: '#fbbf24', roast: 'Solid sailor. You\'ve survived enough rugs to earn respect.' },
+  { min: 550,  title: 'Deckhand',      icon: '⛵', color: '#a78bfa', roast: 'Getting your sea legs. Still buying tops sometimes.' },
+  { min: 400,  title: 'Cabin Boy',     icon: '🪣', color: '#88c0ff', roast: 'Learning the ropes. Your worst trades are still ahead of you.' },
+  { min: 250,  title: 'Stowaway',      icon: '🐀', color: '#7ee787', roast: 'Snuck aboard somehow. Mostly watching from the shadows.' },
+  { min: 0,    title: 'Barnacle',      icon: '🪸', color: '#6e7b8b', roast: 'Attached to the hull doing nothing. Touch some grass... or a DEX.' },
 ];
 
 export function getTier(score: number): TierInfo {
@@ -182,20 +197,20 @@ export function getTier(score: number): TierInfo {
   return TIERS[TIERS.length - 1];
 }
 
-function getGrade(score: number): string {
-  if (score >= 800) return 'A+';
-  if (score >= 750) return 'A';
-  if (score >= 700) return 'A-';
-  if (score >= 650) return 'B+';
-  if (score >= 600) return 'B';
-  if (score >= 550) return 'B-';
-  if (score >= 500) return 'C+';
-  if (score >= 450) return 'C';
-  if (score >= 400) return 'C-';
-  if (score >= 350) return 'D+';
-  if (score >= 300) return 'D';
-  if (score >= 250) return 'D-';
-  if (score >= 150) return 'F+';
+function getGrade(total: number): string {
+  if (total >= 1700) return 'A+';
+  if (total >= 1500) return 'A';
+  if (total >= 1350) return 'A-';
+  if (total >= 1200) return 'B+';
+  if (total >= 1050) return 'B';
+  if (total >= 900)  return 'B-';
+  if (total >= 750)  return 'C+';
+  if (total >= 600)  return 'C';
+  if (total >= 500)  return 'C-';
+  if (total >= 400)  return 'D+';
+  if (total >= 280)  return 'D';
+  if (total >= 200)  return 'D-';
+  if (total >= 100)  return 'F+';
   return 'F';
 }
 
@@ -238,43 +253,29 @@ function generateStories(d: SailorChainData, chain: 'solana' | 'evm' = 'solana')
   }
 
   if (chain === 'solana') {
-    // Solana-specific: Pump.fun stories
     if (d.pfCoinsGraduated >= 3) stories.push(`Graduated ${d.pfCoinsGraduated} coins — serial launcher`);
     else if (d.pfCoinsGraduated >= 1) stories.push(`Graduated a coin on Pump.fun`);
     else if (d.pfCoinsCreated >= 5) stories.push(`${d.pfCoinsCreated} coins launched, none graduated yet`);
 
     if (d.pfKothCount >= 1) stories.push(`Hit King of the Hill ${d.pfKothCount}x`);
 
-    // Staking (SOL)
     if (d.stakedSol > 100) stories.push(`${Math.round(d.stakedSol)} SOL staked — long-term thinker`);
     else if (d.stakedSol > 0) stories.push(`Staking SOL`);
 
-    // Volume (SOL)
     if (d.solVolume >= 1000) stories.push(`${formatCompact(d.solVolume)} SOL in trade volume`);
   } else {
-    // EVM-specific stories
     if (d.defiCategories.includes('governance')) stories.push('Participates in DAO governance');
-
     if (d.defiCategories.length >= 3) stories.push(`Active across ${d.defiCategories.length} DeFi categories`);
-
     if (d.stakedSol > 0) stories.push('Staking ETH — long-term thinker');
-
     if (d.pnlWins + d.pnlLosses > 0) stories.push('Trading perps on Hyperliquid');
-
     if (d.pfCoinsCreated > 0) stories.push(`Deployed ${d.pfCoinsCreated} contract${d.pfCoinsCreated > 1 ? 's' : ''}`);
   }
 
-  // DEX diversity
   if (d.dexCount >= 5) stories.push(`Trades on ${d.dexCount} different DEXes`);
-
-  // Dapp diversity
   if (d.uniqueDapps >= 8) stories.push(`Active across ${d.uniqueDapps} protocols`);
-
-  // Active days
   if (d.uniqueActiveDays >= 200) stories.push(`Active ${d.uniqueActiveDays} unique days`);
   else if (d.uniqueActiveDays >= 60) stories.push(`${d.uniqueActiveDays} days of on-chain activity`);
 
-  // Cap at 5 most interesting
   return stories.slice(0, 5);
 }
 
@@ -283,24 +284,18 @@ function generateStories(d: SailorChainData, chain: 'solana' | 'evm' = 'solana')
 // ============================================================================
 
 export function computeDegenScore(d: SailorChainData, chain: 'solana' | 'evm' = 'solana'): DegenScore {
-  const trading = computeTrading(d);
-  const conviction = computeConviction(d);
-  const survival = computeSurvival(d);
-  const reputation = computeReputation(d);
+  const skills = computeSkills(d);
+  const total = skills.reduce((sum, s) => sum + s.level, 0);
 
-  const total = Math.round(trading + conviction + survival + reputation);
-
-  const factors: FactorScore[] = [
-    { name: 'Trading',    icon: '📊', score: Math.round(trading),    pct: Math.round((trading / FACTOR_MAX) * 100),    color: '#f97316' },
-    { name: 'Conviction', icon: '💎', score: Math.round(conviction), pct: Math.round((conviction / FACTOR_MAX) * 100), color: '#a78bfa' },
-    { name: 'Survival',   icon: '🛡️', score: Math.round(survival),   pct: Math.round((survival / FACTOR_MAX) * 100),   color: '#7ee787' },
-    { name: 'Reputation', icon: '⭐', score: Math.round(reputation), pct: Math.round((reputation / FACTOR_MAX) * 100), color: '#fbbf24' },
-  ];
+  // Combat level = average of combat skills
+  const combatSkills = skills.filter(s => COMBAT_SKILL_IDS.includes(s.id));
+  const combatLevel = Math.round(combatSkills.reduce((sum, s) => sum + s.level, 0) / combatSkills.length);
 
   return {
     total,
+    combatLevel,
     grade: getGrade(total),
-    factors,
+    skills,
     tier: getTier(total),
     stories: generateStories(d, chain),
   };

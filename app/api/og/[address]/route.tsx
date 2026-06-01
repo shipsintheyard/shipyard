@@ -58,8 +58,10 @@ export async function GET(
   const chainType = (data as Record<string, unknown>).chain === 'evm' ? 'evm' : 'solana' as const;
   const score = computeDegenScore(data, chainType);
   const pnlRealized = typeof data.pnlRealized === 'number' ? data.pnlRealized : null;
-  const winRate = typeof data.pnlWinRate === 'number' ? data.pnlWinRate as number : null;
   const chainLabel = chainType === 'evm' ? 'EVM' : 'SOL';
+
+  // Top 8 skills by level for display
+  const topSkills = [...score.skills].sort((a, b) => b.level - a.level).slice(0, 8);
 
   return new ImageResponse(
     (
@@ -77,21 +79,21 @@ export async function GET(
           border: '4px solid #8b7355',
           padding: '24px 40px',
         }}>
-          {/* Header: Score + Tier */}
+          {/* Header: Total Level + Tier */}
           <div style={{
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             marginBottom: '20px', borderBottom: '3px solid #8b7355', paddingBottom: '16px',
           }}>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               <span style={{ fontSize: '18px', color: '#5c503c', letterSpacing: '4px', marginBottom: '4px' }}>
-                DEGEN SCORE
+                TOTAL LEVEL
               </span>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: '16px' }}>
                 <span style={{ fontSize: '72px', fontWeight: 'bold', color: '#b8860b' }}>
                   {score.total}
                 </span>
-                <span style={{ fontSize: '28px', color: '#5c503c' }}>
-                  / 850
+                <span style={{ fontSize: '22px', color: '#5c503c' }}>
+                  ⚔️ Combat {score.combatLevel}
                 </span>
               </div>
             </div>
@@ -118,42 +120,32 @@ export async function GET(
             </div>
           </div>
 
-          {/* Factor bars */}
+          {/* Top 8 Skills Grid — 4×2 */}
           <div style={{
-            display: 'flex', gap: '16px', marginBottom: '20px',
+            display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '20px',
           }}>
-            {score.factors.map(f => (
-              <div key={f.name} style={{
-                display: 'flex', flexDirection: 'column', flex: 1,
+            {topSkills.map(s => (
+              <div key={s.id} style={{
+                display: 'flex', alignItems: 'center', gap: '8px',
                 backgroundColor: '#3e3529', border: '2px solid #5c503c',
-                padding: '12px 16px',
+                padding: '10px 16px', flex: '1 1 23%', minWidth: '200px',
               }}>
-                <div style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  marginBottom: '8px',
-                }}>
-                  <span style={{ color: '#c8aa6e', fontSize: '16px' }}>
-                    {f.icon} {f.name}
-                  </span>
-                  <span style={{ color: f.color, fontSize: '22px', fontWeight: 'bold' }}>
-                    {f.pct}%
-                  </span>
+                <span style={{ fontSize: '24px' }}>{s.icon}</span>
+                <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                  <span style={{ color: '#c8aa6e', fontSize: '14px' }}>{s.name}</span>
+                  <span style={{ color: '#5c503c', fontSize: '11px' }}>{s.desc}</span>
                 </div>
-                {/* Bar */}
-                <div style={{
-                  height: '10px', backgroundColor: '#1a1610',
-                  display: 'flex',
+                <span style={{
+                  fontSize: '28px', fontWeight: 'bold',
+                  color: s.level >= 99 ? '#ffd700' : s.level >= 70 ? '#7ee787' : '#d4c4a0',
                 }}>
-                  <div style={{
-                    width: `${f.pct}%`, height: '100%',
-                    backgroundColor: f.color,
-                  }} />
-                </div>
+                  {s.level}
+                </span>
               </div>
             ))}
           </div>
 
-          {/* Bottom stats + roast */}
+          {/* Bottom: PnL + roast */}
           <div style={{
             display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end',
             borderTop: '3px solid #8b7355', paddingTop: '14px', marginTop: 'auto',
@@ -170,17 +162,12 @@ export async function GET(
                   </span>
                 </div>
               )}
-              {winRate !== null && (
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontSize: '14px', color: '#5c503c', letterSpacing: '2px' }}>WIN RATE</span>
-                  <span style={{
-                    fontSize: '28px', fontWeight: 'bold',
-                    color: winRate >= 50 ? '#16a34a' : '#dc2626',
-                  }}>
-                    {Math.round(winRate)}%
-                  </span>
-                </div>
-              )}
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '14px', color: '#5c503c', letterSpacing: '2px' }}>20 SKILLS</span>
+                <span style={{ fontSize: '28px', fontWeight: 'bold', color: '#b8860b' }}>
+                  {score.skills.filter(s => s.level >= 50).length} above 50
+                </span>
+              </div>
             </div>
             <div style={{
               maxWidth: '400px', textAlign: 'right',

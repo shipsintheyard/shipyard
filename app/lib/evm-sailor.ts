@@ -100,7 +100,7 @@ async function fetchZerionPortfolio(addr: string): Promise<ZerionPortfolio | nul
 async function fetchZerionPositions(addr: string): Promise<ZerionPosition[]> {
   try {
     const res = await fetch(
-      `${ZERION_BASE}/${addr}/positions?filter[positions]=no_filter&currency=usd&page[size]=100`,
+      `${ZERION_BASE}/${addr}/positions/?filter[positions]=no_filter&currency=usd&page[size]=100`,
       { headers: zerionHeaders() },
     );
     if (!res.ok) return [];
@@ -112,7 +112,7 @@ async function fetchZerionPositions(addr: string): Promise<ZerionPosition[]> {
 async function fetchZerionTrades(addr: string): Promise<{ data: ZerionTransaction[]; totalCount: number }> {
   try {
     const res = await fetch(
-      `${ZERION_BASE}/${addr}/transactions?filter[operation_types]=trade&currency=usd&page[size]=100`,
+      `${ZERION_BASE}/${addr}/transactions/?filter[operation_types]=trade&currency=usd&page[size]=100`,
       { headers: zerionHeaders() },
     );
     if (!res.ok) return { data: [], totalCount: 0 };
@@ -124,7 +124,7 @@ async function fetchZerionTrades(addr: string): Promise<{ data: ZerionTransactio
 async function fetchZerionAllTxns(addr: string): Promise<{ data: ZerionTransaction[]; totalCount: number }> {
   try {
     const res = await fetch(
-      `${ZERION_BASE}/${addr}/transactions?currency=usd&page[size]=100`,
+      `${ZERION_BASE}/${addr}/transactions/?currency=usd&page[size]=100`,
       { headers: zerionHeaders() },
     );
     if (!res.ok) return { data: [], totalCount: 0 };
@@ -138,7 +138,7 @@ async function fetchZerionAllTxns(addr: string): Promise<{ data: ZerionTransacti
 async function fetchZerionNFTs(addr: string): Promise<ZerionNFTPosition[]> {
   try {
     const res = await fetch(
-      `${ZERION_BASE}/${addr}/nft-positions?page[size]=100`,
+      `${ZERION_BASE}/${addr}/nft-positions/?page[size]=100`,
       { headers: zerionHeaders() },
     );
     if (!res.ok) return [];
