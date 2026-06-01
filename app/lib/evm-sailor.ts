@@ -121,19 +121,8 @@ async function fetchZerionTrades(addr: string): Promise<{ data: ZerionTransactio
   } catch { return { data: [], totalCount: 0 }; }
 }
 
-async function fetchZerionAllTxns(addr: string): Promise<{ data: ZerionTransaction[]; totalCount: number }> {
-  try {
-    const res = await fetch(
-      `${ZERION_BASE}/${addr}/transactions/?currency=usd&page[size]=100`,
-      { headers: zerionHeaders() },
-    );
-    if (!res.ok) return { data: [], totalCount: 0 };
-    const json = await res.json();
-    // Zerion includes total count in pagination links — parse from response
-    const total = json.links?.next ? 100 + (json.data?.length ?? 0) : json.data?.length ?? 0;
-    return { data: json.data ?? [], totalCount: total };
-  } catch { return { data: [], totalCount: 0 }; }
-}
+// fetchZerionAllTxns removed — Etherscan covers txn count, wallet age,
+// active days, and deploy count more accurately (full history vs 100-txn window)
 
 async function fetchZerionNFTs(addr: string): Promise<ZerionNFTPosition[]> {
   try {
@@ -300,14 +289,19 @@ function analyzeEtherscanTxns(txns: EtherscanTx[], address: string) {
   const months = new Set<string>();
   const days = new Set<string>();
   let firstTxDate: string | null = null;
+  let deployCount = 0;
   const addrLower = address.toLowerCase();
 
   for (const tx of txns) {
     if (tx.from.toLowerCase() === addrLower) {
       gasBurnedWei += BigInt(tx.gasUsed) * BigInt(tx.gasPrice);
-      if (tx.to) contracts.add(tx.to.toLowerCase());
+      if (tx.to) {
+        contracts.add(tx.to.toLowerCase());
+      } else {
+        // Empty `to` = contract creation
+        deployCount++;
+      }
     }
-    // Volume = absolute ETH value moved in all txns involving this address
     if (tx.value && tx.value !== '0') {
       volumeWei += BigInt(tx.value);
     }
@@ -332,6 +326,7 @@ function analyzeEtherscanTxns(txns: EtherscanTx[], address: string) {
     firstTxDate,
     txnCount: txns.length,
     txnCountCapped: txns.length >= 30000,
+    deployCount,
   };
 }
 
@@ -494,6 +489,8 @@ export interface EVMDisplayData {
   airdrops: AirdropReceived[];
   // Zerion PnL (spot trading)
   spotPnl: ZerionPnLData | null;
+  // Fav token
+  favToken: string | null;
 }
 
 // ============================================================================
@@ -504,12 +501,11 @@ export async function fetchEVMSailorData(address: string): Promise<{
   chainData: SailorChainData;
   evmDisplay: EVMDisplayData;
 }> {
-  // All 12 requests in parallel
-  const [portfolio, positions, tradesResult, allTxnsResult, nfts, zerionPnl, hlState, hlFills, etherscanTxns, ensName, snapshotData, airdrops] = await Promise.all([
+  // 11 requests in parallel (removed redundant Zerion all-txns — Etherscan covers it better)
+  const [portfolio, positions, tradesResult, nfts, zerionPnl, hlState, hlFills, etherscanTxns, ensName, snapshotData, airdrops] = await Promise.all([
     fetchZerionPortfolio(address),
     fetchZerionPositions(address),
     fetchZerionTrades(address),
-    fetchZerionAllTxns(address),
     fetchZerionNFTs(address),
     fetchZerionPnL(address),
     fetchHLState(address),
@@ -520,18 +516,18 @@ export async function fetchEVMSailorData(address: string): Promise<{
     fetchAirdrops(address),
   ]);
 
-  // Analyze Etherscan data
+  // Analyze Etherscan data (full tx history — much better than Zerion's 100-txn window)
   const etherscanStats = analyzeEtherscanTxns(etherscanTxns, address);
 
   const trades = tradesResult.data;
-  const allTxns = allTxnsResult.data;
 
   // ---- Token analysis from positions ----
+  const STAKING_SYMBOLS = new Set(['stETH', 'rETH', 'cbETH', 'wstETH', 'swETH', 'frxETH', 'sfrxETH', 'mETH', 'ETHx']);
   let ethBalance = 0;
+  let stakedEth = 0;
   let tokenCount = 0;
   let memecoins = 0;
   let deadTokens = 0;
-  let stakedValue = 0;
   const positionTypes = new Set<string>();
   const defiProtocolSet = new Set<string>();
   const topPositionsList: { name: string; symbol: string; value: number; protocol: string | null }[] = [];
@@ -545,18 +541,17 @@ export async function fetchEVMSailorData(address: string): Promise<{
 
     positionTypes.add(posType);
 
-    // Protocol tracking
     const dappId = p.relationships?.dapp?.data?.id;
     if (dappId) defiProtocolSet.add(dappId);
 
-    // ETH balance
+    // ETH balance (native)
     if (symbol === 'ETH' && posType === 'wallet') {
       ethBalance += attr.quantity.float;
     }
 
-    // Staked ETH (stETH, rETH, cbETH, etc.)
-    if (posType === 'staked' || ['stETH', 'rETH', 'cbETH', 'wstETH', 'swETH', 'frxETH', 'sfrxETH', 'mETH', 'ETHx'].includes(symbol)) {
-      stakedValue += value;
+    // Staked ETH — use token quantity (≈1:1 with ETH), not USD value
+    if (posType === 'staked' || STAKING_SYMBOLS.has(symbol)) {
+      stakedEth += attr.quantity.float;
     }
 
     // Count tokens
@@ -565,14 +560,12 @@ export async function fetchEVMSailorData(address: string): Promise<{
         deadTokens++;
       } else if (value > 0) {
         tokenCount++;
-        // Memecoin heuristic: no DeFi protocol, not ETH/stables
         if (!dappId && !['ETH', 'WETH', 'USDC', 'USDT', 'DAI', 'USDS'].includes(symbol)) {
           memecoins++;
         }
       }
     }
 
-    // Top positions (for display)
     if (value > 0) {
       topPositionsList.push({ name, symbol, value, protocol: dappId ?? null });
     }
@@ -580,60 +573,49 @@ export async function fetchEVMSailorData(address: string): Promise<{
 
   topPositionsList.sort((a, b) => b.value - a.value);
 
-  // ---- Trade analysis ----
+  // ---- Trade analysis + per-token win/loss ----
   const dappNames = new Set<string>();
   const tokenBuys: Record<string, number> = {};
+  const STABLE_SYMS = new Set(['ETH', 'WETH', 'USDC', 'USDT', 'DAI', 'USDS', 'FRAX']);
+  // Per-token value tracking for win/loss computation
+  const tokenTrades: Record<string, { bought: number; sold: number }> = {};
   let tradeVolumeUsd = 0;
-  let deployCount = 0;
 
   for (const tx of trades) {
     const attr = tx.attributes;
     const dappId = tx.relationships?.dapp?.data?.id;
     if (dappId) dappNames.add(dappId);
 
-    // Volume = sum of outgoing transfer values
     for (const t of attr.transfers) {
       if (t.value && t.value > 0) {
         tradeVolumeUsd += t.value;
       }
-      // Track tokens received
-      if (t.direction === 'in' && t.fungible_info?.symbol) {
-        const sym = t.fungible_info.symbol;
-        if (!['ETH', 'WETH', 'USDC', 'USDT', 'DAI'].includes(sym)) {
-          tokenBuys[sym] = (tokenBuys[sym] || 0) + 1;
-        }
+      const sym = t.fungible_info?.symbol;
+      if (!sym) continue;
+
+      // Track token buys for favToken
+      if (t.direction === 'in' && !STABLE_SYMS.has(sym)) {
+        tokenBuys[sym] = (tokenBuys[sym] || 0) + 1;
+      }
+
+      // Track per-token bought/sold USD values for win/loss
+      if (!STABLE_SYMS.has(sym) && t.value && t.value > 0) {
+        if (!tokenTrades[sym]) tokenTrades[sym] = { bought: 0, sold: 0 };
+        if (t.direction === 'in') tokenTrades[sym].bought += t.value;
+        else if (t.direction === 'out') tokenTrades[sym].sold += t.value;
       }
     }
   }
 
-  // All txn analysis — dapp diversity + wallet age + deploy count
-  const allDapps = new Set<string>();
-  const activeDays = new Set<string>();
-  let earliestTxn: string | null = null;
-
-  for (const tx of allTxns) {
-    const attr = tx.attributes;
-    const dappId = tx.relationships?.dapp?.data?.id;
-    if (dappId) allDapps.add(dappId);
-
-    // Activity days
-    if (attr.mined_at) {
-      const day = attr.mined_at.slice(0, 10);
-      activeDays.add(day);
-      if (!earliestTxn || attr.mined_at < earliestTxn) {
-        earliestTxn = attr.mined_at;
-      }
+  // Compute win/loss from per-token trade data
+  let tradeWins = 0;
+  let tradeLosses = 0;
+  for (const { bought, sold } of Object.values(tokenTrades)) {
+    // Only count tokens that have been both bought and sold (completed trades)
+    if (bought > 1 && sold > 1) {
+      if (sold > bought * 1.02) tradeWins++;   // 2% threshold for "win"
+      else if (bought > sold * 1.02) tradeLosses++;
     }
-
-    // Deploy count
-    if (attr.operation_type === 'deploy') deployCount++;
-  }
-
-  // Wallet age
-  let walletAgeDays = 0;
-  if (earliestTxn) {
-    const diff = Date.now() - new Date(earliestTxn).getTime();
-    walletAgeDays = Math.floor(diff / 86400000);
   }
 
   // Fav token
@@ -641,6 +623,14 @@ export async function fetchEVMSailorData(address: string): Promise<{
   let favTokenSymbol = '';
   for (const [sym, count] of Object.entries(tokenBuys)) {
     if (count > favTokenBuys) { favTokenBuys = count; favTokenSymbol = sym; }
+  }
+
+  // Unique tokens traded
+  const uniqueTokensTraded = new Set<string>();
+  for (const tx of trades) {
+    for (const t of tx.attributes.transfers) {
+      if (t.fungible_info?.symbol) uniqueTokensTraded.add(t.fungible_info.symbol);
+    }
   }
 
   // ---- Zerion Spot PnL (primary) ----
@@ -656,11 +646,26 @@ export async function fetchEVMSailorData(address: string): Promise<{
     pnlUnrealized = Math.round(zerionPnl.unrealized * 100) / 100;
     pnlTotalInvested = Math.round(zerionPnl.totalInvested * 100) / 100;
 
-    // Compute win rate from per-token breakdown
-    for (const t of zerionPnl.tokens) {
-      if (t.realizedGain > 0) pnlWins++;
-      else if (t.realizedGain < 0) pnlLosses++;
+    // Try per-token breakdown from Zerion PnL first
+    if (zerionPnl.tokens.length > 0) {
+      for (const t of zerionPnl.tokens) {
+        if (t.realizedGain > 0) pnlWins++;
+        else if (t.realizedGain < 0) pnlLosses++;
+      }
+    } else {
+      // Fallback: use trade-level wins/losses computed from trade txns
+      pnlWins = tradeWins;
+      pnlLosses = tradeLosses;
     }
+
+    const totalPnlTrades = pnlWins + pnlLosses;
+    if (totalPnlTrades > 0) {
+      pnlWinRate = Math.round((pnlWins / totalPnlTrades) * 10000) / 100;
+    }
+  } else {
+    // No Zerion PnL — use trade-computed wins/losses
+    pnlWins = tradeWins;
+    pnlLosses = tradeLosses;
     const totalPnlTrades = pnlWins + pnlLosses;
     if (totalPnlTrades > 0) {
       pnlWinRate = Math.round((pnlWins / totalPnlTrades) * 10000) / 100;
@@ -670,12 +675,12 @@ export async function fetchEVMSailorData(address: string): Promise<{
   // ---- Hyperliquid Perps PnL (supplementary) ----
   let hlPnl: number | null = null;
   let hlVolume: number | null = null;
-  let hlWins = 0;
-  let hlLosses = 0;
 
   if (hlFills.length > 0) {
     let totalPnl = 0;
     let totalVol = 0;
+    let hlWins = 0;
+    let hlLosses = 0;
     for (const fill of hlFills) {
       const closed = parseFloat(fill.closedPnl);
       if (closed > 0) { hlWins++; totalPnl += closed; }
@@ -688,11 +693,11 @@ export async function fetchEVMSailorData(address: string): Promise<{
     // If no Zerion PnL, fall back to HL data for scoring
     if (!zerionPnl) {
       pnlRealized = hlPnl;
-      pnlWins = hlWins;
-      pnlLosses = hlLosses;
-      const totalTrades = hlWins + hlLosses;
+      pnlWins += hlWins;
+      pnlLosses += hlLosses;
+      const totalTrades = pnlWins + pnlLosses;
       if (totalTrades > 0) {
-        pnlWinRate = Math.round((hlWins / totalTrades) * 10000) / 100;
+        pnlWinRate = Math.round((pnlWins / totalTrades) * 10000) / 100;
       }
     }
   }
@@ -706,73 +711,61 @@ export async function fetchEVMSailorData(address: string): Promise<{
   // NFT count
   const nftCount = nfts.length;
 
-  // Unique tokens traded from trades
-  const uniqueTokensTraded = new Set<string>();
-  for (const tx of trades) {
-    for (const t of tx.attributes.transfers) {
-      if (t.fungible_info?.symbol) uniqueTokensTraded.add(t.fungible_info.symbol);
-    }
-  }
-
-  // DeFi categories mapping
+  // DeFi categories
   const defiCategories: string[] = [];
-  if (stakedValue > 0 || positionTypes.has('staked')) defiCategories.push('staking');
+  if (stakedEth > 0 || positionTypes.has('staked')) defiCategories.push('staking');
   if (hlFills.length > 0) defiCategories.push('perps');
   if (positionTypes.has('deposit') || positionTypes.has('locked')) defiCategories.push('lending');
-  if (defiProtocolSet.size > 0) defiCategories.push('governance');
+  if (defiProtocolSet.size > 0) defiCategories.push('defi');
 
   // ---- Portfolio data ----
-  // Fallback: sum position values if portfolio endpoint returned 0
   const portfolioFromEndpoint = portfolio?.attributes?.total?.positions ?? 0;
   const portfolioFromPositions = topPositionsList.reduce((sum, p) => sum + p.value, 0);
   const totalPortfolioUsd = portfolioFromEndpoint > 0 ? portfolioFromEndpoint : portfolioFromPositions;
   const chainDist = portfolio?.attributes?.positions_distribution_by_chain ?? {};
 
-  // Convert trade volume to scoring units for solVolume field
-  // The scoring engine uses log scale: 1000 SOL ≈ 1000 units = max score
-  // Zerion trade volume (USD) or Etherscan ETH volume as fallback
+  // Volume: convert USD trade volume to ETH-equivalent for scoring
+  // Scoring cap is 1000 (same as SOL). ~2500 USD/ETH estimate.
+  const ETH_PRICE_EST = 2500;
   const solVolumeEquiv = tradeVolumeUsd > 0
-    ? tradeVolumeUsd / 200       // USD → scoring units ($200K ≈ 1000)
-    : etherscanStats.volumeEth;  // ETH volume maps ~1:1 to SOL units
+    ? tradeVolumeUsd / ETH_PRICE_EST
+    : etherscanStats.volumeEth;
 
-  // Use Etherscan data when available (much more accurate than Zerion's 100-txn window)
-  const bestTxnCount = etherscanStats.txnCount > 0 ? etherscanStats.txnCount : allTxnsResult.totalCount;
-  const bestWalletAge = etherscanStats.firstTxDate
-    ? Math.floor((Date.now() - new Date(etherscanStats.firstTxDate).getTime()) / 86400000)
-    : walletAgeDays;
-  const bestActiveDays = etherscanStats.uniqueActiveDays > 0 ? etherscanStats.uniqueActiveDays : activeDays.size;
-
-  // Use best available dapp/contract count
-  // Etherscan unique contracts is a superset — use it when Zerion is sparse
-  const zerionDapps = allDapps.size + (snapshotData.spaces.length > 0 ? 1 : 0);
+  // Dapp diversity: trade protocols + position protocols + governance
+  const zerionDapps = dappNames.size + defiProtocolSet.size + (snapshotData.spaces.length > 0 ? 1 : 0);
   const totalUniqueDapps = Math.max(zerionDapps, Math.min(etherscanStats.uniqueContracts, 50));
+
+  // Tokens traded: prefer trade-computed count over empty Zerion PnL tokens
+  const tokensTraded = zerionPnl?.tokens?.length || uniqueTokensTraded.size || Object.keys(tokenTrades).length;
 
   // ---- Build SailorChainData ----
   const chainData: SailorChainData = {
-    txnCount: bestTxnCount,
+    txnCount: etherscanStats.txnCount > 0 ? etherscanStats.txnCount : tradesResult.totalCount,
     tokenCount,
     memecoins,
     deadTokens,
     favTokenBuys,
-    pfCoinsCreated: deployCount,
-    pfCoinsGraduated: 0,       // N/A for EVM
-    pfKothCount: 0,             // N/A for EVM
-    solBalance: ethBalance,     // maps to ETH
-    stakedSol: stakedValue / 2000, // rough ETH equiv for scoring (stake USD / ~ETH price placeholder)
+    pfCoinsCreated: etherscanStats.deployCount,
+    pfCoinsGraduated: 0,
+    pfKothCount: 0,
+    solBalance: ethBalance,
+    stakedSol: stakedEth,   // ETH quantity (≈1:1 mapping to SOL for scoring)
     solVolume: solVolumeEquiv,
     pnlRealized,
     pnlWinRate,
     pnlWins,
     pnlLosses,
     pnlTotalInvested,
-    pnlTokensTraded: zerionPnl?.tokens?.length ?? uniqueTokensTraded.size,
+    pnlTokensTraded: tokensTraded,
     dexCount: dappNames.size,
     uniqueDapps: totalUniqueDapps,
     defiCategories: snapshotData.totalVotes > 0
       ? [...new Set([...defiCategories, 'governance'])]
       : defiCategories,
-    walletAgeDays: bestWalletAge,
-    uniqueActiveDays: bestActiveDays,
+    walletAgeDays: etherscanStats.firstTxDate
+      ? Math.floor((Date.now() - new Date(etherscanStats.firstTxDate).getTime()) / 86400000)
+      : 0,
+    uniqueActiveDays: etherscanStats.uniqueActiveDays,
     nftCount,
     totalTrades: tradesResult.totalCount,
   };
@@ -797,6 +790,7 @@ export async function fetchEVMSailorData(address: string): Promise<{
     etherscanTxnCapped: etherscanStats.txnCountCapped,
     governanceVotes: snapshotData.totalVotes,
     governanceSpaces: snapshotData.spaces,
+    favToken: favTokenSymbol || null,
   };
 
   return { chainData, evmDisplay };

@@ -544,7 +544,7 @@ export async function GET(
           dexProtocols: evmDisplay.defiProtocols.map(p => ({ project: p, trades: 0 })),
           totalTrades: chainData.totalTrades,
           biggestTrade: 0,
-          favToken: chainData.favTokenBuys > 0 ? null : null,
+          favToken: evmDisplay.favToken,
           uniqueDapps: chainData.uniqueDapps,
           uniqueDappsList: evmDisplay.defiProtocols,
           defiTokens: [],
