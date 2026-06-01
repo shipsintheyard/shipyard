@@ -553,17 +553,30 @@ export async function GET(
           totalTokenAccounts: chainData.tokenCount,
           // PnL
           pnlRealized: chainData.pnlRealized,
-          pnlUnrealized: null,
-          pnlTotal: chainData.pnlRealized,
+          pnlUnrealized: evmDisplay.spotPnl?.unrealized ?? null,
+          pnlTotal: chainData.pnlRealized !== null
+            ? chainData.pnlRealized + (evmDisplay.spotPnl?.unrealized ?? 0)
+            : null,
           pnlTotalInvested: chainData.pnlTotalInvested,
           pnlWinRate: chainData.pnlWinRate,
           pnlWins: chainData.pnlWins,
           pnlLosses: chainData.pnlLosses,
-          pnlBestTrade: null,
-          pnlWorstTrade: null,
-          pnlTopTokens: [],
-          pnlBottomTokens: [],
-          pnlTokensTraded: chainData.pnlTokensTraded,
+          pnlBestTrade: evmDisplay.spotPnl?.tokens?.[0]
+            ? { token: '', pnl: evmDisplay.spotPnl.tokens[0].realizedGain, symbol: evmDisplay.spotPnl.tokens[0].symbol, image: evmDisplay.spotPnl.tokens[0].icon }
+            : null,
+          pnlWorstTrade: evmDisplay.spotPnl?.tokens?.length
+            ? (() => { const worst = evmDisplay.spotPnl.tokens[evmDisplay.spotPnl.tokens.length - 1]; return worst.realizedGain < 0 ? { token: '', pnl: worst.realizedGain, symbol: worst.symbol, image: worst.icon } : null; })()
+            : null,
+          pnlTopTokens: (evmDisplay.spotPnl?.tokens ?? [])
+            .filter(t => t.realizedGain > 0)
+            .slice(0, 3)
+            .map(t => ({ address: '', pnl: t.realizedGain, invested: t.totalInvested, roi: t.totalInvested > 0 ? (t.realizedGain / t.totalInvested) * 100 : 0, symbol: t.symbol, name: t.name, image: t.icon })),
+          pnlBottomTokens: (evmDisplay.spotPnl?.tokens ?? [])
+            .filter(t => t.realizedGain < 0)
+            .slice(-3)
+            .reverse()
+            .map(t => ({ address: '', pnl: t.realizedGain, invested: t.totalInvested, roi: t.totalInvested > 0 ? (t.realizedGain / t.totalInvested) * 100 : 0, symbol: t.symbol, name: t.name, image: t.icon })),
+          pnlTokensTraded: evmDisplay.spotPnl?.tokens?.length ?? chainData.pnlTokensTraded,
           // EVM-specific display
           evmDisplay,
         },

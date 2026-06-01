@@ -147,6 +147,71 @@ async function fetchZerionNFTs(addr: string): Promise<ZerionNFTPosition[]> {
   } catch { return []; }
 }
 
+// ============================================================================
+// Zerion PnL — per-token realized + unrealized PnL
+// ============================================================================
+
+interface ZerionPnLData {
+  realized: number;
+  unrealized: number;
+  totalInvested: number;
+  totalFee: number;
+  tokens: {
+    symbol: string;
+    name: string;
+    icon: string | null;
+    realizedGain: number;
+    unrealizedGain: number;
+    totalInvested: number;
+    avgBuyPrice: number;
+    avgSellPrice: number;
+    relativeRealized: number; // percentage
+  }[];
+}
+
+async function fetchZerionPnL(addr: string): Promise<ZerionPnLData | null> {
+  try {
+    const res = await fetch(
+      `${ZERION_BASE}/${addr}/pnl/?currency=usd`,
+      { headers: zerionHeaders() },
+    );
+    if (!res.ok) return null;
+    const json = await res.json();
+    const attrs = json.data?.attributes;
+    if (!attrs) return null;
+
+    // Per-token breakdown
+    const byId = attrs.positions_pnl ?? [];
+    const tokens: ZerionPnLData['tokens'] = [];
+    for (const entry of byId) {
+      const a = entry.attributes ?? entry;
+      if (!a) continue;
+      tokens.push({
+        symbol: a.fungible_info?.symbol ?? a.symbol ?? '???',
+        name: a.fungible_info?.name ?? a.name ?? '',
+        icon: a.fungible_info?.icon?.url ?? null,
+        realizedGain: a.realized_gain ?? 0,
+        unrealizedGain: a.unrealized_gain ?? 0,
+        totalInvested: a.total_invested ?? 0,
+        avgBuyPrice: a.average_buy_price ?? 0,
+        avgSellPrice: a.average_sell_price ?? 0,
+        relativeRealized: a.relative_realized_gain_percentage ?? 0,
+      });
+    }
+
+    // Sort by realized gain descending
+    tokens.sort((a, b) => b.realizedGain - a.realizedGain);
+
+    return {
+      realized: attrs.realized_gain ?? 0,
+      unrealized: attrs.unrealized_gain ?? 0,
+      totalInvested: attrs.net_invested ?? 0,
+      totalFee: attrs.total_fee ?? 0,
+      tokens,
+    };
+  } catch { return null; }
+}
+
 async function fetchHLState(addr: string): Promise<HLClearinghouse | null> {
   try {
     const res = await fetch('https://api.hyperliquid.xyz/info', {
@@ -312,6 +377,8 @@ export interface EVMDisplayData {
   // New — Snapshot
   governanceVotes: number;
   governanceSpaces: string[];
+  // New — Zerion PnL (spot trading)
+  spotPnl: ZerionPnLData | null;
 }
 
 // ============================================================================
@@ -322,13 +389,14 @@ export async function fetchEVMSailorData(address: string): Promise<{
   chainData: SailorChainData;
   evmDisplay: EVMDisplayData;
 }> {
-  // All 10 requests in parallel
-  const [portfolio, positions, tradesResult, allTxnsResult, nfts, hlState, hlFills, etherscanTxns, ensName, snapshotData] = await Promise.all([
+  // All 11 requests in parallel
+  const [portfolio, positions, tradesResult, allTxnsResult, nfts, zerionPnl, hlState, hlFills, etherscanTxns, ensName, snapshotData] = await Promise.all([
     fetchZerionPortfolio(address),
     fetchZerionPositions(address),
     fetchZerionTrades(address),
     fetchZerionAllTxns(address),
     fetchZerionNFTs(address),
+    fetchZerionPnL(address),
     fetchHLState(address),
     fetchHLFills(address),
     fetchEtherscanTxns(address),
@@ -459,38 +527,64 @@ export async function fetchEVMSailorData(address: string): Promise<{
     if (count > favTokenBuys) { favTokenBuys = count; favTokenSymbol = sym; }
   }
 
-  // ---- Hyperliquid PnL ----
+  // ---- Zerion Spot PnL (primary) ----
   let pnlRealized: number | null = null;
+  let pnlUnrealized: number | null = null;
   let pnlWinRate: number | null = null;
   let pnlWins = 0;
   let pnlLosses = 0;
+  let pnlTotalInvested: number | null = null;
+
+  if (zerionPnl) {
+    pnlRealized = Math.round(zerionPnl.realized * 100) / 100;
+    pnlUnrealized = Math.round(zerionPnl.unrealized * 100) / 100;
+    pnlTotalInvested = Math.round(zerionPnl.totalInvested * 100) / 100;
+
+    // Compute win rate from per-token breakdown
+    for (const t of zerionPnl.tokens) {
+      if (t.realizedGain > 0) pnlWins++;
+      else if (t.realizedGain < 0) pnlLosses++;
+    }
+    const totalPnlTrades = pnlWins + pnlLosses;
+    if (totalPnlTrades > 0) {
+      pnlWinRate = Math.round((pnlWins / totalPnlTrades) * 10000) / 100;
+    }
+  }
+
+  // ---- Hyperliquid Perps PnL (supplementary) ----
   let hlPnl: number | null = null;
   let hlVolume: number | null = null;
+  let hlWins = 0;
+  let hlLosses = 0;
 
   if (hlFills.length > 0) {
     let totalPnl = 0;
     let totalVol = 0;
     for (const fill of hlFills) {
       const closed = parseFloat(fill.closedPnl);
-      if (closed > 0) { pnlWins++; totalPnl += closed; }
-      else if (closed < 0) { pnlLosses++; totalPnl += closed; }
+      if (closed > 0) { hlWins++; totalPnl += closed; }
+      else if (closed < 0) { hlLosses++; totalPnl += closed; }
       totalVol += parseFloat(fill.px) * parseFloat(fill.sz);
     }
-    pnlRealized = Math.round(totalPnl * 100) / 100;
-    hlPnl = pnlRealized;
+    hlPnl = Math.round(totalPnl * 100) / 100;
     hlVolume = Math.round(totalVol * 100) / 100;
-    const totalTrades = pnlWins + pnlLosses;
-    if (totalTrades > 0) {
-      pnlWinRate = Math.round((pnlWins / totalTrades) * 10000) / 100;
+
+    // If no Zerion PnL, fall back to HL data for scoring
+    if (!zerionPnl) {
+      pnlRealized = hlPnl;
+      pnlWins = hlWins;
+      pnlLosses = hlLosses;
+      const totalTrades = hlWins + hlLosses;
+      if (totalTrades > 0) {
+        pnlWinRate = Math.round((hlWins / totalTrades) * 10000) / 100;
+      }
     }
   }
 
-  // Account value from HL
-  let pnlTotalInvested: number | null = null;
-  if (hlState) {
-    const accVal = parseFloat(hlState.marginSummary.accountValue);
+  // Account value from HL (for scoring pnlTotalInvested fallback)
+  if (!pnlTotalInvested && hlState) {
     const margin = parseFloat(hlState.marginSummary.totalMarginUsed);
-    if (accVal > 0) pnlTotalInvested = Math.round(margin * 100) / 100;
+    if (margin > 0) pnlTotalInvested = Math.round(margin * 100) / 100;
   }
 
   // NFT count
@@ -572,6 +666,7 @@ export async function fetchEVMSailorData(address: string): Promise<{
     hyperliquidPnl: hlPnl,
     hyperliquidVolume: hlVolume,
     ensName,
+    spotPnl: zerionPnl,
     gasBurnedEth: etherscanStats.gasBurnedEth,
     uniqueContracts: etherscanStats.uniqueContracts,
     activeMonths: etherscanStats.activeMonths,
