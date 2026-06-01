@@ -176,7 +176,7 @@ async function fetchHLFills(addr: string): Promise<HLFill[]> {
 // Etherscan — gas burned, unique contracts, full wallet history
 // ============================================================================
 
-const ETHERSCAN_BASE = 'https://api.etherscan.io/api';
+const ETHERSCAN_BASE = 'https://api.etherscan.io/v2/api';
 
 interface EtherscanTx {
   from: string;
@@ -193,7 +193,7 @@ async function fetchEtherscanTxns(addr: string): Promise<EtherscanTx[]> {
   for (let page = 1; page <= 3; page++) {
     try {
       const res = await fetch(
-        `${ETHERSCAN_BASE}?module=account&action=txlist&address=${addr}&startblock=0&endblock=99999999&page=${page}&offset=10000&sort=asc&apikey=${key}`,
+        `${ETHERSCAN_BASE}?chainid=1&module=account&action=txlist&address=${addr}&startblock=0&endblock=99999999&page=${page}&offset=10000&sort=asc&apikey=${key}`,
       );
       const json = await res.json();
       if (json.status !== '1' || !Array.isArray(json.result)) break;
@@ -512,7 +512,10 @@ export async function fetchEVMSailorData(address: string): Promise<{
   if (defiProtocolSet.size > 0) defiCategories.push('governance');
 
   // ---- Portfolio data ----
-  const totalPortfolioUsd = portfolio?.attributes?.total?.positions ?? 0;
+  // Fallback: sum position values if portfolio endpoint returned 0
+  const portfolioFromEndpoint = portfolio?.attributes?.total?.positions ?? 0;
+  const portfolioFromPositions = topPositionsList.reduce((sum, p) => sum + p.value, 0);
+  const totalPortfolioUsd = portfolioFromEndpoint > 0 ? portfolioFromEndpoint : portfolioFromPositions;
   const chainDist = portfolio?.attributes?.positions_distribution_by_chain ?? {};
 
   // Convert trade volume from USD to ETH-equivalent for solVolume field
