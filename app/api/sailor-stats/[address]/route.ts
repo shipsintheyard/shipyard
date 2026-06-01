@@ -542,12 +542,12 @@ export async function GET(
           nftCount: chainData.nftCount,
           // Wallet age
           walletAgeDays: chainData.walletAgeDays,
-          txnCountCapped: false,
-          firstSeenDate: chainData.walletAgeDays > 0
+          txnCountCapped: evmDisplay.etherscanTxnCapped,
+          firstSeenDate: evmDisplay.firstTxDate ?? (chainData.walletAgeDays > 0
             ? new Date(Date.now() - chainData.walletAgeDays * 86400000).toISOString()
-            : null,
+            : null),
           lastActivityDays: 0,
-          activeMonths: 0,
+          activeMonths: evmDisplay.activeMonths,
           activeWeeks: 0,
           uniqueActiveDays: chainData.uniqueActiveDays,
           totalTokenAccounts: chainData.tokenCount,

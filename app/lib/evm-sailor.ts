@@ -173,6 +173,123 @@ async function fetchHLFills(addr: string): Promise<HLFill[]> {
 }
 
 // ============================================================================
+// Etherscan — gas burned, unique contracts, full wallet history
+// ============================================================================
+
+const ETHERSCAN_BASE = 'https://api.etherscan.io/api';
+
+interface EtherscanTx {
+  from: string;
+  to: string;
+  gasUsed: string;
+  gasPrice: string;
+  timeStamp: string;
+}
+
+async function fetchEtherscanTxns(addr: string): Promise<EtherscanTx[]> {
+  const key = process.env.ETHERSCAN_API_KEY;
+  if (!key) return [];
+  const allTxns: EtherscanTx[] = [];
+  for (let page = 1; page <= 3; page++) {
+    try {
+      const res = await fetch(
+        `${ETHERSCAN_BASE}?module=account&action=txlist&address=${addr}&startblock=0&endblock=99999999&page=${page}&offset=10000&sort=asc&apikey=${key}`,
+      );
+      const json = await res.json();
+      if (json.status !== '1' || !Array.isArray(json.result)) break;
+      allTxns.push(...json.result);
+      if (json.result.length < 10000) break;
+    } catch { break; }
+  }
+  return allTxns;
+}
+
+function analyzeEtherscanTxns(txns: EtherscanTx[], address: string) {
+  let gasBurnedWei = BigInt(0);
+  const contracts = new Set<string>();
+  const months = new Set<string>();
+  const days = new Set<string>();
+  let firstTxDate: string | null = null;
+  const addrLower = address.toLowerCase();
+
+  for (const tx of txns) {
+    if (tx.from.toLowerCase() === addrLower) {
+      gasBurnedWei += BigInt(tx.gasUsed) * BigInt(tx.gasPrice);
+      if (tx.to) contracts.add(tx.to.toLowerCase());
+    }
+    const ts = parseInt(tx.timeStamp);
+    if (ts) {
+      const d = new Date(ts * 1000);
+      months.add(`${d.getFullYear()}-${d.getMonth()}`);
+      days.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
+      if (!firstTxDate) firstTxDate = d.toISOString();
+    }
+  }
+
+  // BigInt → number: multiply by 10000 then divide by 1e18 to keep 4 decimals
+  const gasBurnedEth = Number(gasBurnedWei * BigInt(10000) / BigInt('1000000000000000000')) / 10000;
+
+  return {
+    gasBurnedEth,
+    uniqueContracts: contracts.size,
+    activeMonths: months.size,
+    uniqueActiveDays: days.size,
+    firstTxDate,
+    txnCount: txns.length,
+    txnCountCapped: txns.length >= 30000,
+  };
+}
+
+// ============================================================================
+// ENS resolution — ensdata.net (free, no key)
+// ============================================================================
+
+async function fetchENSName(addr: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://ensdata.net/${addr}`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json.ens || json.ens_primary || null;
+  } catch { return null; }
+}
+
+// ============================================================================
+// Snapshot — governance votes (free GraphQL, no key)
+// ============================================================================
+
+async function fetchSnapshotVotes(addr: string): Promise<{ totalVotes: number; spaces: string[] }> {
+  try {
+    const res = await fetch('https://hub.snapshot.org/graphql', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: `{
+          votes(
+            first: 1000
+            where: { voter: "${addr}" }
+            orderBy: "created"
+            orderDirection: desc
+          ) {
+            space { id }
+          }
+        }`,
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return { totalVotes: 0, spaces: [] };
+    const json = await res.json();
+    const votes = json.data?.votes ?? [];
+    const spaceSet = new Set<string>();
+    for (const v of votes) {
+      if (v.space?.id) spaceSet.add(v.space.id);
+    }
+    return { totalVotes: votes.length, spaces: [...spaceSet] };
+  } catch { return { totalVotes: 0, spaces: [] }; }
+}
+
+// ============================================================================
 // EVM-specific display data (beyond SailorChainData)
 // ============================================================================
 
@@ -185,6 +302,16 @@ export interface EVMDisplayData {
   hyperliquidPnl: number | null;
   hyperliquidVolume: number | null;
   ensName: string | null;
+  // New — Etherscan
+  gasBurnedEth: number;
+  uniqueContracts: number;
+  activeMonths: number;
+  firstTxDate: string | null;
+  etherscanTxnCount: number;
+  etherscanTxnCapped: boolean;
+  // New — Snapshot
+  governanceVotes: number;
+  governanceSpaces: string[];
 }
 
 // ============================================================================
@@ -195,8 +322,8 @@ export async function fetchEVMSailorData(address: string): Promise<{
   chainData: SailorChainData;
   evmDisplay: EVMDisplayData;
 }> {
-  // All 7 requests in parallel
-  const [portfolio, positions, tradesResult, allTxnsResult, nfts, hlState, hlFills] = await Promise.all([
+  // All 10 requests in parallel
+  const [portfolio, positions, tradesResult, allTxnsResult, nfts, hlState, hlFills, etherscanTxns, ensName, snapshotData] = await Promise.all([
     fetchZerionPortfolio(address),
     fetchZerionPositions(address),
     fetchZerionTrades(address),
@@ -204,7 +331,13 @@ export async function fetchEVMSailorData(address: string): Promise<{
     fetchZerionNFTs(address),
     fetchHLState(address),
     fetchHLFills(address),
+    fetchEtherscanTxns(address),
+    fetchENSName(address),
+    fetchSnapshotVotes(address),
   ]);
+
+  // Analyze Etherscan data
+  const etherscanStats = analyzeEtherscanTxns(etherscanTxns, address);
 
   const trades = tradesResult.data;
   const allTxns = allTxnsResult.data;
@@ -387,9 +520,19 @@ export async function fetchEVMSailorData(address: string): Promise<{
   // Map so that $200K trade volume ≈ 1000 "SOL units"
   const solVolumeEquiv = tradeVolumeUsd / 200;
 
+  // Use Etherscan data when available (much more accurate than Zerion's 100-txn window)
+  const bestTxnCount = etherscanStats.txnCount > 0 ? etherscanStats.txnCount : allTxnsResult.totalCount;
+  const bestWalletAge = etherscanStats.firstTxDate
+    ? Math.floor((Date.now() - new Date(etherscanStats.firstTxDate).getTime()) / 86400000)
+    : walletAgeDays;
+  const bestActiveDays = etherscanStats.uniqueActiveDays > 0 ? etherscanStats.uniqueActiveDays : activeDays.size;
+
+  // Governance votes boost uniqueDapps count
+  const totalUniqueDapps = allDapps.size + (snapshotData.spaces.length > 0 ? 1 : 0);
+
   // ---- Build SailorChainData ----
   const chainData: SailorChainData = {
-    txnCount: allTxnsResult.totalCount,
+    txnCount: bestTxnCount,
     tokenCount,
     memecoins,
     deadTokens,
@@ -407,10 +550,12 @@ export async function fetchEVMSailorData(address: string): Promise<{
     pnlTotalInvested,
     pnlTokensTraded: uniqueTokensTraded.size,
     dexCount: dappNames.size,
-    uniqueDapps: allDapps.size,
-    defiCategories,
-    walletAgeDays,
-    uniqueActiveDays: activeDays.size,
+    uniqueDapps: totalUniqueDapps,
+    defiCategories: snapshotData.totalVotes > 0
+      ? [...new Set([...defiCategories, 'governance'])]
+      : defiCategories,
+    walletAgeDays: bestWalletAge,
+    uniqueActiveDays: bestActiveDays,
     nftCount,
     totalTrades: tradesResult.totalCount,
   };
@@ -423,7 +568,15 @@ export async function fetchEVMSailorData(address: string): Promise<{
     defiProtocols: [...defiProtocolSet],
     hyperliquidPnl: hlPnl,
     hyperliquidVolume: hlVolume,
-    ensName: null, // Could be resolved via Zerion if available
+    ensName,
+    gasBurnedEth: etherscanStats.gasBurnedEth,
+    uniqueContracts: etherscanStats.uniqueContracts,
+    activeMonths: etherscanStats.activeMonths,
+    firstTxDate: etherscanStats.firstTxDate,
+    etherscanTxnCount: etherscanStats.txnCount,
+    etherscanTxnCapped: etherscanStats.txnCountCapped,
+    governanceVotes: snapshotData.totalVotes,
+    governanceSpaces: snapshotData.spaces,
   };
 
   return { chainData, evmDisplay };

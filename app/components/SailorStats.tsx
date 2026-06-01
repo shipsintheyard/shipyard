@@ -260,7 +260,7 @@ export default function SailorStats({ address }: { address: string }) {
               }}>
                 {isEvm ? 'EVM' : 'SOL'}
               </span>
-              {shortenAddr(address)}
+              {chain.evmDisplay?.ensName ?? shortenAddr(address)}
             </div>
           </div>
         </div>
@@ -523,6 +523,21 @@ export default function SailorStats({ address }: { address: string }) {
               <StatRow label="Dead Tokens" value={chain.deadTokens ?? 0} color={(chain.deadTokens ?? 0) > 0 ? '#f97316' : undefined} />
             </div>
           </div>
+          {/* EVM-only: gas + contracts row */}
+          {isEvm && chain.evmDisplay && (chain.evmDisplay.gasBurnedEth > 0 || chain.evmDisplay.uniqueContracts > 0) && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 20px', marginTop: '2px' }}>
+              <div>
+                <StatRow label="Gas Burned" value={`${chain.evmDisplay.gasBurnedEth.toFixed(4)} ETH`} color="#f85149" tip="Total ETH spent on gas fees (Ethereum mainnet)" />
+                <StatRow label="Active Months" value={chain.evmDisplay.activeMonths || '—'} color={chain.evmDisplay.activeMonths >= 6 ? '#7ee787' : undefined} tip="Unique months with on-chain activity" />
+              </div>
+              <div>
+                <StatRow label="Contracts" value={chain.evmDisplay.uniqueContracts.toLocaleString()} color={chain.evmDisplay.uniqueContracts >= 50 ? '#a78bfa' : undefined} tip="Unique smart contracts interacted with" />
+                {chain.evmDisplay.etherscanTxnCount > 0 && (
+                  <StatRow label="ETH Txns" value={`${chain.evmDisplay.etherscanTxnCount.toLocaleString()}${chain.evmDisplay.etherscanTxnCapped ? '+' : ''}`} tip="Ethereum mainnet transactions" />
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 6a. EVM Portfolio Panel */}
@@ -609,7 +624,35 @@ export default function SailorStats({ address }: { address: string }) {
           </div>
         )}
 
-        {/* 6c. Pump.fun Stats (Solana only) */}
+        {/* 6c. Governance Panel (EVM — Snapshot) */}
+        {isEvm && chain.evmDisplay && chain.evmDisplay.governanceVotes > 0 && (
+          <div className="osrs-panel" style={{ padding: '14px 16px', marginBottom: '16px' }}>
+            <div style={{
+              fontFamily: FONT, fontSize: '7px', color: O.dim,
+              marginBottom: '10px', letterSpacing: '2px',
+            }}>
+              GOVERNANCE
+            </div>
+            <StatRow label="Votes Cast" value={chain.evmDisplay.governanceVotes} color="#a78bfa" tip="Total votes on Snapshot governance proposals" />
+            <StatRow label="DAOs" value={chain.evmDisplay.governanceSpaces.length} color={chain.evmDisplay.governanceSpaces.length >= 3 ? '#7ee787' : undefined} tip="Unique DAOs voted in" />
+            {chain.evmDisplay.governanceSpaces.length > 0 && (
+              <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {chain.evmDisplay.governanceSpaces.slice(0, 8).map((space, i) => (
+                  <div key={i} style={{
+                    padding: '3px 7px',
+                    background: 'rgba(167, 139, 250, 0.1)',
+                    border: `1px solid ${O.bevelDark}`,
+                    fontFamily: FONT, fontSize: '6px', color: '#a78bfa',
+                  }}>
+                    {space}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 6d. Pump.fun Stats (Solana only) */}
         {!isEvm && (chain.pfCoinsCreated > 0 || chain.pfHoldingsCount > 0 || (chain.pfCommunities && chain.pfCommunities.length > 0)) && (
           <div className="osrs-panel" style={{ padding: '14px 16px', marginBottom: '16px' }}>
             <div style={{

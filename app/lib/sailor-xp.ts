@@ -253,6 +253,8 @@ function generateStories(d: SailorChainData, chain: 'solana' | 'evm' = 'solana')
     if (d.solVolume >= 1000) stories.push(`${formatCompact(d.solVolume)} SOL in trade volume`);
   } else {
     // EVM-specific stories
+    if (d.defiCategories.includes('governance')) stories.push('Votes in on-chain governance');
+
     if (d.defiCategories.length >= 3) stories.push(`Active across ${d.defiCategories.length} DeFi categories`);
 
     if (d.stakedSol > 0) stories.push('Staking ETH — long-term thinker');
