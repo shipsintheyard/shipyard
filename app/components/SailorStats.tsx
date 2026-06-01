@@ -652,7 +652,43 @@ export default function SailorStats({ address }: { address: string }) {
           </div>
         )}
 
-        {/* 6d. Pump.fun Stats (Solana only) */}
+        {/* 6d. Airdrops Panel (EVM) */}
+        {isEvm && chain.evmDisplay && chain.evmDisplay.airdrops && chain.evmDisplay.airdrops.length > 0 && (
+          <div className="osrs-panel" style={{ padding: '14px 16px', marginBottom: '16px' }}>
+            <div style={{
+              fontFamily: FONT, fontSize: '7px', color: O.dim,
+              marginBottom: '10px', letterSpacing: '2px',
+            }}>
+              AIRDROPS RECEIVED
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {chain.evmDisplay.airdrops.map((drop, i) => (
+                <div key={i} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '4px 0',
+                  borderBottom: i < chain.evmDisplay!.airdrops.length - 1 ? `1px solid ${O.deepest}` : 'none',
+                  fontFamily: FONT, fontSize: '7px',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ color: '#7ee787' }}>+</span>
+                    <span style={{ color: O.label }}>{drop.name}</span>
+                    <span style={{ color: O.dim, fontSize: '6px' }}>{drop.symbol}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <span style={{ color: O.text, fontSize: '6px' }}>
+                      {drop.amount >= 1 ? formatCompact(drop.amount) : drop.amount.toFixed(2)} {drop.symbol}
+                    </span>
+                    {drop.date && (
+                      <span style={{ color: O.dim, fontSize: '5px' }}>{drop.date}</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 6e. Pump.fun Stats (Solana only) */}
         {!isEvm && (chain.pfCoinsCreated > 0 || chain.pfHoldingsCount > 0 || (chain.pfCommunities && chain.pfCommunities.length > 0)) && (
           <div className="osrs-panel" style={{ padding: '14px 16px', marginBottom: '16px' }}>
             <div style={{

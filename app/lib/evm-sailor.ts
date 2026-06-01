@@ -336,6 +336,87 @@ function analyzeEtherscanTxns(txns: EtherscanTx[], address: string) {
 }
 
 // ============================================================================
+// Airdrop detection — known distributor contracts
+// ============================================================================
+
+const AIRDROP_CONTRACTS: Record<string, { name: string; symbol: string; date: string }> = {
+  '0x090d4613473dee047c3f2706764f49e0821d256e': { name: 'Uniswap', symbol: 'UNI', date: '2020-09' },
+  '0x1a9c8182c09f50c8318d769245bea52c32be35bc': { name: 'Uniswap V2', symbol: 'UNI', date: '2020-09' },
+  '0xc18360217d8f7ab5e7c516566761ea12ce7f9d72': { name: 'ENS', symbol: 'ENS', date: '2021-11' },
+  '0x67a24ce4321ab3af51c2d0a4801c3e111d88c9d9': { name: 'Arbitrum', symbol: 'ARB', date: '2023-03' },
+  '0xfedfaf1a10335448b7fa0268f56d2b44dbd357de': { name: 'Optimism S1', symbol: 'OP', date: '2022-06' },
+  '0xf98f268f9d3256b7aa2ce69c2189b7a48c8a92a1': { name: 'Optimism S2', symbol: 'OP', date: '2023-02' },
+  '0xb2ecfe4e4d61f8790bbb9de2d1259b9e2410cea5': { name: 'Blur S1', symbol: 'BLUR', date: '2023-02' },
+  '0xe295ad71242373c37c5fda7b57f26f9ea1088afe': { name: '1inch', symbol: '1INCH', date: '2020-12' },
+  '0x639192d54431f8c816368d3fb4107bc168d0e871': { name: 'dYdX', symbol: 'DYDX', date: '2021-09' },
+  '0xbe0eb53f46cd790cd13851d5eff43d12404d33e8': { name: 'Binance', symbol: 'BNB', date: '2019' },
+  '0xd216153c06e857cd7f72665e0af1d7d82172f494': { name: 'Shiba Inu', symbol: 'SHIB', date: '2021-05' },
+  '0x902f09715b6303d4173037652fa7dab3068b3f68': { name: 'Aave', symbol: 'AAVE', date: '2020-10' },
+  '0x6b3595068778dd592e39a122f4f5a5cf09c90fe2': { name: 'SushiSwap', symbol: 'SUSHI', date: '2020-09' },
+  '0x4da27a545c0c5b758a6ba100e3a049001de870f5': { name: 'Aave stkAAVE', symbol: 'stkAAVE', date: '2020-10' },
+  '0x84d821f7fbdd595c4c4a50842913e6b1e07d7a53': { name: 'Paraswap', symbol: 'PSP', date: '2021-11' },
+  '0x3ef51736315f52d568d6d2cf289419b9cfffe782': { name: 'CoW Protocol', symbol: 'COW', date: '2022-03' },
+  '0x41d5d79431a913c4ae7d69a668ecdfe5ff9dfb68': { name: 'Lido', symbol: 'LDO', date: '2021-01' },
+  '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984': { name: 'Uniswap Token', symbol: 'UNI', date: '2020-09' },
+  '0xc770eefad204b5180df6a14ee197d99d808ee52d': { name: 'Shapeshift', symbol: 'FOX', date: '2021-07' },
+  '0xb9d4ad12d1c6cfe7d5475e7c40c5e8a7d89fc781': { name: 'Hop Protocol', symbol: 'HOP', date: '2022-06' },
+  '0x5a2b6162bafe63e51b0e589b52543c8cc1be9617': { name: 'Hashflow', symbol: 'HFT', date: '2022-11' },
+  '0xe5e2134e0c0a3d83c9b49917dd3712bfe2e5e11d': { name: 'Apecoin', symbol: 'APE', date: '2022-03' },
+  '0x00000000000076a84fef008cdabe6409d2fe638b': { name: 'Safe', symbol: 'SAFE', date: '2022-09' },
+  '0xd8da6bf26964af9d7eed9e03e53415d37aa96045': { name: 'VB donation', symbol: 'various', date: '' },
+  '0xe50fa9b3c56ffb159cb0fca61f5c9d750e8128c8': { name: 'EigenLayer', symbol: 'EIGEN', date: '2024-05' },
+  '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359': { name: 'LayerZero', symbol: 'ZRO', date: '2024-06' },
+};
+
+interface AirdropReceived {
+  name: string;
+  symbol: string;
+  date: string;
+  amount: number;
+  tokenAddress: string;
+}
+
+async function fetchAirdrops(addr: string): Promise<AirdropReceived[]> {
+  const key = process.env.ETHERSCAN_API_KEY;
+  if (!key) return [];
+  try {
+    // Fetch ERC-20 token transfers TO this wallet
+    const res = await fetch(
+      `${ETHERSCAN_BASE}?chainid=1&module=account&action=tokentx&address=${addr}&startblock=0&endblock=99999999&page=1&offset=10000&sort=asc&apikey=${key}`,
+    );
+    const json = await res.json();
+    if (json.status !== '1' || !Array.isArray(json.result)) return [];
+
+    const airdrops: AirdropReceived[] = [];
+    const seen = new Set<string>(); // dedup by contract
+    const addrLower = addr.toLowerCase();
+
+    for (const tx of json.result) {
+      const from = (tx.from || '').toLowerCase();
+      const to = (tx.to || '').toLowerCase();
+      // Only inbound transfers
+      if (to !== addrLower) continue;
+
+      const airdrop = AIRDROP_CONTRACTS[from];
+      if (airdrop && !seen.has(from)) {
+        seen.add(from);
+        const decimals = parseInt(tx.tokenDecimal) || 18;
+        const amount = parseInt(tx.value) / Math.pow(10, decimals);
+        airdrops.push({
+          name: airdrop.name,
+          symbol: airdrop.symbol,
+          date: airdrop.date,
+          amount,
+          tokenAddress: tx.contractAddress || '',
+        });
+      }
+    }
+
+    return airdrops;
+  } catch { return []; }
+}
+
+// ============================================================================
 // ENS resolution — ensdata.net (free, no key)
 // ============================================================================
 
@@ -409,7 +490,9 @@ export interface EVMDisplayData {
   governanceSpaces: string[];
   // Etherscan volume
   volumeEth: number;
-  // New — Zerion PnL (spot trading)
+  // Airdrops
+  airdrops: AirdropReceived[];
+  // Zerion PnL (spot trading)
   spotPnl: ZerionPnLData | null;
 }
 
@@ -421,8 +504,8 @@ export async function fetchEVMSailorData(address: string): Promise<{
   chainData: SailorChainData;
   evmDisplay: EVMDisplayData;
 }> {
-  // All 11 requests in parallel
-  const [portfolio, positions, tradesResult, allTxnsResult, nfts, zerionPnl, hlState, hlFills, etherscanTxns, ensName, snapshotData] = await Promise.all([
+  // All 12 requests in parallel
+  const [portfolio, positions, tradesResult, allTxnsResult, nfts, zerionPnl, hlState, hlFills, etherscanTxns, ensName, snapshotData, airdrops] = await Promise.all([
     fetchZerionPortfolio(address),
     fetchZerionPositions(address),
     fetchZerionTrades(address),
@@ -434,6 +517,7 @@ export async function fetchEVMSailorData(address: string): Promise<{
     fetchEtherscanTxns(address),
     fetchENSName(address),
     fetchSnapshotVotes(address),
+    fetchAirdrops(address),
   ]);
 
   // Analyze Etherscan data
@@ -703,6 +787,7 @@ export async function fetchEVMSailorData(address: string): Promise<{
     hyperliquidVolume: hlVolume,
     ensName,
     volumeEth: etherscanStats.volumeEth,
+    airdrops,
     spotPnl: zerionPnl,
     gasBurnedEth: etherscanStats.gasBurnedEth,
     uniqueContracts: etherscanStats.uniqueContracts,
