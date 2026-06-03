@@ -565,7 +565,9 @@ export default function SailorStats({ address }: { address: string }) {
             <div>
               <StatRow label="Volume" value={
                 chain.solVolume > 0
-                  ? isEvm ? `$${formatCompact(chain.solVolume * 200)} USD` : `${formatCompact(chain.solVolume)} SOL`
+                  ? isEvm
+                    ? `$${formatCompact(chain.evmDisplay?.tradeVolumeUsd || chain.solVolume * 2500)} USD`
+                    : `${formatCompact(chain.solVolume)} SOL`
                   : '—'
               } color={chain.solVolume > 0 ? O.gold : undefined} />
               <StatRow label="Biggest Trade" value={

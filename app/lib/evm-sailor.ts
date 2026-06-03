@@ -371,44 +371,77 @@ interface AirdropReceived {
   tokenAddress: string;
 }
 
-async function fetchAirdrops(addr: string): Promise<AirdropReceived[]> {
+interface TokenTransferAnalytics {
+  airdrops: AirdropReceived[];
+  uniqueTokens: number;       // distinct ERC-20 tokens ever touched
+  totalTransfers: number;      // total ERC-20 transfers
+  tokensSent: number;          // outgoing (sells/sends)
+  tokensReceived: number;      // incoming (buys/receives)
+  uniqueTokensSent: number;    // distinct tokens sent
+  uniqueTokensReceived: number; // distinct tokens received
+}
+
+async function fetchTokenTransfers(addr: string): Promise<TokenTransferAnalytics> {
+  const empty: TokenTransferAnalytics = {
+    airdrops: [], uniqueTokens: 0, totalTransfers: 0,
+    tokensSent: 0, tokensReceived: 0, uniqueTokensSent: 0, uniqueTokensReceived: 0,
+  };
   const key = process.env.ETHERSCAN_API_KEY;
-  if (!key) return [];
+  if (!key) return empty;
   try {
-    // Fetch ERC-20 token transfers TO this wallet
     const res = await fetch(
       `${ETHERSCAN_BASE}?chainid=1&module=account&action=tokentx&address=${addr}&startblock=0&endblock=99999999&page=1&offset=10000&sort=asc&apikey=${key}`,
     );
     const json = await res.json();
-    if (json.status !== '1' || !Array.isArray(json.result)) return [];
+    if (json.status !== '1' || !Array.isArray(json.result)) return empty;
 
     const airdrops: AirdropReceived[] = [];
-    const seen = new Set<string>(); // dedup by contract
+    const airdropSeen = new Set<string>();
+    const allTokens = new Set<string>();
+    const sentTokens = new Set<string>();
+    const receivedTokens = new Set<string>();
+    let tokensSent = 0;
+    let tokensReceived = 0;
     const addrLower = addr.toLowerCase();
 
     for (const tx of json.result) {
       const from = (tx.from || '').toLowerCase();
       const to = (tx.to || '').toLowerCase();
-      // Only inbound transfers
-      if (to !== addrLower) continue;
+      const contract = (tx.contractAddress || '').toLowerCase();
+      if (contract) allTokens.add(contract);
 
-      const airdrop = AIRDROP_CONTRACTS[from];
-      if (airdrop && !seen.has(from)) {
-        seen.add(from);
-        const decimals = parseInt(tx.tokenDecimal) || 18;
-        const amount = parseInt(tx.value) / Math.pow(10, decimals);
-        airdrops.push({
-          name: airdrop.name,
-          symbol: airdrop.symbol,
-          date: airdrop.date,
-          amount,
-          tokenAddress: tx.contractAddress || '',
-        });
+      if (to === addrLower) {
+        tokensReceived++;
+        if (contract) receivedTokens.add(contract);
+
+        // Airdrop detection
+        const airdrop = AIRDROP_CONTRACTS[from];
+        if (airdrop && !airdropSeen.has(from)) {
+          airdropSeen.add(from);
+          const decimals = parseInt(tx.tokenDecimal) || 18;
+          const amount = parseInt(tx.value) / Math.pow(10, decimals);
+          airdrops.push({
+            name: airdrop.name, symbol: airdrop.symbol, date: airdrop.date,
+            amount, tokenAddress: tx.contractAddress || '',
+          });
+        }
+      }
+      if (from === addrLower) {
+        tokensSent++;
+        if (contract) sentTokens.add(contract);
       }
     }
 
-    return airdrops;
-  } catch { return []; }
+    return {
+      airdrops,
+      uniqueTokens: allTokens.size,
+      totalTransfers: json.result.length,
+      tokensSent,
+      tokensReceived,
+      uniqueTokensSent: sentTokens.size,
+      uniqueTokensReceived: receivedTokens.size,
+    };
+  } catch { return empty; }
 }
 
 // ============================================================================
@@ -485,6 +518,8 @@ export interface EVMDisplayData {
   governanceSpaces: string[];
   // Etherscan volume
   volumeEth: number;
+  // Trade volume in USD (for display)
+  tradeVolumeUsd: number;
   // Airdrops
   airdrops: AirdropReceived[];
   // Zerion PnL (spot trading)
@@ -501,8 +536,8 @@ export async function fetchEVMSailorData(address: string): Promise<{
   chainData: SailorChainData;
   evmDisplay: EVMDisplayData;
 }> {
-  // 11 requests in parallel (removed redundant Zerion all-txns — Etherscan covers it better)
-  const [portfolio, positions, tradesResult, nfts, zerionPnl, hlState, hlFills, etherscanTxns, ensName, snapshotData, airdrops] = await Promise.all([
+  // 11 requests in parallel
+  const [portfolio, positions, tradesResult, nfts, zerionPnl, hlState, hlFills, etherscanTxns, ensName, snapshotData, tokenTransfers] = await Promise.all([
     fetchZerionPortfolio(address),
     fetchZerionPositions(address),
     fetchZerionTrades(address),
@@ -513,7 +548,7 @@ export async function fetchEVMSailorData(address: string): Promise<{
     fetchEtherscanTxns(address),
     fetchENSName(address),
     fetchSnapshotVotes(address),
-    fetchAirdrops(address),
+    fetchTokenTransfers(address),
   ]);
 
   // Analyze Etherscan data (full tx history — much better than Zerion's 100-txn window)
@@ -735,13 +770,16 @@ export async function fetchEVMSailorData(address: string): Promise<{
   const zerionDapps = dappNames.size + defiProtocolSet.size + (snapshotData.spaces.length > 0 ? 1 : 0);
   const totalUniqueDapps = Math.max(zerionDapps, Math.min(etherscanStats.uniqueContracts, 50));
 
-  // Tokens traded: prefer trade-computed count over empty Zerion PnL tokens
-  const tokensTraded = zerionPnl?.tokens?.length || uniqueTokensTraded.size || Object.keys(tokenTrades).length;
+  // Tokens traded: best of Zerion PnL tokens, Zerion trades, trade analysis, or Etherscan token transfers
+  const tokensTraded = zerionPnl?.tokens?.length
+    || uniqueTokensTraded.size
+    || Object.keys(tokenTrades).length
+    || tokenTransfers.uniqueTokens;
 
   // ---- Build SailorChainData ----
   const chainData: SailorChainData = {
     txnCount: etherscanStats.txnCount > 0 ? etherscanStats.txnCount : tradesResult.totalCount,
-    tokenCount,
+    tokenCount: tokenCount > 0 ? tokenCount : tokenTransfers.uniqueTokensReceived,
     memecoins,
     deadTokens,
     favTokenBuys,
@@ -767,7 +805,7 @@ export async function fetchEVMSailorData(address: string): Promise<{
       : 0,
     uniqueActiveDays: etherscanStats.uniqueActiveDays,
     nftCount,
-    totalTrades: tradesResult.totalCount,
+    totalTrades: tradesResult.totalCount || tokenTransfers.tokensSent,
   };
 
   const evmDisplay: EVMDisplayData = {
@@ -780,7 +818,8 @@ export async function fetchEVMSailorData(address: string): Promise<{
     hyperliquidVolume: hlVolume,
     ensName,
     volumeEth: etherscanStats.volumeEth,
-    airdrops,
+    tradeVolumeUsd,
+    airdrops: tokenTransfers.airdrops,
     spotPnl: zerionPnl,
     gasBurnedEth: etherscanStats.gasBurnedEth,
     uniqueContracts: etherscanStats.uniqueContracts,
