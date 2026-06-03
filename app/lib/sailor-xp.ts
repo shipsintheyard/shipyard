@@ -91,7 +91,7 @@ export interface TierInfo {
 
 const COMBAT_SKILL_IDS = ['attack', 'strength', 'defence', 'hitpoints', 'ranged', 'magic', 'prayer'];
 
-function computeSkills(d: SailorChainData): SkillScore[] {
+function computeSkills(d: SailorChainData, chain: 'solana' | 'evm' = 'solana'): SkillScore[] {
   // Pre-compute ROI
   const invested = d.pnlTotalInvested ?? 0;
   const realized = d.pnlRealized ?? 0;
@@ -100,16 +100,20 @@ function computeSkills(d: SailorChainData): SkillScore[] {
   // Pre-compute trade count for defence
   const tradeCount = d.pnlWins + d.pnlLosses;
 
+  // EVM wallets have much larger numbers (full Etherscan history vs Solana API windows)
+  // so caps need to be higher to keep 99 meaningful
+  const evm = chain === 'evm';
+
   return [
     // ═══ Row 1: Core Combat ═══
     { id: 'attack', name: 'Attack', icon: '⚔️', color: '#c75011', desc: 'Trade Volume',
-      level: toLevel(logScale(d.solVolume, 1000)) },
+      level: toLevel(logScale(d.solVolume, evm ? 5000 : 1000)) },
 
     { id: 'strength', name: 'Strength', icon: '💪', color: '#047857', desc: 'Realized PnL',
       level: (() => {
         const pnl = d.pnlRealized ?? 0;
         if (pnl <= 0) return 1;
-        return toLevel(logScale(pnl, 100000));
+        return toLevel(logScale(pnl, evm ? 500000 : 100000));
       })() },
 
     { id: 'defence', name: 'Defence', icon: '🛡️', color: '#6b9bd2', desc: 'Win Rate',
@@ -119,59 +123,59 @@ function computeSkills(d: SailorChainData): SkillScore[] {
       })() },
 
     { id: 'hitpoints', name: 'Hitpoints', icon: '❤️', color: '#b91c1c', desc: 'Wallet Age',
-      level: toLevel(logScale(d.walletAgeDays, 1825)) },
+      level: toLevel(logScale(d.walletAgeDays, evm ? 3650 : 1825)) },
 
     // ═══ Row 2: Support Combat ═══
     { id: 'ranged', name: 'Ranged', icon: '🏹', color: '#4d7c0f', desc: 'Tokens Sniped',
-      level: toLevel(logScale(d.pnlTokensTraded, 500)) },
+      level: toLevel(logScale(d.pnlTokensTraded, evm ? 2000 : 500)) },
 
     { id: 'magic', name: 'Magic', icon: '🔮', color: '#6d28d9', desc: 'DeFi Mastery',
-      level: toLevel(Math.min(d.defiCategories.length, 5) / 5) },
+      level: toLevel(Math.min(d.defiCategories.length, evm ? 7 : 5) / (evm ? 7 : 5)) },
 
     { id: 'prayer', name: 'Prayer', icon: '✨', color: '#ca8a04', desc: 'Diamond Hands',
-      level: toLevel(logScale(d.stakedSol, 100)) },
+      level: toLevel(logScale(d.stakedSol, evm ? 500 : 100)) },
 
     { id: 'agility', name: 'Agility', icon: '🏃', color: '#3730a3', desc: 'DEX Diversity',
-      level: toLevel(logScale(d.dexCount, 10)) },
+      level: toLevel(logScale(d.dexCount, evm ? 30 : 10)) },
 
     // ═══ Row 3: Gathering ═══
     { id: 'woodcutting', name: 'Woodcutting', icon: '🪓', color: '#78350f', desc: 'Transactions',
-      level: toLevel(logScale(d.txnCount, 10000)) },
+      level: toLevel(logScale(d.txnCount, evm ? 50000 : 10000)) },
 
     { id: 'mining', name: 'Mining', icon: '⛏️', color: '#57534e', desc: 'Daily Grind',
-      level: toLevel(logScale(d.uniqueActiveDays, 365)) },
+      level: toLevel(logScale(d.uniqueActiveDays, evm ? 1500 : 365)) },
 
     { id: 'fishing', name: 'Fishing', icon: '🎣', color: '#0369a1', desc: 'NFT Collector',
-      level: toLevel(logScale(d.nftCount, 50)) },
+      level: toLevel(logScale(d.nftCount, evm ? 500 : 50)) },
 
     { id: 'farming', name: 'Farming', icon: '🌱', color: '#166534', desc: 'Bag Holder',
-      level: toLevel(logScale(d.tokenCount, 50)) },
+      level: toLevel(logScale(d.tokenCount, evm ? 300 : 50)) },
 
     // ═══ Row 4: Artisan ═══
     { id: 'cooking', name: 'Cooking', icon: '🍳', color: '#92400e', desc: 'Token Chef',
-      level: toLevel(logScale(d.pfCoinsCreated, 10)) },
+      level: toLevel(logScale(d.pfCoinsCreated, evm ? 20 : 10)) },
 
     { id: 'firemaking', name: 'Firemaking', icon: '🔥', color: '#d97706', desc: 'Rug Survivor',
-      level: toLevel(logScale(d.deadTokens, 50)) },
+      level: toLevel(logScale(d.deadTokens, evm ? 200 : 50)) },
 
     { id: 'herblore', name: 'Herblore', icon: '🧪', color: '#15803d', desc: 'Degen Potions',
-      level: toLevel(logScale(d.memecoins, 30)) },
+      level: toLevel(logScale(d.memecoins, evm ? 150 : 30)) },
 
     { id: 'crafting', name: 'Crafting', icon: '🔨', color: '#854d0e', desc: 'Graduated',
       level: toLevel(logScale(d.pfCoinsGraduated, 5)) },
 
     // ═══ Row 5: Support ═══
     { id: 'fletching', name: 'Fletching', icon: '🪶', color: '#0f766e', desc: 'Swap Speed',
-      level: toLevel(logScale(d.totalTrades, 500)) },
+      level: toLevel(logScale(d.totalTrades, evm ? 5000 : 500)) },
 
     { id: 'slayer', name: 'Slayer', icon: '💀', color: '#475569', desc: 'Kill Count',
-      level: toLevel(logScale(tradeCount, 200)) },
+      level: toLevel(logScale(tradeCount, evm ? 1000 : 200)) },
 
     { id: 'thieving', name: 'Thieving', icon: '🗡️', color: '#5b21b6', desc: 'Alpha',
-      level: toLevel(logScale(Math.max(0, roi), 500)) },
+      level: toLevel(logScale(Math.max(0, roi), evm ? 1000 : 500)) },
 
     { id: 'hunter', name: 'Hunter', icon: '🦊', color: '#c2410c', desc: 'Protocol Hunter',
-      level: toLevel(logScale(d.uniqueDapps, 20)) },
+      level: toLevel(logScale(d.uniqueDapps, evm ? 200 : 20)) },
   ];
 }
 
@@ -284,7 +288,7 @@ function generateStories(d: SailorChainData, chain: 'solana' | 'evm' = 'solana')
 // ============================================================================
 
 export function computeDegenScore(d: SailorChainData, chain: 'solana' | 'evm' = 'solana'): DegenScore {
-  const skills = computeSkills(d);
+  const skills = computeSkills(d, chain);
   const total = skills.reduce((sum, s) => sum + s.level, 0);
 
   // Combat level = average of combat skills
