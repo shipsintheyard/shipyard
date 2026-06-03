@@ -112,7 +112,7 @@ async function fetchZerionPositions(addr: string): Promise<ZerionPosition[]> {
 async function fetchZerionTrades(addr: string): Promise<{ data: ZerionTransaction[]; totalCount: number }> {
   try {
     const res = await fetch(
-      `${ZERION_BASE}/${addr}/transactions/?filter[operation_types]=trade&currency=usd&page[size]=100`,
+      `${ZERION_BASE}/${addr}/transactions/?filter[operation_types]=trade,execute&currency=usd&page[size]=100`,
       { headers: zerionHeaders() },
     );
     if (!res.ok) return { data: [], totalCount: 0 };
@@ -445,6 +445,31 @@ async function fetchTokenTransfers(addr: string): Promise<TokenTransferAnalytics
 }
 
 // ============================================================================
+// Etherscan ERC-721 NFT transfers — historical NFT activity
+// ============================================================================
+
+async function fetchNFTTransfers(addr: string): Promise<number> {
+  const key = process.env.ETHERSCAN_API_KEY;
+  if (!key) return 0;
+  try {
+    const res = await fetch(
+      `${ETHERSCAN_BASE}?chainid=1&module=account&action=tokennfttx&address=${addr}&startblock=0&endblock=99999999&page=1&offset=10000&sort=asc&apikey=${key}`,
+    );
+    const json = await res.json();
+    if (json.status !== '1' || !Array.isArray(json.result)) return 0;
+    // Count unique NFTs ever received (tokenID + contractAddress)
+    const nfts = new Set<string>();
+    const addrLower = addr.toLowerCase();
+    for (const tx of json.result) {
+      if ((tx.to || '').toLowerCase() === addrLower) {
+        nfts.add(`${(tx.contractAddress || '').toLowerCase()}:${tx.tokenID}`);
+      }
+    }
+    return nfts.size;
+  } catch { return 0; }
+}
+
+// ============================================================================
 // ENS resolution — ensdata.net (free, no key)
 // ============================================================================
 
@@ -536,8 +561,8 @@ export async function fetchEVMSailorData(address: string): Promise<{
   chainData: SailorChainData;
   evmDisplay: EVMDisplayData;
 }> {
-  // 11 requests in parallel
-  const [portfolio, positions, tradesResult, nfts, zerionPnl, hlState, hlFills, etherscanTxns, ensName, snapshotData, tokenTransfers] = await Promise.all([
+  // 12 requests in parallel
+  const [portfolio, positions, tradesResult, nfts, zerionPnl, hlState, hlFills, etherscanTxns, ensName, snapshotData, tokenTransfers, etherscanNftCount] = await Promise.all([
     fetchZerionPortfolio(address),
     fetchZerionPositions(address),
     fetchZerionTrades(address),
@@ -549,6 +574,7 @@ export async function fetchEVMSailorData(address: string): Promise<{
     fetchENSName(address),
     fetchSnapshotVotes(address),
     fetchTokenTransfers(address),
+    fetchNFTTransfers(address),
   ]);
 
   // Analyze Etherscan data (full tx history — much better than Zerion's 100-txn window)
@@ -620,6 +646,13 @@ export async function fetchEVMSailorData(address: string): Promise<{
     const attr = tx.attributes;
     const dappId = tx.relationships?.dapp?.data?.id;
     if (dappId) dappNames.add(dappId);
+
+    // For 'execute' txns, only process if it looks like a swap (has both in + out transfers)
+    if (attr.operation_type === 'execute') {
+      const hasIn = attr.transfers.some(t => t.direction === 'in');
+      const hasOut = attr.transfers.some(t => t.direction === 'out');
+      if (!hasIn || !hasOut) continue;
+    }
 
     for (const t of attr.transfers) {
       if (t.value && t.value > 0) {
@@ -743,8 +776,8 @@ export async function fetchEVMSailorData(address: string): Promise<{
     if (margin > 0) pnlTotalInvested = Math.round(margin * 100) / 100;
   }
 
-  // NFT count
-  const nftCount = nfts.length;
+  // NFT count — Zerion positions first, Etherscan historical as fallback
+  const nftCount = nfts.length > 0 ? nfts.length : etherscanNftCount;
 
   // DeFi categories
   const defiCategories: string[] = [];
