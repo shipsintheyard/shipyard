@@ -155,7 +155,7 @@ function computeSkills(d: SailorChainData, chain: 'solana' | 'evm' = 'solana'): 
       level: evm
         ? (() => {
             // EVM: composite of volume + collections + blue chips
-            const volScore = logScale(d.nftVolumeEth ?? 0, 100);     // 100 ETH volume cap
+            const volScore = logScale(d.nftVolumeEth ?? 0, 1000);    // 1000 ETH volume cap
             const colScore = logScale(d.nftCollections ?? 0, 100);   // 100 collections cap
             const chipBonus = Math.min((d.nftBlueChips ?? 0) * 0.08, 0.3); // up to 30% bonus for blue chips
             return toLevel(Math.min(volScore * 0.5 + colScore * 0.3 + chipBonus, 1));
