@@ -170,7 +170,7 @@ function computeSkills(d: SailorChainData, chain: 'solana' | 'evm' = 'solana'): 
     { id: 'cooking', name: 'Cooking', icon: '🍳', color: '#92400e',
       desc: evm ? 'Chain Hopper' : 'Token Chef',
       level: evm
-        ? toLevel(logScale(d.chainsActiveOn ?? 1, 12))   // 12 chains = 99
+        ? toLevel(logScale(d.chainsActiveOn ?? 1, 25))   // 25 chains = 99
         : toLevel(logScale(d.pfCoinsCreated, 10)) },
 
     { id: 'firemaking', name: 'Firemaking', icon: '🔥', color: '#d97706', desc: 'Gas Burned',
