@@ -812,7 +812,7 @@ export async function fetchEVMSailorData(address: string): Promise<{
   // ---- Build SailorChainData ----
   const chainData: SailorChainData = {
     txnCount: etherscanStats.txnCount > 0 ? etherscanStats.txnCount : tradesResult.totalCount,
-    tokenCount: tokenCount > 0 ? tokenCount : tokenTransfers.uniqueTokensReceived,
+    tokenCount,
     memecoins,
     deadTokens,
     favTokenBuys,
@@ -839,6 +839,8 @@ export async function fetchEVMSailorData(address: string): Promise<{
     uniqueActiveDays: etherscanStats.uniqueActiveDays,
     nftCount,
     totalTrades: tradesResult.totalCount || tokenTransfers.tokensSent,
+    gasBurned: etherscanStats.gasBurnedEth,
+    airdropCount: tokenTransfers.airdrops.length,
   };
 
   const evmDisplay: EVMDisplayData = {

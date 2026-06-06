@@ -738,6 +738,10 @@ export async function GET(
           image: metaMap.get(t.address)?.image ?? null,
         })),
         pnlTokensTraded: pnlData.totalTokensTraded,
+        // Gas / fees: estimate from txn count × base fee (5000 lamports = 0.000005 SOL)
+        // Solana priority fees can add more, but base fee is the floor
+        gasBurned: Math.round(sigStats.txnCount * 0.000005 * 10000) / 10000,
+        airdropCount: 0, // TODO: detect Solana airdrops
       },
     }, {
       headers: { 'Cache-Control': 'public, max-age=300' },

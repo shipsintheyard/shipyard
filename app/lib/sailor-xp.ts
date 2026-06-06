@@ -48,6 +48,9 @@ export interface SailorChainData {
   uniqueActiveDays: number;
   nftCount: number;
   totalTrades: number;
+  // Optional — new skills
+  gasBurned?: number;     // ETH gas burned (EVM) or SOL fees paid (Solana)
+  airdropCount?: number;  // number of major airdrops received
 }
 
 // ============================================================================
@@ -155,14 +158,14 @@ function computeSkills(d: SailorChainData, chain: 'solana' | 'evm' = 'solana'): 
     { id: 'cooking', name: 'Cooking', icon: '🍳', color: '#92400e', desc: 'Token Chef',
       level: toLevel(logScale(d.pfCoinsCreated, evm ? 20 : 10)) },
 
-    { id: 'firemaking', name: 'Firemaking', icon: '🔥', color: '#d97706', desc: 'Rug Survivor',
-      level: toLevel(logScale(d.deadTokens, evm ? 200 : 50)) },
+    { id: 'firemaking', name: 'Firemaking', icon: '🔥', color: '#d97706', desc: 'Gas Burned',
+      level: toLevel(logScale(d.gasBurned ?? 0, evm ? 50 : 5)) },
 
     { id: 'herblore', name: 'Herblore', icon: '🧪', color: '#15803d', desc: 'Degen Potions',
       level: toLevel(logScale(d.memecoins, evm ? 150 : 30)) },
 
-    { id: 'crafting', name: 'Crafting', icon: '🔨', color: '#854d0e', desc: 'Graduated',
-      level: toLevel(logScale(d.pfCoinsGraduated, 5)) },
+    { id: 'crafting', name: 'Crafting', icon: '🔨', color: '#854d0e', desc: 'Airdrop Farmer',
+      level: toLevel(logScale(d.airdropCount ?? 0, evm ? 8 : 5)) },
 
     // ═══ Row 5: Support ═══
     { id: 'fletching', name: 'Fletching', icon: '🪶', color: '#0f766e', desc: 'Swap Speed',
@@ -268,6 +271,10 @@ function generateStories(d: SailorChainData, chain: 'solana' | 'evm' = 'solana')
 
     if (d.solVolume >= 1000) stories.push(`${formatCompact(d.solVolume)} SOL in trade volume`);
   } else {
+    if ((d.gasBurned ?? 0) >= 10) stories.push(`Burned ${(d.gasBurned ?? 0).toFixed(1)} ETH in gas`);
+    else if ((d.gasBurned ?? 0) >= 1) stories.push(`${(d.gasBurned ?? 0).toFixed(2)} ETH in gas fees`);
+    if ((d.airdropCount ?? 0) >= 3) stories.push(`Claimed ${d.airdropCount} major airdrops`);
+    else if ((d.airdropCount ?? 0) >= 1) stories.push(`Got ${d.airdropCount} airdrop${(d.airdropCount ?? 0) > 1 ? 's' : ''}`);
     if (d.defiCategories.includes('governance')) stories.push('Participates in DAO governance');
     if (d.defiCategories.length >= 3) stories.push(`Active across ${d.defiCategories.length} DeFi categories`);
     if (d.stakedSol > 0) stories.push('Staking ETH — long-term thinker');
