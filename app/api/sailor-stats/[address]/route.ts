@@ -593,6 +593,7 @@ export async function GET(
           nftVolumeEth: chainData.nftVolumeEth,
           nftCollections: chainData.nftCollections,
           nftBlueChips: chainData.nftBlueChips,
+          chainsActiveOn: chainData.chainsActiveOn,
           // EVM-specific display
           evmDisplay,
         },

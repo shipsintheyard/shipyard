@@ -54,6 +54,7 @@ export interface SailorChainData {
   nftVolumeEth?: number;    // ETH spent on NFT marketplaces
   nftCollections?: number;  // unique NFT collections interacted with
   nftBlueChips?: number;    // blue chip collections held/traded
+  chainsActiveOn?: number;  // number of chains with activity (EVM multichain)
 }
 
 // ============================================================================
@@ -166,8 +167,11 @@ function computeSkills(d: SailorChainData, chain: 'solana' | 'evm' = 'solana'): 
       level: toLevel(logScale(d.tokenCount, evm ? 300 : 50)) },
 
     // ═══ Row 4: Artisan ═══
-    { id: 'cooking', name: 'Cooking', icon: '🍳', color: '#92400e', desc: 'Token Chef',
-      level: toLevel(logScale(d.pfCoinsCreated, evm ? 20 : 10)) },
+    { id: 'cooking', name: 'Cooking', icon: '🍳', color: '#92400e',
+      desc: evm ? 'Chain Hopper' : 'Token Chef',
+      level: evm
+        ? toLevel(logScale(d.chainsActiveOn ?? 1, 12))   // 12 chains = 99
+        : toLevel(logScale(d.pfCoinsCreated, 10)) },
 
     { id: 'firemaking', name: 'Firemaking', icon: '🔥', color: '#d97706', desc: 'Gas Burned',
       level: toLevel(logScale(d.gasBurned ?? 0, evm ? 50 : 5)) },
