@@ -605,6 +605,23 @@ export default function SailorStats({ address }: { address: string }) {
               </div>
             </div>
           )}
+          {/* EVM-only: NFT quality metrics */}
+          {isEvm && chain.evmDisplay && (chain.evmDisplay.nftCollections > 0 || chain.evmDisplay.nftVolumeEth > 0) && (
+            <div style={{ marginTop: '2px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 20px' }}>
+                <div>
+                  <StatRow label="NFT Volume" value={chain.evmDisplay.nftVolumeEth > 0 ? `${chain.evmDisplay.nftVolumeEth.toFixed(2)} ETH` : '—'} color={chain.evmDisplay.nftVolumeEth > 1 ? '#a78bfa' : undefined} tip="ETH spent on NFT marketplaces (OpenSea, Blur, etc.)" />
+                  <StatRow label="Collections" value={chain.evmDisplay.nftCollections} color={chain.evmDisplay.nftCollections >= 10 ? '#88c0ff' : undefined} tip="Unique NFT collections interacted with" />
+                </div>
+                <div>
+                  <StatRow label="NFT Trades" value={chain.evmDisplay.nftTotalTransfers} tip="Total ERC-721 transfers (buys, sells, mints)" />
+                  {chain.evmDisplay.nftBlueChips.length > 0 && (
+                    <StatRow label="Blue Chips" value={chain.evmDisplay.nftBlueChips.slice(0, 3).join(', ')} color="#ffd700" tip={`Held/traded: ${chain.evmDisplay.nftBlueChips.join(', ')}`} />
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 6a. EVM Portfolio Panel */}

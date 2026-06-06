@@ -282,9 +282,25 @@ async function fetchEtherscanTxns(addr: string): Promise<EtherscanTx[]> {
   return allTxns;
 }
 
+// Known NFT marketplace contracts — ETH sent to these = NFT purchase volume
+const NFT_MARKETPLACES = new Set([
+  '0x00000000000000adc04c56bf30ac9d3c0aaf14dc', // Seaport 1.5 (OpenSea)
+  '0x00000000006c3852cbef3e08e8df289169ede581', // Seaport 1.1
+  '0x0000000000000068f116a894984e2db1123eb395', // Seaport 1.6
+  '0x7f268357a8c2552623316e2562d90e642bb538e5', // OpenSea Wyvern
+  '0x7be8076f4ea4a4ad08075c2508e481d6c946d12b', // OpenSea Wyvern v1
+  '0x39da41747a83aee658334415666f3ef92dd0d541', // Blur Marketplace
+  '0xb2ecfe4e4d61f8790bbb9de2d1259b9e2410cea5', // Blur Pool
+  '0x59728544b08ab483533076417fbbb2fd0b17ce3a', // LooksRare
+  '0x74312363e45dcaba76c59ec49a7aa8a65a67eed3', // X2Y2
+  '0x2b2e8cda09219bb404f8164909fc2bfd6127f42a', // Sudoswap
+  '0xa7d8d9ef8d8ce8992df33d8b8cf4aebabd5bd270', // Art Blocks
+]);
+
 function analyzeEtherscanTxns(txns: EtherscanTx[], address: string) {
   let gasBurnedWei = BigInt(0);
   let volumeWei = BigInt(0);
+  let nftVolumeWei = BigInt(0);
   const contracts = new Set<string>();
   const months = new Set<string>();
   const days = new Set<string>();
@@ -293,12 +309,17 @@ function analyzeEtherscanTxns(txns: EtherscanTx[], address: string) {
   const addrLower = address.toLowerCase();
 
   for (const tx of txns) {
-    if (tx.from.toLowerCase() === addrLower) {
+    const fromMe = tx.from.toLowerCase() === addrLower;
+    if (fromMe) {
       gasBurnedWei += BigInt(tx.gasUsed) * BigInt(tx.gasPrice);
       if (tx.to) {
-        contracts.add(tx.to.toLowerCase());
+        const toLower = tx.to.toLowerCase();
+        contracts.add(toLower);
+        // Track ETH sent to NFT marketplaces
+        if (tx.value && tx.value !== '0' && NFT_MARKETPLACES.has(toLower)) {
+          nftVolumeWei += BigInt(tx.value);
+        }
       } else {
-        // Empty `to` = contract creation
         deployCount++;
       }
     }
@@ -316,10 +337,12 @@ function analyzeEtherscanTxns(txns: EtherscanTx[], address: string) {
 
   const gasBurnedEth = Number(gasBurnedWei * BigInt(10000) / BigInt('1000000000000000000')) / 10000;
   const volumeEth = Number(volumeWei * BigInt(10000) / BigInt('1000000000000000000')) / 10000;
+  const nftVolumeEth = Number(nftVolumeWei * BigInt(10000) / BigInt('1000000000000000000')) / 10000;
 
   return {
     gasBurnedEth,
     volumeEth,
+    nftVolumeEth,
     uniqueContracts: contracts.size,
     activeMonths: months.size,
     uniqueActiveDays: days.size,
@@ -445,28 +468,85 @@ async function fetchTokenTransfers(addr: string): Promise<TokenTransferAnalytics
 }
 
 // ============================================================================
-// Etherscan ERC-721 NFT transfers — historical NFT activity
+// Etherscan ERC-721 NFT transfers — collection quality + activity
 // ============================================================================
 
-async function fetchNFTTransfers(addr: string): Promise<number> {
+// Top NFT collections by contract address (Ethereum mainnet)
+const BLUE_CHIP_NFTS: Record<string, string> = {
+  '0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d': 'BAYC',
+  '0xb47e3cd837ddf8e4c57f05d70ab865de6e193bbb': 'CryptoPunks',
+  '0xbd3531da5cf5857e7cfaa92426877b022e612cf8': 'Pudgy Penguins',
+  '0xed5af388653567af2f388e6224dc7c4b3241c544': 'Azuki',
+  '0x8a90cab2b38dba80c64b7734e58ee1db38b8992e': 'Doodles',
+  '0x49cf6f5d44e70224e2e23fdcdd2c053f30ada28b': 'CloneX',
+  '0x23581767a106ae21c074b2276d25e5c3e136a68b': 'Moonbirds',
+  '0x60e4d786628fea6478f785a6d7e704777c86a7c6': 'MAYC',
+  '0xa7d8d9ef8d8ce8992df33d8b8cf4aebabd5bd270': 'Art Blocks',
+  '0x34d85c9cdeb23fa97cb08333b511ac86e1c4e258': 'Otherdeed',
+  '0x1a92f7381b9f03921564a437210bb9396471050c': 'Cool Cats',
+  '0x7bd29408f11d2bfc23c34f18275bbf23bb716bc7': 'Meebits',
+  '0x524cab2ec69124574082676e6f654a18df49a048': 'Lil Pudgys',
+  '0xe785e82358879f061bc3dcac6f0444462d4b5330': 'World of Women',
+  '0x306b1ea3ecdf94ab739f1910bbda052ed4a9f949': 'Beanz',
+  '0x769272677fab02575e84945f03eca517acc544cc': 'Captainz',
+  '0x39ee2c7b3cb80254225884ca001f57118c8f21b6': 'Potatoz',
+  '0xba30e5f9bb24caa003e9f2f0497ad287fdf95623': 'Bored Ape Kennel',
+  '0x059edd72cd353df5106d2b9cc5ab83a52287ac3a': 'Art Blocks Curated',
+  '0x57f1887a8bf19b14fc0df6fd9b2acc9af147ea85': 'ENS Domains',
+  '0xc36442b4a4522e871399cd717abdd847ab11fe88': 'Uniswap V3 Positions',
+  '0x22c1f6050e56d2876009903609a2cc3fef83b415': 'POAP',
+};
+
+interface NFTAnalytics {
+  uniqueCollections: number;  // distinct collection contracts
+  blueChipCount: number;      // number of blue chip collections touched
+  blueChips: string[];        // names of blue chips
+  totalTransfers: number;     // total NFT transfers (buys + sells + mints)
+  nftsReceived: number;
+  nftsSold: number;
+}
+
+async function fetchNFTTransfers(addr: string): Promise<NFTAnalytics> {
+  const empty: NFTAnalytics = {
+    uniqueCollections: 0, blueChipCount: 0, blueChips: [],
+    totalTransfers: 0, nftsReceived: 0, nftsSold: 0,
+  };
   const key = process.env.ETHERSCAN_API_KEY;
-  if (!key) return 0;
+  if (!key) return empty;
   try {
     const res = await fetch(
       `${ETHERSCAN_BASE}?chainid=1&module=account&action=tokennfttx&address=${addr}&startblock=0&endblock=99999999&page=1&offset=10000&sort=asc&apikey=${key}`,
     );
     const json = await res.json();
-    if (json.status !== '1' || !Array.isArray(json.result)) return 0;
-    // Count unique NFTs ever received (tokenID + contractAddress)
-    const nfts = new Set<string>();
+    if (json.status !== '1' || !Array.isArray(json.result)) return empty;
+
+    const collections = new Set<string>();
+    const blueChipSet = new Set<string>();
+    let nftsReceived = 0;
+    let nftsSold = 0;
     const addrLower = addr.toLowerCase();
+
     for (const tx of json.result) {
-      if ((tx.to || '').toLowerCase() === addrLower) {
-        nfts.add(`${(tx.contractAddress || '').toLowerCase()}:${tx.tokenID}`);
-      }
+      const contract = (tx.contractAddress || '').toLowerCase();
+      if (contract) collections.add(contract);
+
+      // Blue chip detection
+      const blueChip = BLUE_CHIP_NFTS[contract];
+      if (blueChip) blueChipSet.add(blueChip);
+
+      if ((tx.to || '').toLowerCase() === addrLower) nftsReceived++;
+      if ((tx.from || '').toLowerCase() === addrLower) nftsSold++;
     }
-    return nfts.size;
-  } catch { return 0; }
+
+    return {
+      uniqueCollections: collections.size,
+      blueChipCount: blueChipSet.size,
+      blueChips: [...blueChipSet],
+      totalTransfers: json.result.length,
+      nftsReceived,
+      nftsSold,
+    };
+  } catch { return empty; }
 }
 
 // ============================================================================
@@ -551,6 +631,11 @@ export interface EVMDisplayData {
   spotPnl: ZerionPnLData | null;
   // Fav token
   favToken: string | null;
+  // NFT analytics
+  nftVolumeEth: number;
+  nftCollections: number;
+  nftBlueChips: string[];
+  nftTotalTransfers: number;
 }
 
 // ============================================================================
@@ -562,7 +647,7 @@ export async function fetchEVMSailorData(address: string): Promise<{
   evmDisplay: EVMDisplayData;
 }> {
   // 12 requests in parallel
-  const [portfolio, positions, tradesResult, nfts, zerionPnl, hlState, hlFills, etherscanTxns, ensName, snapshotData, tokenTransfers, etherscanNftCount] = await Promise.all([
+  const [portfolio, positions, tradesResult, nfts, zerionPnl, hlState, hlFills, etherscanTxns, ensName, snapshotData, tokenTransfers, nftAnalytics] = await Promise.all([
     fetchZerionPortfolio(address),
     fetchZerionPositions(address),
     fetchZerionTrades(address),
@@ -776,8 +861,8 @@ export async function fetchEVMSailorData(address: string): Promise<{
     if (margin > 0) pnlTotalInvested = Math.round(margin * 100) / 100;
   }
 
-  // NFT count — Zerion positions first, Etherscan historical as fallback
-  const nftCount = nfts.length > 0 ? nfts.length : etherscanNftCount;
+  // NFT count — Zerion positions first, Etherscan collection count as fallback
+  const nftCount = nfts.length > 0 ? nfts.length : nftAnalytics.uniqueCollections;
 
   // DeFi categories
   const defiCategories: string[] = [];
@@ -841,6 +926,9 @@ export async function fetchEVMSailorData(address: string): Promise<{
     totalTrades: tradesResult.totalCount || tokenTransfers.tokensSent,
     gasBurned: etherscanStats.gasBurnedEth,
     airdropCount: tokenTransfers.airdrops.length,
+    nftVolumeEth: etherscanStats.nftVolumeEth,
+    nftCollections: nftAnalytics.uniqueCollections,
+    nftBlueChips: nftAnalytics.blueChipCount,
   };
 
   const evmDisplay: EVMDisplayData = {
@@ -865,6 +953,10 @@ export async function fetchEVMSailorData(address: string): Promise<{
     governanceVotes: snapshotData.totalVotes,
     governanceSpaces: snapshotData.spaces,
     favToken: favTokenSymbol || null,
+    nftVolumeEth: etherscanStats.nftVolumeEth,
+    nftCollections: nftAnalytics.uniqueCollections,
+    nftBlueChips: nftAnalytics.blueChips,
+    nftTotalTransfers: nftAnalytics.totalTransfers,
   };
 
   return { chainData, evmDisplay };

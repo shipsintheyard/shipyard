@@ -49,8 +49,11 @@ export interface SailorChainData {
   nftCount: number;
   totalTrades: number;
   // Optional — new skills
-  gasBurned?: number;     // ETH gas burned (EVM) or SOL fees paid (Solana)
-  airdropCount?: number;  // number of major airdrops received
+  gasBurned?: number;       // ETH gas burned (EVM) or SOL fees paid (Solana)
+  airdropCount?: number;    // number of major airdrops received
+  nftVolumeEth?: number;    // ETH spent on NFT marketplaces
+  nftCollections?: number;  // unique NFT collections interacted with
+  nftBlueChips?: number;    // blue chip collections held/traded
 }
 
 // ============================================================================
@@ -148,8 +151,16 @@ function computeSkills(d: SailorChainData, chain: 'solana' | 'evm' = 'solana'): 
     { id: 'mining', name: 'Mining', icon: '⛏️', color: '#57534e', desc: 'Daily Grind',
       level: toLevel(logScale(d.uniqueActiveDays, evm ? 1500 : 365)) },
 
-    { id: 'fishing', name: 'Fishing', icon: '🎣', color: '#0369a1', desc: 'NFT Collector',
-      level: toLevel(logScale(d.nftCount, evm ? 500 : 50)) },
+    { id: 'fishing', name: 'Fishing', icon: '🎣', color: '#0369a1', desc: evm ? 'NFT Trader' : 'NFT Collector',
+      level: evm
+        ? (() => {
+            // EVM: composite of volume + collections + blue chips
+            const volScore = logScale(d.nftVolumeEth ?? 0, 100);     // 100 ETH volume cap
+            const colScore = logScale(d.nftCollections ?? 0, 100);   // 100 collections cap
+            const chipBonus = Math.min((d.nftBlueChips ?? 0) * 0.08, 0.3); // up to 30% bonus for blue chips
+            return toLevel(Math.min(volScore * 0.5 + colScore * 0.3 + chipBonus, 1));
+          })()
+        : toLevel(logScale(d.nftCount, 50)) },
 
     { id: 'farming', name: 'Farming', icon: '🌱', color: '#166534', desc: 'Bag Holder',
       level: toLevel(logScale(d.tokenCount, evm ? 300 : 50)) },
