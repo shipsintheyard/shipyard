@@ -384,6 +384,24 @@ const AIRDROP_CONTRACTS: Record<string, { name: string; symbol: string; date: st
   '0xd8da6bf26964af9d7eed9e03e53415d37aa96045': { name: 'VB donation', symbol: 'various', date: '' },
   '0xe50fa9b3c56ffb159cb0fca61f5c9d750e8128c8': { name: 'EigenLayer', symbol: 'EIGEN', date: '2024-05' },
   '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359': { name: 'LayerZero', symbol: 'ZRO', date: '2024-06' },
+  '0x77777775b611e0759e9de22ee1f03eff94b5661c': { name: 'Across Protocol', symbol: 'ACX', date: '2022-11' },
+  '0xdbdb4d16eda451d0503b854cf79d55697f90c8df': { name: 'Alcx', symbol: 'ALCX', date: '2021-02' },
+  '0x8207c1ffc5b6804f6024322ccf34f29c3541ae26': { name: 'Origin Protocol', symbol: 'OGN', date: '2020-01' },
+  '0xba5bde662c17e2adff1075610382b9b691296350': { name: 'SuperRare', symbol: 'RARE', date: '2021-08' },
+  '0x6de037ef9ad2725eb40118bb1702ebb27e4aeb24': { name: 'Render', symbol: 'RNDR', date: '2020-06' },
+};
+
+// Known airdropped TOKEN contract addresses (detect by token received, not sender)
+// This catches airdrops that are claimed by the user from a merkleclaim contract
+const AIRDROP_TOKENS: Record<string, { name: string; symbol: string; date: string }> = {
+  '0x5a98fcbea516cf06857215779fd812ca3bef1b32': { name: 'Lido', symbol: 'LDO', date: '2021-01' },
+  '0xc18360217d8f7ab5e7c516566761ea12ce7f9d72': { name: 'ENS', symbol: 'ENS', date: '2021-11' },
+  '0xb56a1f3310578698f5a15abdd3fee4b429170aa8': { name: 'zkSync', symbol: 'ZK', date: '2024-06' },
+  '0x4200000000000000000000000000000000000042': { name: 'Optimism', symbol: 'OP', date: '2022-06' },
+  '0xc5102fe9359fd9a28f877a67e36b0f050d81a3cc': { name: 'Hop Protocol', symbol: 'HOP', date: '2022-06' },
+  '0xdefi11396252b97a08169d5f0c2ea90a93e3f0a5': { name: 'DeFi Pulse', symbol: 'DPI', date: '2020-09' },
+  '0x912ce59144191c1204e64559fe8253a0e49e6548': { name: 'Arbitrum', symbol: 'ARB', date: '2023-03' },
+  '0xd33526068d116ce69f19a9ee46f0bd304f21a51f': { name: 'Rocket Pool', symbol: 'RPL', date: '2021-11' },
 };
 
 interface AirdropReceived {
@@ -437,10 +455,13 @@ async function fetchTokenTransfers(addr: string): Promise<TokenTransferAnalytics
         tokensReceived++;
         if (contract) receivedTokens.add(contract);
 
-        // Airdrop detection
-        const airdrop = AIRDROP_CONTRACTS[from];
-        if (airdrop && !airdropSeen.has(from)) {
-          airdropSeen.add(from);
+        // Airdrop detection — check sender address OR token contract
+        const airdropBySender = AIRDROP_CONTRACTS[from];
+        const airdropByToken = AIRDROP_TOKENS[contract];
+        const airdrop = airdropBySender || airdropByToken;
+        const airdropKey = airdropBySender ? from : contract;
+        if (airdrop && !airdropSeen.has(airdropKey)) {
+          airdropSeen.add(airdropKey);
           const decimals = parseInt(tx.tokenDecimal) || 18;
           const amount = parseInt(tx.value) / Math.pow(10, decimals);
           airdrops.push({

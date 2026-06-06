@@ -587,6 +587,12 @@ export async function GET(
             .reverse()
             .map(t => ({ address: '', pnl: t.realizedGain, invested: t.totalInvested, roi: t.totalInvested > 0 ? (t.realizedGain / t.totalInvested) * 100 : 0, symbol: t.symbol, name: t.name, image: t.icon })),
           pnlTokensTraded: evmDisplay.spotPnl?.tokens?.length ?? chainData.pnlTokensTraded,
+          // New skill fields
+          gasBurned: chainData.gasBurned,
+          airdropCount: chainData.airdropCount,
+          nftVolumeEth: chainData.nftVolumeEth,
+          nftCollections: chainData.nftCollections,
+          nftBlueChips: chainData.nftBlueChips,
           // EVM-specific display
           evmDisplay,
         },

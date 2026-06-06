@@ -387,7 +387,13 @@ export default function SailorStats({ address }: { address: string }) {
         )}
 
         {/* 4. PnL Panel */}
-        {(chain.pnlRealized !== null || chain.pnlTotal !== null) && (
+        {(chain.pnlRealized !== null || chain.pnlTotal !== null) && (() => {
+          // Detect PnL source: if no Zerion spot PnL but HL exists, it's from Hyperliquid
+          const hasSpotPnl = isEvm && chain.evmDisplay?.spotPnl && chain.evmDisplay.spotPnl.realized !== 0;
+          const pnlSource = isEvm
+            ? (hasSpotPnl ? 'Spot' : chain.evmDisplay?.hyperliquidPnl !== null ? 'Hyperliquid Perps' : null)
+            : null;
+          return (
           <div className="osrs-panel" style={{ padding: '14px 16px', marginBottom: '16px' }}>
             <div style={{
               fontFamily: FONT, fontSize: '7px', color: O.dim,
@@ -407,12 +413,19 @@ export default function SailorStats({ address }: { address: string }) {
                 REALIZED PnL
               </div>
               <div style={{
-                fontFamily: FONT, fontSize: '18px', fontWeight: 'bold',
+                fontFamily: FONT, fontSize: isEvm ? '14px' : '18px', fontWeight: 'bold',
                 textShadow: '1px 1px 0 #000',
                 color: (chain.pnlRealized ?? 0) >= 0 ? '#7ee787' : '#f85149',
               }}>
                 {(chain.pnlRealized ?? 0) >= 0 ? '+' : ''}{formatCompact(chain.pnlRealized ?? 0)} USD
               </div>
+              {pnlSource && (
+                <div style={{
+                  fontFamily: FONT, fontSize: '6px', color: O.dim, marginTop: '4px',
+                }}>
+                  via {pnlSource}
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 20px' }}>
@@ -534,7 +547,8 @@ export default function SailorStats({ address }: { address: string }) {
               </div>
             )}
           </div>
-        )}
+          );
+        })()}
 
         {/* 5. On-Chain Stats */}
         <div className="osrs-panel" style={{ padding: '14px 16px', marginBottom: '16px' }}>
