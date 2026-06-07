@@ -99,10 +99,14 @@ export interface TierInfo {
 const COMBAT_SKILL_IDS = ['attack', 'strength', 'defence', 'hitpoints', 'ranged', 'magic', 'prayer'];
 
 function computeSkills(d: SailorChainData, chain: 'solana' | 'evm' = 'solana'): SkillScore[] {
-  // Pre-compute ROI
+  // Pre-compute ROI — use totalInvested, fallback to solVolume as proxy for capital deployed
   const invested = d.pnlTotalInvested ?? 0;
   const realized = d.pnlRealized ?? 0;
-  const roi = invested > 0 && realized > 0 ? (realized / invested) * 100 : 0;
+  const isEvm = chain === 'evm';
+  // EVM volume is in ETH-equiv, PnL is in USD — multiply by ~2500 to match units
+  const volumeUsd = (d.solVolume ?? 0) * (isEvm ? 2500 : 1);
+  const capitalBase = invested > 0 ? invested : (volumeUsd > 0 ? volumeUsd : 0);
+  const roi = capitalBase > 0 && realized > 0 ? (realized / capitalBase) * 100 : 0;
 
   // Pre-compute trade count for defence
   const tradeCount = d.pnlWins + d.pnlLosses;
@@ -176,7 +180,7 @@ function computeSkills(d: SailorChainData, chain: 'solana' | 'evm' = 'solana'): 
     { id: 'firemaking', name: 'Firemaking', icon: '🔥', color: '#d97706', desc: 'Gas Burned',
       level: toLevel(logScale(d.gasBurned ?? 0, evm ? 50 : 5)) },
 
-    { id: 'herblore', name: 'Herblore', icon: '🧪', color: '#15803d', desc: 'Degen Potions',
+    { id: 'herblore', name: 'Herblore', icon: '🧪', color: '#15803d', desc: 'Memecoins Held',
       level: toLevel(logScale(d.memecoins, evm ? 150 : 30)) },
 
     { id: 'crafting', name: 'Crafting', icon: '🔨', color: '#854d0e', desc: 'Airdrop Farmer',

@@ -265,22 +265,38 @@ interface EtherscanTx {
   timeStamp: string;
 }
 
+// Chain IDs for Etherscan V2: mainnet gets full history (3 pages), L2s get 1 page each
+const ETHERSCAN_CHAINS = [
+  { id: 1, pages: 3 },       // Ethereum mainnet
+  { id: 42161, pages: 1 },   // Arbitrum
+  { id: 8453, pages: 1 },    // Base
+  { id: 10, pages: 1 },      // Optimism
+  { id: 137, pages: 1 },     // Polygon
+];
+
 async function fetchEtherscanTxns(addr: string): Promise<EtherscanTx[]> {
   const key = process.env.ETHERSCAN_API_KEY;
   if (!key) return [];
-  const allTxns: EtherscanTx[] = [];
-  for (let page = 1; page <= 3; page++) {
-    try {
-      const res = await fetch(
-        `${ETHERSCAN_BASE}?chainid=1&module=account&action=txlist&address=${addr}&startblock=0&endblock=99999999&page=${page}&offset=10000&sort=asc&apikey=${key}`,
-      );
-      const json = await res.json();
-      if (json.status !== '1' || !Array.isArray(json.result)) break;
-      allTxns.push(...json.result);
-      if (json.result.length < 10000) break;
-    } catch { break; }
-  }
-  return allTxns;
+
+  // Fetch mainnet (paginated) + L2s (1 page each) in parallel
+  const chainFetches = ETHERSCAN_CHAINS.map(async (chain) => {
+    const txns: EtherscanTx[] = [];
+    for (let page = 1; page <= chain.pages; page++) {
+      try {
+        const res = await fetch(
+          `${ETHERSCAN_BASE}?chainid=${chain.id}&module=account&action=txlist&address=${addr}&startblock=0&endblock=99999999&page=${page}&offset=10000&sort=asc&apikey=${key}`,
+        );
+        const json = await res.json();
+        if (json.status !== '1' || !Array.isArray(json.result)) break;
+        txns.push(...json.result);
+        if (json.result.length < 10000) break;
+      } catch { break; }
+    }
+    return txns;
+  });
+
+  const results = await Promise.all(chainFetches);
+  return results.flat();
 }
 
 // Known DEX router contracts — detect DEX diversity from Etherscan interactions
@@ -305,6 +321,14 @@ const DEX_ROUTERS: Record<string, string> = {
   '0x6352a56caadc4f1e25cd6c75970fa768a3304e64': 'OpenOcean',
   '0xe66b31678d6c16e9ebf358268a790b763c133750': '0x Coinbase',
   '0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae': 'LI.FI',
+  // L2 routers
+  '0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24': 'Uniswap V2 (L2)',
+  '0x2626664c2603336e57b271c5c0b26f421741e481': 'Uniswap V3 (L2)',
+  '0xc873fecbd354f5a56e00e710b90ef4201db2448d': 'Camelot',
+  '0x1b02da8cb0d097eb8d57a175b88c7d8b47997506': 'SushiSwap (L2)',
+  '0xcf77a3ba9a5ca399b7c97c74d54e5b1beb874e43': 'Aerodrome',
+  '0xa5e0829caced8ffdd4de3c43696c57f7d7a678ff': 'QuickSwap',
+  '0xf5b509bb0909a69b1c207e495f687a596c168e12': 'GMX',
 };
 
 // Known NFT marketplace contracts — ETH sent to these = NFT purchase volume
