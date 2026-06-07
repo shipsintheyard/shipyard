@@ -56,6 +56,7 @@ interface ZerionTransaction {
     }[];
   };
   relationships?: {
+    chain?: { data: { id: string } | null };
     dapp?: { data: { id: string } | null };
   };
 }
@@ -282,6 +283,30 @@ async function fetchEtherscanTxns(addr: string): Promise<EtherscanTx[]> {
   return allTxns;
 }
 
+// Known DEX router contracts — detect DEX diversity from Etherscan interactions
+const DEX_ROUTERS: Record<string, string> = {
+  '0x7a250d5630b4cf539739df2c5dacb4c659f2488d': 'Uniswap V2',
+  '0xe592427a0aece92de3edee1f18e0157c05861564': 'Uniswap V3',
+  '0x3fc91a3afd70395cd496c647d5a6cc9d4b2b7fad': 'Uniswap Universal',
+  '0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45': 'Uniswap V3 Router2',
+  '0xd9e1ce17f2641f24ae83637ab66a2cca9c378b9f': 'SushiSwap',
+  '0x1111111254eeb25477b68fb85ed929f73a960582': '1inch v5',
+  '0x111111125421ca6dc452d289314280a0f8842a65': '1inch v6',
+  '0xdef1c0ded9bec7f1a1670819833240f027b25eff': '0x Protocol',
+  '0xba12222222228d8ba445958a75a0704d566bf2c8': 'Balancer',
+  '0xdef171fe48cf0115b1d80b88dc8eab59176fee57': 'Paraswap',
+  '0x9008d19f58aabd9ed0d60971565aa8510560ab41': 'CoW Protocol',
+  '0x6131b5fae19ea4f9d964eac0408e4408b66337b5': 'Kyber',
+  '0x13f4ea83d0bd40e75c8222255bc855a974568dd4': 'PancakeSwap',
+  '0x3328f7f4a1d1c57c35df56bbf0c9dcafca309c49': 'Banana Gun',
+  '0x80a64c6d7f12c47b7c66c5b4e20e72bc0db294e1': 'Maestro',
+  '0x881d40237659c251811cec9c364ef91dc08d300c': 'MetaMask Swap',
+  '0x7c68c42de679ffb0f16216154c996c354cf1161b': 'CrocSwap/Ambient',
+  '0x6352a56caadc4f1e25cd6c75970fa768a3304e64': 'OpenOcean',
+  '0xe66b31678d6c16e9ebf358268a790b763c133750': '0x Coinbase',
+  '0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae': 'LI.FI',
+};
+
 // Known NFT marketplace contracts — ETH sent to these = NFT purchase volume
 const NFT_MARKETPLACES = new Set([
   '0x00000000000000adc04c56bf30ac9d3c0aaf14dc', // Seaport 1.5 (OpenSea)
@@ -302,6 +327,7 @@ function analyzeEtherscanTxns(txns: EtherscanTx[], address: string) {
   let volumeWei = BigInt(0);
   let nftVolumeWei = BigInt(0);
   const contracts = new Set<string>();
+  const dexesUsed = new Set<string>();
   const months = new Set<string>();
   const days = new Set<string>();
   let firstTxDate: string | null = null;
@@ -315,6 +341,9 @@ function analyzeEtherscanTxns(txns: EtherscanTx[], address: string) {
       if (tx.to) {
         const toLower = tx.to.toLowerCase();
         contracts.add(toLower);
+        // Track DEX router interactions
+        const dexName = DEX_ROUTERS[toLower];
+        if (dexName) dexesUsed.add(dexName);
         // Track ETH sent to NFT marketplaces
         if (tx.value && tx.value !== '0' && NFT_MARKETPLACES.has(toLower)) {
           nftVolumeWei += BigInt(tx.value);
@@ -350,6 +379,8 @@ function analyzeEtherscanTxns(txns: EtherscanTx[], address: string) {
     txnCount: txns.length,
     txnCountCapped: txns.length >= 30000,
     deployCount,
+    dexesUsed: [...dexesUsed],
+    dexCount: dexesUsed.size,
   };
 }
 
@@ -934,7 +965,7 @@ export async function fetchEVMSailorData(address: string): Promise<{
     pnlLosses,
     pnlTotalInvested,
     pnlTokensTraded: tokensTraded,
-    dexCount: dappNames.size,
+    dexCount: Math.max(etherscanStats.dexCount, dappNames.size),
     uniqueDapps: totalUniqueDapps,
     defiCategories: snapshotData.totalVotes > 0
       ? [...new Set([...defiCategories, 'governance'])]
@@ -950,6 +981,22 @@ export async function fetchEVMSailorData(address: string): Promise<{
     nftVolumeEth: etherscanStats.nftVolumeEth,
     nftCollections: nftAnalytics.uniqueCollections,
     nftBlueChips: nftAnalytics.blueChipCount,
+    chainsActiveOn: (() => {
+      // Merge current positions chains + historical trade chains
+      const chains = new Set(Object.keys(chainDist));
+      chains.add('ethereum'); // they're an EVM wallet, always count mainnet
+      for (const tx of trades) {
+        const chainId = tx.relationships?.chain?.data?.id;
+        if (chainId) chains.add(chainId);
+      }
+      // Positions also carry chain info via implementations
+      for (const pos of positions) {
+        for (const impl of pos.attributes.fungible_info?.implementations ?? []) {
+          if (impl.chain_id) chains.add(impl.chain_id);
+        }
+      }
+      return chains.size;
+    })(),
   };
 
   const evmDisplay: EVMDisplayData = {
