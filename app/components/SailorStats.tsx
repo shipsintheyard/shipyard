@@ -149,16 +149,17 @@ function SkillCell({ skill }: { skill: SkillScore }) {
         <div style={{
           position: 'absolute', bottom: '100%', left: '50%',
           transform: 'translateX(-50%)',
-          marginBottom: '4px', padding: '5px 8px',
-          background: O.panelBg, border: `1px solid ${O.outer}`,
+          marginBottom: '6px', padding: '8px 12px',
+          background: '#1a1610', border: `1px solid ${O.gold}44`,
+          borderRadius: '4px',
           zIndex: 10, fontFamily: FONT,
           color: O.text, whiteSpace: 'nowrap',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
-          display: 'flex', flexDirection: 'column', gap: '2px',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.7)',
+          display: 'flex', flexDirection: 'column', gap: '3px',
         }}>
-          <span style={{ fontSize: '6px', color: O.gold }}>{skill.desc}</span>
+          <span style={{ fontSize: '11px', fontWeight: 'bold', color: O.gold }}>{skill.desc}</span>
           {skill.breakdown && (
-            <span style={{ fontSize: '5px', color: O.dim }}>{skill.breakdown}</span>
+            <span style={{ fontSize: '10px', color: '#b8a88a' }}>{skill.breakdown}</span>
           )}
         </div>
       )}
