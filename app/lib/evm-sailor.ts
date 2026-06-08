@@ -268,12 +268,18 @@ interface EtherscanTx {
 // L2 chain IDs for supplementary DEX/contract data
 const L2_CHAINS = [42161, 8453, 10, 137]; // Arbitrum, Base, Optimism, Polygon
 
-async function fetchEtherscanTxns(addr: string): Promise<EtherscanTx[]> {
+const CHAIN_NAMES: Record<number, string> = {
+  1: 'ethereum', 42161: 'arbitrum', 8453: 'base', 10: 'optimism', 137: 'polygon',
+};
+
+async function fetchEtherscanTxns(addr: string): Promise<{ txns: EtherscanTx[]; activeChains: string[] }> {
   const key = process.env.ETHERSCAN_API_KEY;
-  if (!key) return [];
+  if (!key) return { txns: [], activeChains: [] };
+
+  const allTxns: EtherscanTx[] = [];
+  const activeChains: string[] = [];
 
   // 1. Fetch mainnet first (critical — full paginated history)
-  const allTxns: EtherscanTx[] = [];
   for (let page = 1; page <= 3; page++) {
     try {
       const res = await fetch(
@@ -282,6 +288,7 @@ async function fetchEtherscanTxns(addr: string): Promise<EtherscanTx[]> {
       const json = await res.json();
       if (json.status !== '1' || !Array.isArray(json.result)) break;
       allTxns.push(...json.result);
+      if (page === 1 && json.result.length > 0) activeChains.push('ethereum');
       if (json.result.length < 10000) break;
     } catch { break; }
   }
@@ -293,13 +300,14 @@ async function fetchEtherscanTxns(addr: string): Promise<EtherscanTx[]> {
         `${ETHERSCAN_BASE}?chainid=${chainId}&module=account&action=txlist&address=${addr}&startblock=0&endblock=99999999&page=1&offset=10000&sort=asc&apikey=${key}`,
       );
       const json = await res.json();
-      if (json.status === '1' && Array.isArray(json.result)) {
+      if (json.status === '1' && Array.isArray(json.result) && json.result.length > 0) {
         allTxns.push(...json.result);
+        activeChains.push(CHAIN_NAMES[chainId] ?? `chain-${chainId}`);
       }
     } catch { /* skip this L2 */ }
   }
 
-  return allTxns;
+  return { txns: allTxns, activeChains };
 }
 
 // Known DEX router contracts — detect DEX diversity from Etherscan interactions
@@ -742,7 +750,8 @@ export async function fetchEVMSailorData(address: string): Promise<{
   ]);
 
   // Analyze Etherscan data (full tx history — much better than Zerion's 100-txn window)
-  const etherscanStats = analyzeEtherscanTxns(etherscanTxns, address);
+  const etherscanStats = analyzeEtherscanTxns(etherscanTxns.txns, address);
+  const etherscanChains = etherscanTxns.activeChains;
 
   const trades = tradesResult.data;
 
@@ -922,15 +931,17 @@ export async function fetchEVMSailorData(address: string): Promise<{
     hlPnl = Math.round(totalPnl * 100) / 100;
     hlVolume = Math.round(totalVol * 100) / 100;
 
-    // If no Zerion PnL, fall back to HL data for scoring
-    if (!zerionPnl) {
+    // Always combine HL data into scoring — perp PnL is additive to spot
+    if (pnlRealized !== null) {
+      pnlRealized = Math.round((pnlRealized + hlPnl) * 100) / 100;
+    } else {
       pnlRealized = hlPnl;
-      pnlWins += hlWins;
-      pnlLosses += hlLosses;
-      const totalTrades = pnlWins + pnlLosses;
-      if (totalTrades > 0) {
-        pnlWinRate = Math.round((pnlWins / totalTrades) * 10000) / 100;
-      }
+    }
+    pnlWins += hlWins;
+    pnlLosses += hlLosses;
+    const combinedTrades = pnlWins + pnlLosses;
+    if (combinedTrades > 0) {
+      pnlWinRate = Math.round((pnlWins / combinedTrades) * 10000) / 100;
     }
   }
 
@@ -973,11 +984,17 @@ export async function fetchEVMSailorData(address: string): Promise<{
     || Object.keys(tokenTrades).length
     || tokenTransfers.uniqueTokens;
 
+  // ---- Fallbacks when Zerion positions are empty ----
+  // Use Etherscan token transfer data as proxy for tokens held/traded
+  const effectiveTokenCount = tokenCount > 0 ? tokenCount : tokenTransfers.uniqueTokens;
+  const effectiveMemecoins = memecoins > 0 ? memecoins
+    : Math.max(0, tokenTransfers.uniqueTokens - 10); // rough: subtract stables/majors
+
   // ---- Build SailorChainData ----
   const chainData: SailorChainData = {
     txnCount: etherscanStats.txnCount > 0 ? etherscanStats.txnCount : tradesResult.totalCount,
-    tokenCount,
-    memecoins,
+    tokenCount: effectiveTokenCount,
+    memecoins: effectiveMemecoins,
     deadTokens,
     favTokenBuys,
     pfCoinsCreated: etherscanStats.deployCount,
@@ -1009,14 +1026,14 @@ export async function fetchEVMSailorData(address: string): Promise<{
     nftCollections: nftAnalytics.uniqueCollections,
     nftBlueChips: nftAnalytics.blueChipCount,
     chainsActiveOn: (() => {
-      // Merge current positions chains + historical trade chains
+      // Merge all chain sources: portfolio, Zerion trades, positions, Etherscan L2s
       const chains = new Set(Object.keys(chainDist));
-      chains.add('ethereum'); // they're an EVM wallet, always count mainnet
+      chains.add('ethereum');
+      for (const c of etherscanChains) chains.add(c);
       for (const tx of trades) {
         const chainId = tx.relationships?.chain?.data?.id;
         if (chainId) chains.add(chainId);
       }
-      // Positions also carry chain info via implementations
       for (const pos of positions) {
         for (const impl of pos.attributes.fungible_info?.implementations ?? []) {
           if (impl.chain_id) chains.add(impl.chain_id);
