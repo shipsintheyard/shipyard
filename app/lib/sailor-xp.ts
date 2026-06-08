@@ -68,6 +68,7 @@ export interface SkillScore {
   level: number;    // 1-99
   color: string;
   desc: string;     // what this skill measures
+  breakdown?: string; // hover detail — raw value + context
 }
 
 export interface DegenScore {
@@ -115,89 +116,117 @@ function computeSkills(d: SailorChainData, chain: 'solana' | 'evm' = 'solana'): 
   // so caps need to be higher to keep 99 meaningful
   const evm = chain === 'evm';
 
+  const fc = formatCompact;
+  const unit = evm ? 'ETH' : 'SOL';
+  const ageDays = d.walletAgeDays;
+  const ageStr = ageDays >= 365 ? `${(ageDays / 365).toFixed(1)}y` : `${ageDays}d`;
+
   return [
     // ═══ Row 1: Core Combat ═══
     { id: 'attack', name: 'Attack', icon: '⚔️', color: '#c75011', desc: 'Trade Volume',
-      level: toLevel(logScale(d.solVolume, evm ? 5000 : 1000)) },
+      level: toLevel(logScale(d.solVolume, evm ? 5000 : 1000)),
+      breakdown: `${fc(d.solVolume)} ${unit} volume · cap ${evm ? '5K' : '1K'}` },
 
     { id: 'strength', name: 'Strength', icon: '💪', color: '#047857', desc: 'Realized PnL',
       level: (() => {
         const pnl = d.pnlRealized ?? 0;
         if (pnl <= 0) return 1;
         return toLevel(logScale(pnl, evm ? 500000 : 100000));
-      })() },
+      })(),
+      breakdown: `${d.pnlRealized !== null ? (d.pnlRealized >= 0 ? '+' : '') + '$' + fc(d.pnlRealized) : 'no data'} · cap $${evm ? '500K' : '100K'}` },
 
     { id: 'defence', name: 'Defence', icon: '🛡️', color: '#6b9bd2', desc: 'Win Rate',
       level: (() => {
         if (tradeCount < 10) return clamp(tradeCount, 1, 10);
         return toLevel((d.pnlWinRate ?? 0) / 100);
-      })() },
+      })(),
+      breakdown: `${d.pnlWinRate?.toFixed(1) ?? '0'}% wins · ${d.pnlWins}W/${d.pnlLosses}L (${tradeCount} trades)` },
 
     { id: 'hitpoints', name: 'Hitpoints', icon: '❤️', color: '#b91c1c', desc: 'Wallet Age',
-      level: toLevel(logScale(d.walletAgeDays, evm ? 3650 : 1825)) },
+      level: toLevel(logScale(d.walletAgeDays, evm ? 3650 : 1825)),
+      breakdown: `${ageStr} old · cap ${evm ? '10y' : '5y'}` },
 
     // ═══ Row 2: Support Combat ═══
     { id: 'ranged', name: 'Ranged', icon: '🏹', color: '#4d7c0f', desc: 'Tokens Sniped',
-      level: toLevel(logScale(d.pnlTokensTraded, evm ? 2000 : 500)) },
+      level: toLevel(logScale(d.pnlTokensTraded, evm ? 2000 : 500)),
+      breakdown: `${fc(d.pnlTokensTraded)} tokens traded · cap ${evm ? '2K' : '500'}` },
 
     { id: 'magic', name: 'Magic', icon: '🔮', color: '#6d28d9', desc: 'DeFi Mastery',
-      level: toLevel(Math.min(d.defiCategories.length, evm ? 7 : 5) / (evm ? 7 : 5)) },
+      level: toLevel(Math.min(d.defiCategories.length, evm ? 7 : 5) / (evm ? 7 : 5)),
+      breakdown: `${d.defiCategories.length}/${evm ? 7 : 5} categories · ${d.defiCategories.join(', ') || 'none'}` },
 
     { id: 'prayer', name: 'Prayer', icon: '✨', color: '#ca8a04', desc: 'Diamond Hands',
-      level: toLevel(logScale(d.stakedSol, evm ? 500 : 100)) },
+      level: toLevel(logScale(d.stakedSol, evm ? 500 : 100)),
+      breakdown: `${fc(d.stakedSol)} ${unit} staked · cap ${evm ? '500' : '100'}` },
 
     { id: 'agility', name: 'Agility', icon: '🏃', color: '#3730a3', desc: 'DEX Diversity',
-      level: toLevel(logScale(d.dexCount, evm ? 30 : 10)) },
+      level: toLevel(logScale(d.dexCount, evm ? 30 : 10)),
+      breakdown: `${d.dexCount} DEXes used · cap ${evm ? '30' : '10'}` },
 
     // ═══ Row 3: Gathering ═══
     { id: 'woodcutting', name: 'Woodcutting', icon: '🪓', color: '#78350f', desc: 'Transactions',
-      level: toLevel(logScale(d.txnCount, evm ? 50000 : 10000)) },
+      level: toLevel(logScale(d.txnCount, evm ? 50000 : 10000)),
+      breakdown: `${fc(d.txnCount)} txns · cap ${evm ? '50K' : '10K'}` },
 
     { id: 'mining', name: 'Mining', icon: '⛏️', color: '#57534e', desc: 'Daily Grind',
-      level: toLevel(logScale(d.uniqueActiveDays, evm ? 1500 : 365)) },
+      level: toLevel(logScale(d.uniqueActiveDays, evm ? 1500 : 365)),
+      breakdown: `${fc(d.uniqueActiveDays)} active days · cap ${evm ? '1.5K' : '365'}` },
 
     { id: 'fishing', name: 'Fishing', icon: '🎣', color: '#0369a1', desc: evm ? 'NFT Trader' : 'NFT Collector',
       level: evm
         ? (() => {
-            // EVM: composite of volume + collections + blue chips
-            const volScore = logScale(d.nftVolumeEth ?? 0, 1000);    // 1000 ETH volume cap
-            const colScore = logScale(d.nftCollections ?? 0, 100);   // 100 collections cap
-            const chipBonus = Math.min((d.nftBlueChips ?? 0) * 0.08, 0.3); // up to 30% bonus for blue chips
+            const volScore = logScale(d.nftVolumeEth ?? 0, 1000);
+            const colScore = logScale(d.nftCollections ?? 0, 100);
+            const chipBonus = Math.min((d.nftBlueChips ?? 0) * 0.08, 0.3);
             return toLevel(Math.min(volScore * 0.5 + colScore * 0.3 + chipBonus, 1));
           })()
-        : toLevel(logScale(d.nftCount, 50)) },
+        : toLevel(logScale(d.nftCount, 50)),
+      breakdown: evm
+        ? `${fc(d.nftVolumeEth ?? 0)} ETH vol · ${d.nftCollections ?? 0} collections · ${d.nftBlueChips ?? 0} blue chips`
+        : `${d.nftCount} NFTs · cap 50` },
 
     { id: 'farming', name: 'Farming', icon: '🌱', color: '#166534', desc: 'Bag Holder',
-      level: toLevel(logScale(d.tokenCount, evm ? 300 : 50)) },
+      level: toLevel(logScale(d.tokenCount, evm ? 300 : 50)),
+      breakdown: `${d.tokenCount} tokens held · cap ${evm ? '300' : '50'}` },
 
     // ═══ Row 4: Artisan ═══
     { id: 'cooking', name: 'Cooking', icon: '🍳', color: '#92400e',
       desc: evm ? 'Chain Hopper' : 'Token Chef',
       level: evm
-        ? toLevel(logScale(d.chainsActiveOn ?? 1, 25))   // 25 chains = 99
-        : toLevel(logScale(d.pfCoinsCreated, 10)) },
+        ? toLevel(logScale(d.chainsActiveOn ?? 1, 25))
+        : toLevel(logScale(d.pfCoinsCreated, 10)),
+      breakdown: evm
+        ? `${d.chainsActiveOn ?? 1} chains · cap 25`
+        : `${d.pfCoinsCreated} tokens created · cap 10` },
 
     { id: 'firemaking', name: 'Firemaking', icon: '🔥', color: '#d97706', desc: 'Gas Burned',
-      level: toLevel(logScale(d.gasBurned ?? 0, evm ? 50 : 5)) },
+      level: toLevel(logScale(d.gasBurned ?? 0, evm ? 50 : 5)),
+      breakdown: `${fc(d.gasBurned ?? 0)} ${unit} burned · cap ${evm ? '50' : '5'}` },
 
     { id: 'herblore', name: 'Herblore', icon: '🧪', color: '#15803d', desc: 'Memecoins Held',
-      level: toLevel(logScale(d.memecoins, evm ? 150 : 30)) },
+      level: toLevel(logScale(d.memecoins, evm ? 150 : 30)),
+      breakdown: `${d.memecoins} memecoins · cap ${evm ? '150' : '30'}` },
 
     { id: 'crafting', name: 'Crafting', icon: '🔨', color: '#854d0e', desc: 'Airdrop Farmer',
-      level: toLevel(logScale(d.airdropCount ?? 0, evm ? 8 : 5)) },
+      level: toLevel(logScale(d.airdropCount ?? 0, evm ? 8 : 5)),
+      breakdown: `${d.airdropCount ?? 0} airdrops claimed · cap ${evm ? '8' : '5'}` },
 
     // ═══ Row 5: Support ═══
     { id: 'fletching', name: 'Fletching', icon: '🪶', color: '#0f766e', desc: 'Swap Speed',
-      level: toLevel(logScale(d.totalTrades, evm ? 5000 : 500)) },
+      level: toLevel(logScale(d.totalTrades, evm ? 5000 : 500)),
+      breakdown: `${fc(d.totalTrades)} total swaps · cap ${evm ? '5K' : '500'}` },
 
     { id: 'slayer', name: 'Slayer', icon: '💀', color: '#475569', desc: 'Kill Count',
-      level: toLevel(logScale(tradeCount, evm ? 1000 : 200)) },
+      level: toLevel(logScale(tradeCount, evm ? 1000 : 200)),
+      breakdown: `${tradeCount} closed positions · ${d.pnlWins}W ${d.pnlLosses}L` },
 
     { id: 'thieving', name: 'Thieving', icon: '🗡️', color: '#5b21b6', desc: 'Alpha',
-      level: toLevel(logScale(Math.max(0, roi), evm ? 1000 : 500)) },
+      level: toLevel(logScale(Math.max(0, roi), evm ? 1000 : 500)),
+      breakdown: `${roi > 0 ? roi.toFixed(0) + '%' : 'no'} ROI · $${fc(capitalBase)} invested` },
 
     { id: 'hunter', name: 'Hunter', icon: '🦊', color: '#c2410c', desc: 'Protocol Hunter',
-      level: toLevel(logScale(d.uniqueDapps, evm ? 200 : 20)) },
+      level: toLevel(logScale(d.uniqueDapps, evm ? 200 : 20)),
+      breakdown: `${d.uniqueDapps} protocols · cap ${evm ? '200' : '20'}` },
   ];
 }
 
