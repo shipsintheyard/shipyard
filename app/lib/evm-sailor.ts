@@ -265,38 +265,41 @@ interface EtherscanTx {
   timeStamp: string;
 }
 
-// Chain IDs for Etherscan V2: mainnet gets full history (3 pages), L2s get 1 page each
-const ETHERSCAN_CHAINS = [
-  { id: 1, pages: 3 },       // Ethereum mainnet
-  { id: 42161, pages: 1 },   // Arbitrum
-  { id: 8453, pages: 1 },    // Base
-  { id: 10, pages: 1 },      // Optimism
-  { id: 137, pages: 1 },     // Polygon
-];
+// L2 chain IDs for supplementary DEX/contract data
+const L2_CHAINS = [42161, 8453, 10, 137]; // Arbitrum, Base, Optimism, Polygon
 
 async function fetchEtherscanTxns(addr: string): Promise<EtherscanTx[]> {
   const key = process.env.ETHERSCAN_API_KEY;
   if (!key) return [];
 
-  // Fetch mainnet (paginated) + L2s (1 page each) in parallel
-  const chainFetches = ETHERSCAN_CHAINS.map(async (chain) => {
-    const txns: EtherscanTx[] = [];
-    for (let page = 1; page <= chain.pages; page++) {
-      try {
-        const res = await fetch(
-          `${ETHERSCAN_BASE}?chainid=${chain.id}&module=account&action=txlist&address=${addr}&startblock=0&endblock=99999999&page=${page}&offset=10000&sort=asc&apikey=${key}`,
-        );
-        const json = await res.json();
-        if (json.status !== '1' || !Array.isArray(json.result)) break;
-        txns.push(...json.result);
-        if (json.result.length < 10000) break;
-      } catch { break; }
-    }
-    return txns;
-  });
+  // 1. Fetch mainnet first (critical — full paginated history)
+  const allTxns: EtherscanTx[] = [];
+  for (let page = 1; page <= 3; page++) {
+    try {
+      const res = await fetch(
+        `${ETHERSCAN_BASE}?chainid=1&module=account&action=txlist&address=${addr}&startblock=0&endblock=99999999&page=${page}&offset=10000&sort=asc&apikey=${key}`,
+      );
+      const json = await res.json();
+      if (json.status !== '1' || !Array.isArray(json.result)) break;
+      allTxns.push(...json.result);
+      if (json.result.length < 10000) break;
+    } catch { break; }
+  }
 
-  const results = await Promise.all(chainFetches);
-  return results.flat();
+  // 2. Fetch L2s sequentially (avoid rate limit, these are supplementary)
+  for (const chainId of L2_CHAINS) {
+    try {
+      const res = await fetch(
+        `${ETHERSCAN_BASE}?chainid=${chainId}&module=account&action=txlist&address=${addr}&startblock=0&endblock=99999999&page=1&offset=10000&sort=asc&apikey=${key}`,
+      );
+      const json = await res.json();
+      if (json.status === '1' && Array.isArray(json.result)) {
+        allTxns.push(...json.result);
+      }
+    } catch { /* skip this L2 */ }
+  }
+
+  return allTxns;
 }
 
 // Known DEX router contracts — detect DEX diversity from Etherscan interactions
