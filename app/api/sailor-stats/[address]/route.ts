@@ -745,9 +745,15 @@ export async function GET(
           image: metaMap.get(t.address)?.image ?? null,
         })),
         pnlTokensTraded: pnlData.totalTokensTraded,
-        // Gas / fees: estimate from txn count × base fee (5000 lamports = 0.000005 SOL)
-        // Solana priority fees can add more, but base fee is the floor
-        gasBurned: Math.round(sigStats.txnCount * 0.000005 * 10000) / 10000,
+        // Actual fees from Helius txns (includes priority fees + Jito tips)
+        // allTxns is last 100 txns — extrapolate to full txn count
+        gasBurned: (() => {
+          const heliusFees = allTxns.reduce((sum, tx) => sum + (tx.fee || 0), 0);
+          if (allTxns.length === 0) return 0;
+          const avgFee = heliusFees / allTxns.length;
+          const totalEstimate = avgFee * sigStats.txnCount;
+          return Math.round(totalEstimate / 1e9 * 10000) / 10000; // lamports → SOL
+        })(),
         airdropCount: 0, // TODO: detect Solana airdrops
       },
     }, {
